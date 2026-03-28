@@ -1,5 +1,23 @@
 # Git 가이드
 
+## 규칙
+
+- **푸시 전 확인**: 푸시하기 전에 항상 사용자에게 푸시할지 여부를 물어본다.
+- **커밋 메시지 형식**: 리눅스 커널 스타일을 따른다.
+  - 제목은 50자 이내, 명령형으로 작성 (e.g. `Fix bug`, `Add feature`)
+  - 제목과 본문 사이 빈 줄 삽입
+  - 본문은 72자 줄바꿈, "무엇을"보다 "왜"를 설명
+  - 예시:
+    ```
+    subsystem: short summary of the change
+
+    More detailed explanation of why this change is needed,
+    what problem it solves, and any side effects.
+
+    Signed-off-by: Name <email>
+    ```
+- **언어**: 모든 커밋 메시지 및 문서는 영어로 작성한다.
+
 ## 기본 설정
 
 ```bash
