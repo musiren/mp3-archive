@@ -128,9 +128,9 @@ class MainWindow(QMainWindow):
 
         # --- table ---
         self._table = QTableWidget()
-        self._table.setColumnCount(6)
+        self._table.setColumnCount(8)
         self._table.setHorizontalHeaderLabels(
-            ["파일명", "제목", "아티스트", "앨범", "길이(초)", "크기(bytes)"]
+            ["파일명", "제목", "아티스트", "앨범", "길이(초)", "크기(bytes)", "생성일시", "수정일시"]
         )
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -232,6 +232,8 @@ class MainWindow(QMainWindow):
             self._table.setItem(row, 3, QTableWidgetItem(f["album"] or "-"))
             self._table.setItem(row, 4, QTableWidgetItem(duration))
             self._table.setItem(row, 5, QTableWidgetItem(filesize))
+            self._table.setItem(row, 6, QTableWidgetItem(f["file_created_at"] or "-"))
+            self._table.setItem(row, 7, QTableWidgetItem(f["file_modified_at"] or "-"))
 
     def closeEvent(self, event) -> None:
         """Close the database connection when the window is closed."""

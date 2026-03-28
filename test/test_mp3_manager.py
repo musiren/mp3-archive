@@ -34,6 +34,8 @@ def sample_info(path: str = "/music/test.mp3") -> dict:
         "album": "Test Album",
         "duration": 180.0,
         "filesize": 4096,
+        "file_created_at": "2024-01-01 00:00:00",
+        "file_modified_at": "2024-06-01 12:00:00",
     }
 
 
@@ -74,7 +76,8 @@ class TestListFiles(unittest.TestCase):
         mgr = make_manager()
         _save_to_db(mgr._conn, sample_info())
         row = mgr.list_files()[0]
-        for key in ("id", "filename", "title", "artist", "album", "duration", "filesize"):
+        for key in ("id", "filename", "title", "artist", "album", "duration", "filesize",
+                    "file_created_at", "file_modified_at"):
             self.assertIn(key, row)
         mgr.close()
 
@@ -155,6 +158,22 @@ class TestScan(unittest.TestCase):
                 open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
             mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: totals.append(tot))
         self.assertTrue(all(t == 3 for t in totals))
+        mgr.close()
+
+    def test_scan_stores_file_timestamps(self):
+        """Verify that scan saves file_created_at and file_modified_at."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "song.mp3"), "w").close()
+            mgr.scan(tmpdir)
+        row = mgr.list_files()[0]
+        self.assertIsNotNone(row["file_created_at"])
+        self.assertIsNotNone(row["file_modified_at"])
+        # Verify ISO-8601 format: YYYY-MM-DD HH:MM:SS
+        import re
+        pattern = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+        self.assertRegex(row["file_created_at"], pattern)
+        self.assertRegex(row["file_modified_at"], pattern)
         mgr.close()
 
 

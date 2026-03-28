@@ -31,6 +31,7 @@ CLI usage:
 """
 
 import argparse
+import datetime
 import os
 import sqlite3
 from typing import Callable
@@ -154,17 +155,36 @@ def _create_table(conn: sqlite3.Connection) -> None:
     """
     conn.execute("""
         CREATE TABLE IF NOT EXISTS mp3_files (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            path     TEXT UNIQUE NOT NULL,
-            filename TEXT NOT NULL,
-            title    TEXT,
-            artist   TEXT,
-            album    TEXT,
-            duration REAL,
-            filesize INTEGER
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            path             TEXT UNIQUE NOT NULL,
+            filename         TEXT NOT NULL,
+            title            TEXT,
+            artist           TEXT,
+            album            TEXT,
+            duration         REAL,
+            filesize         INTEGER,
+            file_created_at  TEXT,
+            file_modified_at TEXT
         )
     """)
+    # Migrate existing databases that predate the timestamp columns.
+    _migrate_add_column(conn, "file_created_at", "TEXT")
+    _migrate_add_column(conn, "file_modified_at", "TEXT")
     conn.commit()
+
+
+def _migrate_add_column(conn: sqlite3.Connection, column: str, col_type: str) -> None:
+    """
+    Add a column to mp3_files if it does not already exist.
+
+    Args:
+        conn:     Active SQLite connection.
+        column:   Column name to add.
+        col_type: SQLite type string (e.g. 'TEXT', 'REAL').
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(mp3_files)")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE mp3_files ADD COLUMN {column} {col_type}")
 
 
 def _get_mp3_info(file_path: str) -> dict:
@@ -178,6 +198,10 @@ def _get_mp3_info(file_path: str) -> dict:
         Dictionary with keys: path, filename, title, artist,
         album, duration, filesize. Missing tags are stored as None.
     """
+    def _ts(epoch: float) -> str:
+        """Convert a POSIX timestamp to an ISO-8601 local-time string."""
+        return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+
     info = {
         "path": file_path,
         "filename": os.path.basename(file_path),
@@ -186,6 +210,8 @@ def _get_mp3_info(file_path: str) -> dict:
         "album": None,
         "duration": None,
         "filesize": os.path.getsize(file_path),
+        "file_created_at": _ts(os.path.getctime(file_path)),
+        "file_modified_at": _ts(os.path.getmtime(file_path)),
     }
 
     try:
@@ -215,9 +241,11 @@ def _save_to_db(conn: sqlite3.Connection, info: dict) -> None:
     """
     conn.execute("""
         INSERT OR REPLACE INTO mp3_files
-            (path, filename, title, artist, album, duration, filesize)
+            (path, filename, title, artist, album, duration, filesize,
+             file_created_at, file_modified_at)
         VALUES
-            (:path, :filename, :title, :artist, :album, :duration, :filesize)
+            (:path, :filename, :title, :artist, :album, :duration, :filesize,
+             :file_created_at, :file_modified_at)
     """, info)
     conn.commit()
 
@@ -233,7 +261,8 @@ def _list_files(conn: sqlite3.Connection) -> list[dict]:
         List of row dictionaries.
     """
     cursor = conn.execute("""
-        SELECT id, path, filename, title, artist, album, duration, filesize
+        SELECT id, path, filename, title, artist, album, duration, filesize,
+               file_created_at, file_modified_at
         FROM mp3_files
         ORDER BY artist, title
     """)

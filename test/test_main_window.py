@@ -43,6 +43,8 @@ def sample_info(path: str = "/music/test.mp3") -> dict:
         "album": "Test Album",
         "duration": 180.0,
         "filesize": 4096,
+        "file_created_at": "2024-01-01 00:00:00",
+        "file_modified_at": "2024-06-01 12:00:00",
     }
 
 
