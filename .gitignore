@@ -35,6 +35,9 @@ MANIFEST
 !mp3-archive-linux.spec
 !mp3-archive-android.spec
 
+# Generated preview images
+ui-preview.jpg
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
