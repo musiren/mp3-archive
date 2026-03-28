@@ -1,0 +1,139 @@
+"""
+test_main_window.py - Unit tests for src/main_window.py.
+
+Tests use an in-memory Mp3Manager and a headless QApplication
+to exercise widget logic without rendering a real window.
+"""
+
+import os
+import sqlite3
+import sys
+import tempfile
+import unittest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtWidgets import QApplication
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from mp3_manager import Mp3Manager, _create_table, _save_to_db
+from main_window import MainWindow, ScanWorker
+
+
+# One QApplication per process is required by Qt.
+_app = QApplication.instance() or QApplication(sys.argv)
+
+
+def make_manager() -> Mp3Manager:
+    """Return an Mp3Manager backed by an in-memory SQLite database."""
+    mgr = Mp3Manager.__new__(Mp3Manager)
+    mgr._conn = sqlite3.connect(":memory:", check_same_thread=False)
+    _create_table(mgr._conn)
+    return mgr
+
+
+def sample_info(path: str = "/music/test.mp3") -> dict:
+    """Return a sample MP3 info dictionary."""
+    return {
+        "path": path,
+        "filename": os.path.basename(path),
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "duration": 180.0,
+        "filesize": 4096,
+    }
+
+
+class TestMainWindowTable(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_table_empty_on_fresh_db(self):
+        """Verify that the table has zero rows when the database is empty."""
+        win = self._make_window()
+        self.assertEqual(win._table.rowCount(), 0)
+        win.close()
+
+    def test_table_populates_after_load(self):
+        """Verify that _load_table fills the table from database records."""
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/a.mp3"))
+        _save_to_db(win._manager._conn, sample_info("/music/b.mp3"))
+        win._load_table()
+        self.assertEqual(win._table.rowCount(), 2)
+        win.close()
+
+    def test_table_shows_filename_in_first_column(self):
+        """Verify that the filename appears in column 0."""
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        self.assertEqual(win._table.item(0, 0).text(), "track.mp3")
+        win.close()
+
+    def test_table_stores_path_in_user_role(self):
+        """Verify that the full path is stored in UserRole for deletion."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        path = win._table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        self.assertEqual(path, "/music/track.mp3")
+        win.close()
+
+
+class TestScanWorker(unittest.TestCase):
+
+    def test_scan_worker_emits_finished(self):
+        """Verify that ScanWorker emits finished with the correct file count."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+            open(os.path.join(tmpdir, "b.mp3"), "w").close()
+
+            results = []
+            worker = ScanWorker(mgr, tmpdir)
+            worker.finished.connect(lambda n: results.append(n))
+            worker.start()
+            worker.wait()
+            _app.processEvents()   # deliver queued cross-thread signals
+
+        self.assertEqual(results, [2])
+        mgr.close()
+
+    def test_scan_worker_emits_progress(self):
+        """Verify that ScanWorker emits a progress signal for each MP3 file."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i in range(3):
+                open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
+
+            progress_calls = []
+            worker = ScanWorker(mgr, tmpdir)
+            worker.progress.connect(lambda cur, tot, p: progress_calls.append((cur, tot)))
+            worker.start()
+            worker.wait()
+            _app.processEvents()   # deliver queued cross-thread signals
+
+        self.assertEqual(len(progress_calls), 3)
+        self.assertEqual(progress_calls[-1], (3, 3))
+        mgr.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

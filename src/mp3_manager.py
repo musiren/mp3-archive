@@ -63,7 +63,7 @@ class Mp3Manager:
             db_path: Path to the SQLite database file.
                      Defaults to 'mp3_archive.db' in the working directory.
         """
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         _create_table(self._conn)
 
     # ------------------------------------------------------------------
@@ -233,7 +233,7 @@ def _list_files(conn: sqlite3.Connection) -> list[dict]:
         List of row dictionaries.
     """
     cursor = conn.execute("""
-        SELECT id, filename, title, artist, album, duration, filesize
+        SELECT id, path, filename, title, artist, album, duration, filesize
         FROM mp3_files
         ORDER BY artist, title
     """)
