@@ -1,4 +1,4 @@
-# mp3-archive-android.spec
+# build/android.spec
 # Buildozer spec file for building mp3-archive APK (Android).
 #
 # NOTE: PyQt6 is not supported on Android.

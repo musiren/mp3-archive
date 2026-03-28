@@ -73,7 +73,7 @@ def test_load_mp3_returns_title():
 python -m unittest discover -s test -v
 ```
 
-6. When `src/main_window.ui` or `src/main_window.py` is modified, regenerate `ui-preview.jpg` and commit it before pushing.
+6. When `src/main_window.ui` or `src/main_window.py` is modified, regenerate `docs/ui-preview.jpg` and commit it before pushing.
 
 ```bash
 # Regenerate UI preview image
