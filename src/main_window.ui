@@ -128,7 +128,7 @@
       <item>
        <widget class="QPushButton" name="btn_scan">
         <property name="text">
-         <string>증분 스캔</string>
+         <string>빠른 스캔</string>
         </property>
         <property name="minimumWidth">
          <number>110</number>
@@ -141,7 +141,7 @@
       <item>
        <widget class="QPushButton" name="btn_force_scan">
         <property name="text">
-         <string>전체 재스캔</string>
+         <string>전체 스캔</string>
         </property>
         <property name="minimumWidth">
          <number>110</number>
@@ -154,7 +154,7 @@
       <item>
        <widget class="QPushButton" name="btn_delete">
         <property name="text">
-         <string>선택 삭제</string>
+         <string>삭제</string>
         </property>
         <property name="minimumWidth">
          <number>100</number>

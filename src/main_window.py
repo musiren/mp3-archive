@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         self.btn_delete.setEnabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
-        label = "전체 재스캔 중" if force else "증분 스캔 중"
+        label = "전체 스캔 중" if force else "빠른 스캔 중"
         self.status_label.setText(f"{label}: {directory}")
 
         self._worker = ScanWorker(self._manager, directory, force=force)
