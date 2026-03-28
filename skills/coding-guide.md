@@ -66,3 +66,9 @@ def test_load_mp3_returns_title():
 2. Test code → `test/`
 3. Every method/function must have a docstring or comment
 4. All code and comments written in English
+5. When modifying any file in `src/`, run the related test script(s) in `test/` and confirm all tests pass before committing.
+
+```bash
+# Run all tests
+python -m unittest discover -s test -v
+```
