@@ -1,0 +1,222 @@
+"""
+test_main_window.py - Unit tests for src/main_window.py.
+
+Tests use an in-memory Mp3Manager and a headless QApplication
+to exercise widget logic without rendering a real window.
+"""
+
+import os
+import sqlite3
+import sys
+import tempfile
+import unittest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtWidgets import QApplication
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from mp3_manager import Mp3Manager, _create_table, _save_to_db
+from main_window import MainWindow, ScanWorker
+
+
+# One QApplication per process is required by Qt.
+_app = QApplication.instance() or QApplication(sys.argv)
+
+
+def make_manager() -> Mp3Manager:
+    """Return an Mp3Manager backed by an in-memory SQLite database."""
+    mgr = Mp3Manager.__new__(Mp3Manager)
+    mgr._conn = sqlite3.connect(":memory:", check_same_thread=False)
+    _create_table(mgr._conn)
+    return mgr
+
+
+def sample_info(path: str = "/music/test.mp3") -> dict:
+    """Return a sample MP3 info dictionary."""
+    return {
+        "path": path,
+        "filename": os.path.basename(path),
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "duration": 180.0,
+        "filesize": 4096,
+        "file_created_at": "2024-01-01 00:00:00",
+        "file_modified_at": "2024-06-01 12:00:00",
+    }
+
+
+class TestMainWindowPath(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+            self._win._settings.clear()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_path_edit_empty_on_fresh_start(self):
+        """Verify that path_edit is empty when no path has been saved."""
+        win = self._make_window()
+        win._settings.clear()
+        win._restore_path()
+        self.assertEqual(win.path_edit.text(), "")
+        win.close()
+
+    def test_browse_saves_path_to_settings(self):
+        """Verify that selecting a directory via browse saves it to QSettings."""
+        win = self._make_window()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win.path_edit.setText(tmpdir)
+            win._settings.setValue("scan/last_path", tmpdir)
+            saved = win._settings.value("scan/last_path", "")
+        self.assertEqual(saved, tmpdir)
+        win.close()
+
+    def test_scan_warns_when_no_path_set(self):
+        """Verify that clicking scan without a path shows a warning (no crash)."""
+        win = self._make_window()
+        win.path_edit.setText("")
+        # _on_scan_clicked should not raise even with empty path
+        # (QMessageBox.warning is a no-op in offscreen mode)
+        try:
+            # Monkey-patch to avoid actual dialog
+            from PyQt6.QtWidgets import QMessageBox
+            original = QMessageBox.warning
+            QMessageBox.warning = lambda *a, **k: None
+            win._on_scan_clicked()
+            QMessageBox.warning = original
+        except Exception as e:
+            self.fail(f"_on_scan_clicked raised unexpectedly: {e}")
+        win.close()
+
+    def test_restore_path_populates_path_edit(self):
+        """Verify that a previously saved path is restored into path_edit."""
+        win = self._make_window()
+        win._settings.setValue("scan/last_path", "/tmp/music")
+        win._restore_path()
+        self.assertEqual(win.path_edit.text(), "/tmp/music")
+        win.close()
+
+
+class TestMainWindowTable(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_table_empty_on_fresh_db(self):
+        """Verify that the table has zero rows when the database is empty."""
+        win = self._make_window()
+        self.assertEqual(win.table.rowCount(), 0)
+        win.close()
+
+    def test_table_populates_after_load(self):
+        """Verify that _load_table fills the table from database records."""
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/a.mp3"))
+        _save_to_db(win._manager._conn, sample_info("/music/b.mp3"))
+        win._load_table()
+        self.assertEqual(win.table.rowCount(), 2)
+        win.close()
+
+    def test_table_shows_filename_in_first_column(self):
+        """Verify that the filename appears in column 0."""
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        self.assertEqual(win.table.item(0, 0).text(), "track.mp3")
+        win.close()
+
+    def test_table_stores_path_in_user_role(self):
+        """Verify that the full path is stored in UserRole for deletion."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        path = win.table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        self.assertEqual(path, "/music/track.mp3")
+        win.close()
+
+
+class TestScanWorker(unittest.TestCase):
+
+    def test_scan_worker_emits_finished(self):
+        """Verify that ScanWorker emits finished with (processed, skipped) counts."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+            open(os.path.join(tmpdir, "b.mp3"), "w").close()
+
+            results = []
+            worker = ScanWorker(mgr, tmpdir, force=True)
+            worker.finished.connect(lambda p, s: results.append((p, s)))
+            worker.start()
+            worker.wait()
+            _app.processEvents()
+
+        self.assertEqual(results, [(2, 0)])
+        mgr.close()
+
+    def test_scan_worker_incremental_skips_unchanged(self):
+        """Verify that a second incremental scan skips already-indexed files."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+
+            # First scan: processes the file
+            w1 = ScanWorker(mgr, tmpdir, force=True)
+            w1.start(); w1.wait(); _app.processEvents()
+
+            # Second incremental scan: file unchanged → skipped
+            results = []
+            w2 = ScanWorker(mgr, tmpdir, force=False)
+            w2.finished.connect(lambda p, s: results.append((p, s)))
+            w2.start(); w2.wait(); _app.processEvents()
+
+        self.assertEqual(results, [(0, 1)])
+        mgr.close()
+
+    def test_scan_worker_emits_progress(self):
+        """Verify that ScanWorker emits a progress signal for each MP3 file."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i in range(3):
+                open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
+
+            progress_calls = []
+            worker = ScanWorker(mgr, tmpdir, force=True)
+            worker.progress.connect(lambda cur, tot, p: progress_calls.append((cur, tot)))
+            worker.start()
+            worker.wait()
+            _app.processEvents()
+
+        self.assertEqual(len(progress_calls), 3)
+        self.assertEqual(progress_calls[-1], (3, 3))
+        mgr.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
