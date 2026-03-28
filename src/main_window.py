@@ -114,6 +114,9 @@ class MainWindow(QMainWindow):
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
+        self.btn_search.clicked.connect(self._on_search_clicked)
+        self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
+        self.search_edit.returnPressed.connect(self._on_search_clicked)
 
     def _setup_table(self) -> None:
         """Apply column resize modes that cannot be set in Qt Designer."""
@@ -217,6 +220,27 @@ class MainWindow(QMainWindow):
         )
         self._load_table()
 
+    def _on_search_clicked(self) -> None:
+        """
+        Filter the table by the keyword entered in search_edit.
+
+        Shows all records when the keyword is empty (equivalent to clear).
+        """
+        keyword = self.search_edit.text().strip()
+        if keyword:
+            files = self._manager.search(keyword)
+            self.status_label.setText(f"검색 결과: {len(files)}개")
+        else:
+            files = self._manager.list_files()
+            self.status_label.setText("준비")
+        self._fill_table(files)
+
+    def _on_search_clear_clicked(self) -> None:
+        """Clear the search field and restore the full table."""
+        self.search_edit.clear()
+        self._load_table()
+        self.status_label.setText("준비")
+
     def _on_delete_clicked(self) -> None:
         """Delete all selected rows from the database and refresh the table."""
         selected_rows = self.table.selectionModel().selectedRows()
@@ -245,7 +269,16 @@ class MainWindow(QMainWindow):
 
     def _load_table(self) -> None:
         """Fetch all records from the database and populate the table."""
-        files = self._manager.list_files()
+        self._fill_table(self._manager.list_files())
+
+    def _fill_table(self, files: list) -> None:
+        """
+        Populate the table widget with the given list of MP3 records.
+
+        Args:
+            files: List of row dicts as returned by Mp3Manager.list_files()
+                   or Mp3Manager.search().
+        """
         self.table.setRowCount(len(files))
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])

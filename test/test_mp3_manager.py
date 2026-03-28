@@ -82,6 +82,80 @@ class TestListFiles(unittest.TestCase):
         mgr.close()
 
 
+class TestSearch(unittest.TestCase):
+
+    def setUp(self):
+        """Populate the DB with two tracks for search tests."""
+        self.mgr = make_manager()
+        info_a = {
+            "path": "/music/Artist A - Song One.mp3",
+            "filename": "Artist A - Song One.mp3",
+            "title": "Song One",
+            "artist": "Artist A",
+            "album": "Album X",
+            "duration": 200.0,
+            "filesize": 1024,
+            "file_created_at": "2024-01-01 00:00:00",
+            "file_modified_at": "2024-01-01 00:00:00",
+        }
+        info_b = {
+            "path": "/music/Artist B - Another Track.mp3",
+            "filename": "Artist B - Another Track.mp3",
+            "title": "Another Track",
+            "artist": "Artist B",
+            "album": "Album Y",
+            "duration": 180.0,
+            "filesize": 2048,
+            "file_created_at": "2024-02-01 00:00:00",
+            "file_modified_at": "2024-02-01 00:00:00",
+        }
+        _save_to_db(self.mgr._conn, info_a)
+        _save_to_db(self.mgr._conn, info_b)
+
+    def tearDown(self):
+        self.mgr.close()
+
+    def test_search_by_artist(self):
+        """Verify that search returns records matching the artist field."""
+        results = self.mgr.search("Artist A")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["artist"], "Artist A")
+
+    def test_search_by_title(self):
+        """Verify that search returns records matching the title field."""
+        results = self.mgr.search("Another Track")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "Another Track")
+
+    def test_search_by_album(self):
+        """Verify that search returns records matching the album field."""
+        results = self.mgr.search("Album X")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["album"], "Album X")
+
+    def test_search_by_filename(self):
+        """Verify that search returns records matching the filename field."""
+        results = self.mgr.search("Song One")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["filename"], "Artist A - Song One.mp3")
+
+    def test_search_partial_match(self):
+        """Verify that partial keywords match multiple records."""
+        results = self.mgr.search("Artist")
+        self.assertEqual(len(results), 2)
+
+    def test_search_no_match(self):
+        """Verify that a non-matching keyword returns an empty list."""
+        results = self.mgr.search("XYZ_NOMATCH")
+        self.assertEqual(results, [])
+
+    def test_search_case_insensitive(self):
+        """Verify that search is case-insensitive."""
+        results = self.mgr.search("artist a")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["artist"], "Artist A")
+
+
 class TestDelete(unittest.TestCase):
 
     def test_delete_removes_record(self):

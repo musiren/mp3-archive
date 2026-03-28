@@ -167,6 +167,21 @@ class Mp3Manager:
         """
         return _list_files(self._conn)
 
+    def search(self, keyword: str) -> list[dict]:
+        """
+        Search MP3 records by keyword.
+
+        Performs a case-insensitive substring match against filename,
+        title, artist, and album fields.
+
+        Args:
+            keyword: The search term to look for.
+
+        Returns:
+            List of matching row dictionaries ordered by artist and title.
+        """
+        return _search_files(self._conn, keyword)
+
     def delete(self, path: str) -> None:
         """
         Remove an MP3 record from the database by its file path.
@@ -321,6 +336,34 @@ def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> No
     """, info)
     if commit:
         conn.commit()
+
+
+def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
+    """
+    Search mp3_files rows where keyword appears in filename, title, artist, or album.
+
+    The match is case-insensitive (SQLite LIKE is case-insensitive for ASCII).
+
+    Args:
+        conn:    Active SQLite connection.
+        keyword: Search term; partial matches are included.
+
+    Returns:
+        List of matching row dictionaries ordered by artist and title.
+    """
+    pattern = f"%{keyword}%"
+    cursor = conn.execute("""
+        SELECT id, path, filename, title, artist, album, duration, filesize,
+               file_created_at, file_modified_at
+        FROM mp3_files
+        WHERE filename LIKE ?
+           OR title    LIKE ?
+           OR artist   LIKE ?
+           OR album    LIKE ?
+        ORDER BY artist, title
+    """, (pattern, pattern, pattern, pattern))
+    columns = [col[0] for col in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
 def _list_files(conn: sqlite3.Connection) -> list[dict]:
