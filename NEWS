@@ -1,0 +1,31 @@
+mp3-archive NEWS
+
+===========================================================================
+v20260328 (2026-03-28)
+===========================================================================
+
+Initial release.
+
+Commits
+-------
+- refactor: reorganize project directory structure
+- feat: add incremental scan with force-rescan option
+- docs: fix Korean rendering in ui-preview.jpg
+- feat: add persistent MP3 path configurator with browse dialog
+- docs: update ui-preview.jpg to reflect filename fallback feature
+- docs: add UI preview regeneration rule to coding-guide
+- chore: ignore generated ui-preview.jpg
+- feat: parse artist and title from filename when ID3 tags are absent
+- refactor: separate UI layout into main_window.ui for Qt Designer
+- docs: require test verification before committing src changes
+- feat: add KivyMD UI for Android (main_window_android.py)
+- build: split spec files by OS (Windows, Linux, Android)
+- build: add PyInstaller spec for Windows standalone executable
+- docs: add PR and merge workflow rules to git-guide
+- feat: track file creation and modification timestamps in DB
+- feat: add PyQt6 UI for MP3 archive manager
+- refactor: convert mp3_manager to class-based library for PyQt use
+- feat: add MP3 file scanner and SQLite manager
+- docs: add coding conventions for src, test, and method comments
+- docs: add CLAUDE.md with planning and git conventions
+- skills: add git rules for push confirmation, commit style, and language
