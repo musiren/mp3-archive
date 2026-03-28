@@ -228,7 +228,37 @@ def _get_mp3_info(file_path: str) -> dict:
     except ID3NoHeaderError:
         pass
 
+    # Fall back to filename parsing when tags are missing.
+    # Expected format: "Artist - Title.mp3"
+    if info["title"] is None or info["artist"] is None:
+        _parse_filename_fallback(info)
+
     return info
+
+
+def _parse_filename_fallback(info: dict) -> None:
+    """
+    Attempt to extract artist and title from the filename when ID3 tags are absent.
+
+    The expected filename format is "Artist - Title.mp3".
+    The separator is " - " (space-hyphen-space).
+    If the filename does not contain the separator, only the title is inferred
+    from the stem (filename without extension).
+
+    Args:
+        info: Metadata dictionary to update in-place.
+    """
+    stem = os.path.splitext(info["filename"])[0]
+    separator = " - "
+    if separator in stem:
+        parts = stem.split(separator, maxsplit=1)
+        if info["artist"] is None:
+            info["artist"] = parts[0].strip() or None
+        if info["title"] is None:
+            info["title"] = parts[1].strip() or None
+    else:
+        if info["title"] is None:
+            info["title"] = stem.strip() or None
 
 
 def _save_to_db(conn: sqlite3.Connection, info: dict) -> None:

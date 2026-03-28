@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from mp3_manager import Mp3Manager, _create_table, _save_to_db, _list_files
+from mp3_manager import Mp3Manager, _create_table, _save_to_db, _list_files, _parse_filename_fallback
 
 
 def make_manager() -> Mp3Manager:
@@ -174,6 +174,59 @@ class TestScan(unittest.TestCase):
         pattern = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
         self.assertRegex(row["file_created_at"], pattern)
         self.assertRegex(row["file_modified_at"], pattern)
+        mgr.close()
+
+
+class TestParseFilenameFallback(unittest.TestCase):
+
+    def _make_info(self, filename: str, artist=None, title=None) -> dict:
+        """Return a minimal info dict for testing the fallback parser."""
+        return {"filename": filename, "artist": artist, "title": title}
+
+    def test_parses_artist_and_title_from_filename(self):
+        """Verify that 'Artist - Title.mp3' yields correct artist and title."""
+        info = self._make_info("Artist A - My Song.mp3")
+        _parse_filename_fallback(info)
+        self.assertEqual(info["artist"], "Artist A")
+        self.assertEqual(info["title"], "My Song")
+
+    def test_does_not_overwrite_existing_artist(self):
+        """Verify that an existing artist tag is not replaced by filename parsing."""
+        info = self._make_info("Artist A - My Song.mp3", artist="Tagged Artist")
+        _parse_filename_fallback(info)
+        self.assertEqual(info["artist"], "Tagged Artist")
+        self.assertEqual(info["title"], "My Song")
+
+    def test_does_not_overwrite_existing_title(self):
+        """Verify that an existing title tag is not replaced by filename parsing."""
+        info = self._make_info("Artist A - My Song.mp3", title="Tagged Title")
+        _parse_filename_fallback(info)
+        self.assertEqual(info["artist"], "Artist A")
+        self.assertEqual(info["title"], "Tagged Title")
+
+    def test_no_separator_sets_title_to_stem(self):
+        """Verify that a filename without ' - ' uses the full stem as title."""
+        info = self._make_info("justasong.mp3")
+        _parse_filename_fallback(info)
+        self.assertIsNone(info["artist"])
+        self.assertEqual(info["title"], "justasong")
+
+    def test_multiple_dashes_splits_on_first(self):
+        """Verify that only the first ' - ' is used as separator."""
+        info = self._make_info("Artist - Title - Live.mp3")
+        _parse_filename_fallback(info)
+        self.assertEqual(info["artist"], "Artist")
+        self.assertEqual(info["title"], "Title - Live")
+
+    def test_scan_parses_filename_when_no_tags(self):
+        """Verify that scan uses filename fallback for untagged MP3 files."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "Singer X - Great Song.mp3"), "w").close()
+            mgr.scan(tmpdir)
+        row = mgr.list_files()[0]
+        self.assertEqual(row["artist"], "Singer X")
+        self.assertEqual(row["title"], "Great Song")
         mgr.close()
 
 
