@@ -7,6 +7,9 @@ Provides a main window with:
   - Table view listing all stored MP3 records
   - Delete button to remove selected records from the database
 
+The window layout is defined in main_window.ui and can be edited
+with Qt Designer without touching this file.
+
 Usage:
     python src/main_window.py [--db <db_path>]
 """
@@ -15,24 +18,21 @@ import argparse
 import os
 import sys
 
+from PyQt6 import uic
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QHeaderView,
-    QLabel,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
 )
 
 from mp3_manager import Mp3Manager
+
+# Path to the Qt Designer UI file, relative to this module.
+_UI_FILE = os.path.join(os.path.dirname(__file__), "main_window.ui")
 
 
 class ScanWorker(QThread):
@@ -70,77 +70,44 @@ class MainWindow(QMainWindow):
     """
     Main application window for the MP3 archive manager.
 
-    Displays a toolbar for scanning and a table of stored MP3 records.
+    Layout is loaded from main_window.ui; this class wires up
+    signals/slots and drives the Mp3Manager backend.
     """
 
     def __init__(self, db_path: str) -> None:
         """
-        Set up the window, widgets, and the Mp3Manager instance.
+        Load the UI file, connect signals, and open the database.
 
         Args:
             db_path: Path to the SQLite database file.
         """
         super().__init__()
+        uic.loadUi(_UI_FILE, self)
+
         self._manager = Mp3Manager(db_path)
         self._worker: ScanWorker | None = None
 
-        self.setWindowTitle("MP3 Archive Manager")
-        self.resize(900, 580)
-
-        self._build_ui()
+        self._connect_signals()
+        self._setup_table()
         self._load_table()
 
     # ------------------------------------------------------------------
-    # UI construction
+    # Initialisation helpers
     # ------------------------------------------------------------------
 
-    def _build_ui(self) -> None:
-        """Create and arrange all widgets in the main window."""
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 12, 12, 12)
+    def _connect_signals(self) -> None:
+        """Connect button click signals to their handler slots."""
+        self.btn_scan.clicked.connect(self._on_scan_clicked)
+        self.btn_delete.clicked.connect(self._on_delete_clicked)
 
-        # --- toolbar row ---
-        toolbar = QHBoxLayout()
-
-        self._btn_scan = QPushButton("디렉토리 스캔")
-        self._btn_scan.setFixedWidth(140)
-        self._btn_scan.clicked.connect(self._on_scan_clicked)
-
-        self._btn_delete = QPushButton("선택 삭제")
-        self._btn_delete.setFixedWidth(100)
-        self._btn_delete.clicked.connect(self._on_delete_clicked)
-
-        self._status_label = QLabel("준비")
-
-        toolbar.addWidget(self._btn_scan)
-        toolbar.addWidget(self._btn_delete)
-        toolbar.addStretch()
-        toolbar.addWidget(self._status_label)
-        layout.addLayout(toolbar)
-
-        # --- progress bar ---
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
-
-        # --- table ---
-        self._table = QTableWidget()
-        self._table.setColumnCount(8)
-        self._table.setHorizontalHeaderLabels(
-            ["파일명", "제목", "아티스트", "앨범", "길이(초)", "크기(bytes)", "생성일시", "수정일시"]
-        )
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.horizontalHeader().setSectionResizeMode(
+    def _setup_table(self) -> None:
+        """Apply column resize modes that cannot be set in Qt Designer."""
+        self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
-        self._table.horizontalHeader().setSectionResizeMode(
+        self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
-        layout.addWidget(self._table)
 
     # ------------------------------------------------------------------
     # Slots
@@ -152,11 +119,11 @@ class MainWindow(QMainWindow):
         if not directory:
             return
 
-        self._btn_scan.setEnabled(False)
-        self._btn_delete.setEnabled(False)
-        self._progress.setValue(0)
-        self._progress.setVisible(True)
-        self._status_label.setText(f"스캔 중: {directory}")
+        self.btn_scan.setEnabled(False)
+        self.btn_delete.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.status_label.setText(f"스캔 중: {directory}")
 
         self._worker = ScanWorker(self._manager, directory)
         self._worker.progress.connect(self._on_scan_progress)
@@ -172,9 +139,9 @@ class MainWindow(QMainWindow):
             total:   Total number of MP3 files in the directory.
             path:    Path of the file just processed.
         """
-        self._progress.setMaximum(total)
-        self._progress.setValue(current)
-        self._status_label.setText(os.path.basename(path))
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.status_label.setText(os.path.basename(path))
 
     def _on_scan_finished(self, count: int) -> None:
         """
@@ -183,15 +150,15 @@ class MainWindow(QMainWindow):
         Args:
             count: Number of MP3 files that were scanned and saved.
         """
-        self._progress.setVisible(False)
-        self._btn_scan.setEnabled(True)
-        self._btn_delete.setEnabled(True)
-        self._status_label.setText(f"완료: {count}개 파일 저장됨")
+        self.progress_bar.setVisible(False)
+        self.btn_scan.setEnabled(True)
+        self.btn_delete.setEnabled(True)
+        self.status_label.setText(f"완료: {count}개 파일 저장됨")
         self._load_table()
 
     def _on_delete_clicked(self) -> None:
         """Delete all selected rows from the database and refresh the table."""
-        selected_rows = self._table.selectionModel().selectedRows()
+        selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.information(self, "알림", "삭제할 항목을 선택해주세요.")
             return
@@ -205,11 +172,11 @@ class MainWindow(QMainWindow):
             return
 
         for index in selected_rows:
-            path = self._table.item(index.row(), 0).data(Qt.ItemDataRole.UserRole)
+            path = self.table.item(index.row(), 0).data(Qt.ItemDataRole.UserRole)
             self._manager.delete(path)
 
         self._load_table()
-        self._status_label.setText(f"{len(selected_rows)}개 항목 삭제됨")
+        self.status_label.setText(f"{len(selected_rows)}개 항목 삭제됨")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -218,7 +185,7 @@ class MainWindow(QMainWindow):
     def _load_table(self) -> None:
         """Fetch all records from the database and populate the table."""
         files = self._manager.list_files()
-        self._table.setRowCount(len(files))
+        self.table.setRowCount(len(files))
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
@@ -226,14 +193,14 @@ class MainWindow(QMainWindow):
             duration = f"{f['duration']:.1f}" if f["duration"] else "-"
             filesize = str(f["filesize"]) if f["filesize"] else "-"
 
-            self._table.setItem(row, 0, filename_item)
-            self._table.setItem(row, 1, QTableWidgetItem(f["title"] or "-"))
-            self._table.setItem(row, 2, QTableWidgetItem(f["artist"] or "-"))
-            self._table.setItem(row, 3, QTableWidgetItem(f["album"] or "-"))
-            self._table.setItem(row, 4, QTableWidgetItem(duration))
-            self._table.setItem(row, 5, QTableWidgetItem(filesize))
-            self._table.setItem(row, 6, QTableWidgetItem(f["file_created_at"] or "-"))
-            self._table.setItem(row, 7, QTableWidgetItem(f["file_modified_at"] or "-"))
+            self.table.setItem(row, 0, filename_item)
+            self.table.setItem(row, 1, QTableWidgetItem(f["title"] or "-"))
+            self.table.setItem(row, 2, QTableWidgetItem(f["artist"] or "-"))
+            self.table.setItem(row, 3, QTableWidgetItem(f["album"] or "-"))
+            self.table.setItem(row, 4, QTableWidgetItem(duration))
+            self.table.setItem(row, 5, QTableWidgetItem(filesize))
+            self.table.setItem(row, 6, QTableWidgetItem(f["file_created_at"] or "-"))
+            self.table.setItem(row, 7, QTableWidgetItem(f["file_modified_at"] or "-"))
 
     def closeEvent(self, event) -> None:
         """Close the database connection when the window is closed."""

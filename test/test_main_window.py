@@ -68,7 +68,7 @@ class TestMainWindowTable(unittest.TestCase):
     def test_table_empty_on_fresh_db(self):
         """Verify that the table has zero rows when the database is empty."""
         win = self._make_window()
-        self.assertEqual(win._table.rowCount(), 0)
+        self.assertEqual(win.table.rowCount(), 0)
         win.close()
 
     def test_table_populates_after_load(self):
@@ -77,7 +77,7 @@ class TestMainWindowTable(unittest.TestCase):
         _save_to_db(win._manager._conn, sample_info("/music/a.mp3"))
         _save_to_db(win._manager._conn, sample_info("/music/b.mp3"))
         win._load_table()
-        self.assertEqual(win._table.rowCount(), 2)
+        self.assertEqual(win.table.rowCount(), 2)
         win.close()
 
     def test_table_shows_filename_in_first_column(self):
@@ -85,7 +85,7 @@ class TestMainWindowTable(unittest.TestCase):
         win = self._make_window()
         _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
         win._load_table()
-        self.assertEqual(win._table.item(0, 0).text(), "track.mp3")
+        self.assertEqual(win.table.item(0, 0).text(), "track.mp3")
         win.close()
 
     def test_table_stores_path_in_user_role(self):
@@ -94,7 +94,7 @@ class TestMainWindowTable(unittest.TestCase):
         win = self._make_window()
         _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
         win._load_table()
-        path = win._table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        path = win.table.item(0, 0).data(Qt.ItemDataRole.UserRole)
         self.assertEqual(path, "/music/track.mp3")
         win.close()
 

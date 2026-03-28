@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>580</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MP3 Archive Manager</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>8</number>
+    </property>
+    <property name="leftMargin">
+     <number>12</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>12</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
+    <!-- Toolbar row -->
+    <item>
+     <layout class="QHBoxLayout" name="toolbarLayout">
+      <item>
+       <widget class="QPushButton" name="btn_scan">
+        <property name="text">
+         <string>디렉토리 스캔</string>
+        </property>
+        <property name="minimumWidth">
+         <number>140</number>
+        </property>
+        <property name="maximumWidth">
+         <number>140</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_delete">
+        <property name="text">
+         <string>선택 삭제</string>
+        </property>
+        <property name="minimumWidth">
+         <number>100</number>
+        </property>
+        <property name="maximumWidth">
+         <number>100</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="toolbarSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="status_label">
+        <property name="text">
+         <string>준비</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <!-- Progress bar -->
+    <item>
+     <widget class="QProgressBar" name="progress_bar">
+      <property name="value">
+       <number>0</number>
+      </property>
+      <property name="visible">
+       <bool>false</bool>
+      </property>
+     </widget>
+    </item>
+    <!-- MP3 table -->
+    <item>
+     <widget class="QTableWidget" name="table">
+      <property name="selectionBehavior">
+       <enum>QAbstractItemView::SelectRows</enum>
+      </property>
+      <property name="editTriggers">
+       <set>QAbstractItemView::NoEditTriggers</set>
+      </property>
+      <column>
+       <property name="text"><string>파일명</string></property>
+      </column>
+      <column>
+       <property name="text"><string>제목</string></property>
+      </column>
+      <column>
+       <property name="text"><string>아티스트</string></property>
+      </column>
+      <column>
+       <property name="text"><string>앨범</string></property>
+      </column>
+      <column>
+       <property name="text"><string>길이(초)</string></property>
+      </column>
+      <column>
+       <property name="text"><string>크기(bytes)</string></property>
+      </column>
+      <column>
+       <property name="text"><string>생성일시</string></property>
+      </column>
+      <column>
+       <property name="text"><string>수정일시</string></property>
+      </column>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
