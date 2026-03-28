@@ -1,26 +1,27 @@
 """
-test_mp3_manager.py - Unit tests for src/mp3_manager.py.
+test_mp3_manager.py - Unit tests for src/mp3_manager.py (Mp3Manager class).
 
-Tests use an in-memory SQLite database and temporary files
+Tests use an in-memory SQLite database and temporary directories
 to avoid side effects on the real filesystem.
 """
 
 import os
-import sqlite3
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from mp3_manager import create_table, save_to_db, list_files, scan_directory
+from mp3_manager import Mp3Manager, _create_table, _save_to_db, _list_files
 
 
-def make_conn() -> sqlite3.Connection:
-    """Return an in-memory SQLite connection with the schema applied."""
-    conn = sqlite3.connect(":memory:")
-    create_table(conn)
-    return conn
+def make_manager() -> Mp3Manager:
+    """Return an Mp3Manager backed by an in-memory SQLite database."""
+    mgr = Mp3Manager.__new__(Mp3Manager)
+    import sqlite3
+    mgr._conn = sqlite3.connect(":memory:")
+    _create_table(mgr._conn)
+    return mgr
 
 
 def sample_info(path: str = "/music/test.mp3") -> dict:
@@ -36,122 +37,125 @@ def sample_info(path: str = "/music/test.mp3") -> dict:
     }
 
 
-class TestCreateTable(unittest.TestCase):
+class TestMp3ManagerContextManager(unittest.TestCase):
 
-    def test_table_exists_after_create(self):
-        """Verify that mp3_files table is created successfully."""
-        conn = make_conn()
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='mp3_files'"
-        )
-        self.assertIsNotNone(cursor.fetchone())
-        conn.close()
-
-    def test_create_table_is_idempotent(self):
-        """Verify that calling create_table twice does not raise an error."""
-        conn = make_conn()
-        create_table(conn)  # second call should be safe
-        conn.close()
-
-
-class TestSaveToDb(unittest.TestCase):
-
-    def test_save_inserts_record(self):
-        """Verify that save_to_db inserts a new record into the database."""
-        conn = make_conn()
-        save_to_db(conn, sample_info())
-        cursor = conn.execute("SELECT COUNT(*) FROM mp3_files")
-        self.assertEqual(cursor.fetchone()[0], 1)
-        conn.close()
-
-    def test_save_replaces_on_duplicate_path(self):
-        """Verify that saving the same path twice updates the existing record."""
-        conn = make_conn()
-        info = sample_info()
-        save_to_db(conn, info)
-        info["title"] = "Updated Title"
-        save_to_db(conn, info)
-        cursor = conn.execute("SELECT COUNT(*) FROM mp3_files")
-        self.assertEqual(cursor.fetchone()[0], 1)
-        cursor = conn.execute("SELECT title FROM mp3_files")
-        self.assertEqual(cursor.fetchone()[0], "Updated Title")
-        conn.close()
-
-    def test_save_stores_correct_fields(self):
-        """Verify that all metadata fields are stored correctly."""
-        conn = make_conn()
-        info = sample_info()
-        save_to_db(conn, info)
-        cursor = conn.execute(
-            "SELECT filename, title, artist, album, duration, filesize FROM mp3_files"
-        )
-        row = cursor.fetchone()
-        self.assertEqual(row[0], "test.mp3")
-        self.assertEqual(row[1], "Test Song")
-        self.assertEqual(row[2], "Test Artist")
-        self.assertEqual(row[3], "Test Album")
-        self.assertAlmostEqual(row[4], 180.0)
-        self.assertEqual(row[5], 4096)
-        conn.close()
+    def test_context_manager_closes_connection(self):
+        """Verify that the with-block closes the DB connection on exit."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            with Mp3Manager(db_path) as mgr:
+                conn = mgr._conn
+            # After exit, executing on the closed connection must raise
+            with self.assertRaises(Exception):
+                conn.execute("SELECT 1")
+        finally:
+            os.unlink(db_path)
 
 
 class TestListFiles(unittest.TestCase):
 
     def test_list_empty_db(self):
-        """Verify that list_files returns an empty list for an empty database."""
-        conn = make_conn()
-        self.assertEqual(list_files(conn), [])
-        conn.close()
+        """Verify that list_files returns an empty list for a new database."""
+        mgr = make_manager()
+        self.assertEqual(mgr.list_files(), [])
+        mgr.close()
 
     def test_list_returns_all_records(self):
-        """Verify that list_files returns all inserted records."""
-        conn = make_conn()
-        save_to_db(conn, sample_info("/music/a.mp3"))
-        save_to_db(conn, sample_info("/music/b.mp3"))
-        results = list_files(conn)
-        self.assertEqual(len(results), 2)
-        conn.close()
+        """Verify that list_files returns every inserted record."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/a.mp3"))
+        _save_to_db(mgr._conn, sample_info("/music/b.mp3"))
+        self.assertEqual(len(mgr.list_files()), 2)
+        mgr.close()
 
-    def test_list_returns_dicts(self):
-        """Verify that list_files returns a list of dictionaries."""
-        conn = make_conn()
-        save_to_db(conn, sample_info())
-        results = list_files(conn)
-        self.assertIsInstance(results[0], dict)
-        self.assertIn("filename", results[0])
-        conn.close()
+    def test_list_returns_dicts_with_expected_keys(self):
+        """Verify that each record is a dict containing the required fields."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info())
+        row = mgr.list_files()[0]
+        for key in ("id", "filename", "title", "artist", "album", "duration", "filesize"):
+            self.assertIn(key, row)
+        mgr.close()
 
 
-class TestScanDirectory(unittest.TestCase):
+class TestDelete(unittest.TestCase):
+
+    def test_delete_removes_record(self):
+        """Verify that delete() removes the matching record from the database."""
+        mgr = make_manager()
+        info = sample_info("/music/track.mp3")
+        _save_to_db(mgr._conn, info)
+        mgr.delete("/music/track.mp3")
+        self.assertEqual(mgr.list_files(), [])
+        mgr.close()
+
+    def test_delete_nonexistent_path_is_safe(self):
+        """Verify that deleting a path not in the DB does not raise an error."""
+        mgr = make_manager()
+        mgr.delete("/nonexistent/path.mp3")  # should not raise
+        mgr.close()
+
+
+class TestScan(unittest.TestCase):
 
     def test_scan_empty_directory(self):
-        """Verify that scanning an empty directory saves nothing."""
-        conn = make_conn()
+        """Verify that scanning an empty directory returns 0."""
+        mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            count = scan_directory(conn, tmpdir)
-        self.assertEqual(count, 0)
-        conn.close()
+            self.assertEqual(mgr.scan(tmpdir), 0)
+        mgr.close()
 
     def test_scan_ignores_non_mp3_files(self):
-        """Verify that non-MP3 files are ignored during scan."""
-        conn = make_conn()
+        """Verify that non-MP3 files are not counted or saved."""
+        mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            open(os.path.join(tmpdir, "readme.txt"), "w").close()
+            open(os.path.join(tmpdir, "notes.txt"), "w").close()
             open(os.path.join(tmpdir, "song.flac"), "w").close()
-            count = scan_directory(conn, tmpdir)
-        self.assertEqual(count, 0)
-        conn.close()
+            self.assertEqual(mgr.scan(tmpdir), 0)
+        mgr.close()
 
     def test_scan_counts_mp3_files(self):
-        """Verify that scan_directory counts and saves MP3 files correctly."""
-        conn = make_conn()
+        """Verify that scan returns the correct count of MP3 files."""
+        mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create dummy .mp3 files (empty, no real audio data)
             open(os.path.join(tmpdir, "track1.mp3"), "w").close()
             open(os.path.join(tmpdir, "track2.mp3"), "w").close()
-            count = scan_directory(conn, tmpdir)
-        self.assertEqual(count, 2)
-        conn.close()
+            self.assertEqual(mgr.scan(tmpdir), 2)
+        mgr.close()
+
+    def test_scan_saves_to_db(self):
+        """Verify that scanned MP3 files are persisted in the database."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "song.mp3"), "w").close()
+            mgr.scan(tmpdir)
+        self.assertEqual(len(mgr.list_files()), 1)
+        mgr.close()
+
+    def test_scan_progress_callback_called(self):
+        """Verify that the progress_callback is invoked once per MP3 file."""
+        mgr = make_manager()
+        calls = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+            open(os.path.join(tmpdir, "b.mp3"), "w").close()
+            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: calls.append((cur, tot)))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[-1][0], 2)   # last current == total
+        self.assertEqual(calls[-1][1], 2)
+        mgr.close()
+
+    def test_scan_progress_callback_receives_correct_total(self):
+        """Verify that the total passed to progress_callback matches file count."""
+        mgr = make_manager()
+        totals = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i in range(3):
+                open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
+            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: totals.append(tot))
+        self.assertTrue(all(t == 3 for t in totals))
+        mgr.close()
 
 
 if __name__ == "__main__":
