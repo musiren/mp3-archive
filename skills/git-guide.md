@@ -18,6 +18,16 @@
     ```
 - **언어**: 모든 커밋 메시지 및 문서는 영어로 작성한다.
 
+## PR 및 머지 규칙
+
+- **main PR 전 README 업데이트**: main으로 PR을 올리기 전에 `README.md`에 변경된 사용법을 반영한다.
+- **main PR 전 NEWS 업데이트**: main으로 PR을 올리기 전에 `NEWS` 파일에 해당 브랜치의 커밋 리스트를 추가한다.
+- **main 머지 후 태그 생성**: main에 머지한 후 `v년월일` 형식으로 태그를 만든다 (예: `v20260328`).
+  ```bash
+  git tag v$(date +%Y%m%d)
+  git push origin v$(date +%Y%m%d)
+  ```
+
 ## 기본 설정
 
 ```bash
