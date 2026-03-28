@@ -72,3 +72,14 @@ def test_load_mp3_returns_title():
 # Run all tests
 python -m unittest discover -s test -v
 ```
+
+6. When `src/main_window.ui` or `src/main_window.py` is modified, regenerate `ui-preview.jpg` and commit it before pushing.
+
+```bash
+# Regenerate UI preview image
+python -c "
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+# ... (see ui-preview generation script)
+"
+# Or simply run the generation script if extracted separately
+```
