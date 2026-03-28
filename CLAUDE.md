@@ -6,6 +6,14 @@
 - Naming convention: `skills/<topic>-plan.md`
 - Plans must be written in English.
 
+## Coding Rules
+
+See `skills/coding-guide.md` for full coding conventions. Key rules:
+
+- All source code must be placed in `src/`.
+- Every method/function must have a docstring or comment explaining its purpose.
+- All test code must be placed in `test/`.
+
 ## Git Rules
 
 See `skills/git-guide.md` for full git conventions. Key rules:
