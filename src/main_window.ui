@@ -77,13 +77,26 @@
       <item>
        <widget class="QPushButton" name="btn_scan">
         <property name="text">
-         <string>스캔 시작</string>
+         <string>증분 스캔</string>
         </property>
         <property name="minimumWidth">
-         <number>120</number>
+         <number>110</number>
         </property>
         <property name="maximumWidth">
-         <number>120</number>
+         <number>110</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_force_scan">
+        <property name="text">
+         <string>전체 재스캔</string>
+        </property>
+        <property name="minimumWidth">
+         <number>110</number>
+        </property>
+        <property name="maximumWidth">
+         <number>110</number>
         </property>
        </widget>
       </item>

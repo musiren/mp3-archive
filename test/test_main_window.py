@@ -164,20 +164,39 @@ class TestMainWindowTable(unittest.TestCase):
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):
-        """Verify that ScanWorker emits finished with the correct file count."""
+        """Verify that ScanWorker emits finished with (processed, skipped) counts."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "a.mp3"), "w").close()
             open(os.path.join(tmpdir, "b.mp3"), "w").close()
 
             results = []
-            worker = ScanWorker(mgr, tmpdir)
-            worker.finished.connect(lambda n: results.append(n))
+            worker = ScanWorker(mgr, tmpdir, force=True)
+            worker.finished.connect(lambda p, s: results.append((p, s)))
             worker.start()
             worker.wait()
-            _app.processEvents()   # deliver queued cross-thread signals
+            _app.processEvents()
 
-        self.assertEqual(results, [2])
+        self.assertEqual(results, [(2, 0)])
+        mgr.close()
+
+    def test_scan_worker_incremental_skips_unchanged(self):
+        """Verify that a second incremental scan skips already-indexed files."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+
+            # First scan: processes the file
+            w1 = ScanWorker(mgr, tmpdir, force=True)
+            w1.start(); w1.wait(); _app.processEvents()
+
+            # Second incremental scan: file unchanged → skipped
+            results = []
+            w2 = ScanWorker(mgr, tmpdir, force=False)
+            w2.finished.connect(lambda p, s: results.append((p, s)))
+            w2.start(); w2.wait(); _app.processEvents()
+
+        self.assertEqual(results, [(0, 1)])
         mgr.close()
 
     def test_scan_worker_emits_progress(self):
@@ -188,11 +207,11 @@ class TestScanWorker(unittest.TestCase):
                 open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
 
             progress_calls = []
-            worker = ScanWorker(mgr, tmpdir)
+            worker = ScanWorker(mgr, tmpdir, force=True)
             worker.progress.connect(lambda cur, tot, p: progress_calls.append((cur, tot)))
             worker.start()
             worker.wait()
-            _app.processEvents()   # deliver queued cross-thread signals
+            _app.processEvents()
 
         self.assertEqual(len(progress_calls), 3)
         self.assertEqual(progress_calls[-1], (3, 3))

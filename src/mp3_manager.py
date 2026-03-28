@@ -87,20 +87,29 @@ class Mp3Manager:
         self,
         directory: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> int:
+        force: bool = False,
+    ) -> tuple[int, int]:
         """
-        Recursively scan a directory for MP3 files and save metadata to DB.
+        Recursively scan a directory for MP3 files and update the database.
+
+        By default runs an incremental scan: files already in the database
+        whose file_modified_at timestamp has not changed are skipped, so
+        only new or modified files are processed.  Pass force=True to
+        re-read every file regardless of its stored timestamp.
+
+        All inserts are batched into a single transaction for performance.
 
         Args:
             directory:         Root directory path to scan.
             progress_callback: Optional callable invoked for each file found.
                                Signature: callback(current, total, file_path)
-                               where current is the 1-based index and total
-                               is the count of all MP3 files in the directory.
-                               Useful for updating a QProgressBar from a QThread.
+            force:             When True, ignore cached timestamps and process
+                               every file (full rescan).
 
         Returns:
-            Number of MP3 files found and saved.
+            A tuple (processed, skipped) where processed is the number of
+            files that were read and saved, and skipped is the number of
+            unchanged files that were left untouched.
         """
         mp3_paths = [
             os.path.join(root, f)
@@ -109,12 +118,43 @@ class Mp3Manager:
             if f.lower().endswith(".mp3")
         ]
         total = len(mp3_paths)
+
+        # Build a {path: file_modified_at} cache from the DB for quick lookup.
+        cached_mtime: dict[str, str] = {}
+        if not force:
+            cursor = self._conn.execute(
+                "SELECT path, file_modified_at FROM mp3_files"
+            )
+            cached_mtime = {row[0]: row[1] for row in cursor}
+
+        def _current_mtime(file_path: str) -> str:
+            """Return the file's mtime as an ISO-8601 string."""
+            import datetime as _dt
+            return _dt.datetime.fromtimestamp(
+                os.path.getmtime(file_path)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+        processed = 0
+        skipped   = 0
+
         for idx, file_path in enumerate(mp3_paths, start=1):
+            if not force:
+                mtime = _current_mtime(file_path)
+                if cached_mtime.get(file_path) == mtime:
+                    skipped += 1
+                    if progress_callback:
+                        progress_callback(idx, total, file_path)
+                    continue
+
             info = _get_mp3_info(file_path)
-            _save_to_db(self._conn, info)
+            _save_to_db(self._conn, info, commit=False)
+            processed += 1
+
             if progress_callback:
                 progress_callback(idx, total, file_path)
-        return total
+
+        self._conn.commit()
+        return processed, skipped
 
     def list_files(self) -> list[dict]:
         """
@@ -261,13 +301,15 @@ def _parse_filename_fallback(info: dict) -> None:
             info["title"] = stem.strip() or None
 
 
-def _save_to_db(conn: sqlite3.Connection, info: dict) -> None:
+def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> None:
     """
     Insert or replace an MP3 record in the database.
 
     Args:
-        conn: Active SQLite connection.
-        info: Dictionary as returned by _get_mp3_info().
+        conn:   Active SQLite connection.
+        info:   Dictionary as returned by _get_mp3_info().
+        commit: If True (default), commit immediately after the insert.
+                Pass False when batching many inserts; caller must commit.
     """
     conn.execute("""
         INSERT OR REPLACE INTO mp3_files
@@ -277,7 +319,8 @@ def _save_to_db(conn: sqlite3.Connection, info: dict) -> None:
             (:path, :filename, :title, :artist, :album, :duration, :filesize,
              :file_created_at, :file_modified_at)
     """, info)
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def _list_files(conn: sqlite3.Connection) -> list[dict]:

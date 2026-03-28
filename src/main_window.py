@@ -49,28 +49,31 @@ class ScanWorker(QThread):
     Emits progress signals so the UI can update without freezing.
     """
 
-    progress = pyqtSignal(int, int, str)   # current, total, file_path
-    finished = pyqtSignal(int)             # total files scanned
+    progress = pyqtSignal(int, int, str)        # current, total, file_path
+    finished = pyqtSignal(int, int)             # processed, skipped
 
-    def __init__(self, manager: Mp3Manager, directory: str) -> None:
+    def __init__(self, manager: Mp3Manager, directory: str, force: bool = False) -> None:
         """
         Initialize the worker.
 
         Args:
             manager:   Shared Mp3Manager instance.
             directory: Directory path to scan recursively.
+            force:     When True, re-read every file (full rescan).
         """
         super().__init__()
         self._manager = manager
         self._directory = directory
+        self._force = force
 
     def run(self) -> None:
-        """Execute the recursive scan and emit progress/finished signals."""
-        count = self._manager.scan(
+        """Execute the scan and emit progress/finished signals."""
+        processed, skipped = self._manager.scan(
             self._directory,
             progress_callback=lambda cur, tot, path: self.progress.emit(cur, tot, path),
+            force=self._force,
         )
-        self.finished.emit(count)
+        self.finished.emit(processed, skipped)
 
 
 class MainWindow(QMainWindow):
@@ -109,6 +112,7 @@ class MainWindow(QMainWindow):
         """Connect all button click signals to their handler slots."""
         self.btn_browse.clicked.connect(self._on_browse_clicked)
         self.btn_scan.clicked.connect(self._on_scan_clicked)
+        self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
 
     def _setup_table(self) -> None:
@@ -146,10 +150,19 @@ class MainWindow(QMainWindow):
         self._settings.setValue(_KEY_LAST_PATH, directory)
 
     def _on_scan_clicked(self) -> None:
-        """
-        Start a recursive scan of the configured directory.
+        """Start an incremental scan: only new or modified files are processed."""
+        self._start_scan(force=False)
 
-        Shows an error if no path has been set yet.
+    def _on_force_scan_clicked(self) -> None:
+        """Start a full rescan: every file is re-read regardless of cached timestamps."""
+        self._start_scan(force=True)
+
+    def _start_scan(self, force: bool) -> None:
+        """
+        Validate the configured path and launch ScanWorker.
+
+        Args:
+            force: Passed to ScanWorker to control incremental vs full scan.
         """
         directory = self.path_edit.text().strip()
         if not directory:
@@ -161,12 +174,14 @@ class MainWindow(QMainWindow):
 
         self.btn_browse.setEnabled(False)
         self.btn_scan.setEnabled(False)
+        self.btn_force_scan.setEnabled(False)
         self.btn_delete.setEnabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
-        self.status_label.setText(f"스캔 중: {directory}")
+        label = "전체 재스캔 중" if force else "증분 스캔 중"
+        self.status_label.setText(f"{label}: {directory}")
 
-        self._worker = ScanWorker(self._manager, directory)
+        self._worker = ScanWorker(self._manager, directory, force=force)
         self._worker.progress.connect(self._on_scan_progress)
         self._worker.finished.connect(self._on_scan_finished)
         self._worker.start()
@@ -184,18 +199,22 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(current)
         self.status_label.setText(os.path.basename(path))
 
-    def _on_scan_finished(self, count: int) -> None:
+    def _on_scan_finished(self, processed: int, skipped: int) -> None:
         """
         Refresh the table and re-enable controls after scan completes.
 
         Args:
-            count: Number of MP3 files that were scanned and saved.
+            processed: Number of files that were read and saved.
+            skipped:   Number of unchanged files that were skipped.
         """
         self.progress_bar.setVisible(False)
         self.btn_browse.setEnabled(True)
         self.btn_scan.setEnabled(True)
+        self.btn_force_scan.setEnabled(True)
         self.btn_delete.setEnabled(True)
-        self.status_label.setText(f"완료: {count}개 파일 저장됨")
+        self.status_label.setText(
+            f"완료: {processed}개 업데이트, {skipped}개 변경 없음"
+        )
         self._load_table()
 
     def _on_delete_clicked(self) -> None:

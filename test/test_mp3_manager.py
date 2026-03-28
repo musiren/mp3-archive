@@ -103,10 +103,10 @@ class TestDelete(unittest.TestCase):
 class TestScan(unittest.TestCase):
 
     def test_scan_empty_directory(self):
-        """Verify that scanning an empty directory returns 0."""
+        """Verify that scanning an empty directory returns (0, 0)."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            self.assertEqual(mgr.scan(tmpdir), 0)
+            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
         mgr.close()
 
     def test_scan_ignores_non_mp3_files(self):
@@ -115,7 +115,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "notes.txt"), "w").close()
             open(os.path.join(tmpdir, "song.flac"), "w").close()
-            self.assertEqual(mgr.scan(tmpdir), 0)
+            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
         mgr.close()
 
     def test_scan_counts_mp3_files(self):
@@ -124,7 +124,9 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "track1.mp3"), "w").close()
             open(os.path.join(tmpdir, "track2.mp3"), "w").close()
-            self.assertEqual(mgr.scan(tmpdir), 2)
+            processed, skipped = mgr.scan(tmpdir, force=True)
+        self.assertEqual(processed, 2)
+        self.assertEqual(skipped, 0)
         mgr.close()
 
     def test_scan_saves_to_db(self):
@@ -132,8 +134,30 @@ class TestScan(unittest.TestCase):
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "song.mp3"), "w").close()
-            mgr.scan(tmpdir)
+            mgr.scan(tmpdir, force=True)
         self.assertEqual(len(mgr.list_files()), 1)
+        mgr.close()
+
+    def test_scan_returns_processed_and_skipped(self):
+        """Verify that scan() returns a (processed, skipped) tuple."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+            open(os.path.join(tmpdir, "b.mp3"), "w").close()
+            processed, skipped = mgr.scan(tmpdir, force=True)
+        self.assertEqual(processed, 2)
+        self.assertEqual(skipped, 0)
+        mgr.close()
+
+    def test_incremental_scan_skips_unchanged_files(self):
+        """Verify that a second scan skips files with unchanged modification time."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            open(os.path.join(tmpdir, "a.mp3"), "w").close()
+            mgr.scan(tmpdir, force=True)          # first: process all
+            processed, skipped = mgr.scan(tmpdir)  # second: skip unchanged
+        self.assertEqual(processed, 0)
+        self.assertEqual(skipped, 1)
         mgr.close()
 
     def test_scan_progress_callback_called(self):
@@ -143,7 +167,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "a.mp3"), "w").close()
             open(os.path.join(tmpdir, "b.mp3"), "w").close()
-            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: calls.append((cur, tot)))
+            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: calls.append((cur, tot)), force=True)
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[-1][0], 2)   # last current == total
         self.assertEqual(calls[-1][1], 2)
@@ -156,7 +180,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             for i in range(3):
                 open(os.path.join(tmpdir, f"track{i}.mp3"), "w").close()
-            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: totals.append(tot))
+            mgr.scan(tmpdir, progress_callback=lambda cur, tot, p: totals.append(tot), force=True)
         self.assertTrue(all(t == 3 for t in totals))
         mgr.close()
 
@@ -165,7 +189,7 @@ class TestScan(unittest.TestCase):
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "song.mp3"), "w").close()
-            mgr.scan(tmpdir)
+            mgr.scan(tmpdir, force=True)
         row = mgr.list_files()[0]
         self.assertIsNotNone(row["file_created_at"])
         self.assertIsNotNone(row["file_modified_at"])
@@ -223,7 +247,7 @@ class TestParseFilenameFallback(unittest.TestCase):
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "Singer X - Great Song.mp3"), "w").close()
-            mgr.scan(tmpdir)
+            mgr.scan(tmpdir, force=True)
         row = mgr.list_files()[0]
         self.assertEqual(row["artist"], "Singer X")
         self.assertEqual(row["title"], "Great Song")
