@@ -26,10 +26,10 @@ package.name    = mp3archive
 package.domain  = org.mp3archive
 version         = 1.0.0
 
-# Entry point (replace main_window.py with a Kivy-based UI)
+# Entry point
 source.dir      = src
 source.include_exts = py,png,jpg,kv,atlas,db
-main            = main_window.py
+main            = main_window_android.py
 
 # Python version
 osx.python_version = 3
