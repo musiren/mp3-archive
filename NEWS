@@ -1,7 +1,19 @@
 mp3-archive NEWS
 
 ===========================================================================
-v20260328 (2026-03-28)
+v20260328 (2026-03-28) — second batch
+===========================================================================
+
+Commits
+-------
+- ui: use more natural Korean labels for toolbar buttons
+- feat: real-time search as user types in search field
+- feat: add keyword search for MP3 records
+- refactor: reorganize project directory structure
+- docs: update README with usage guide and add NEWS file
+
+===========================================================================
+v20260328 (2026-03-28) — initial release
 ===========================================================================
 
 Initial release.

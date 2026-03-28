@@ -161,6 +161,54 @@ class TestMainWindowTable(unittest.TestCase):
         win.close()
 
 
+class TestSearch(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow with two pre-loaded MP3 records."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        info_a = {**sample_info("/music/a.mp3"), "artist": "Queen", "title": "Bohemian Rhapsody"}
+        info_b = {**sample_info("/music/b.mp3"), "artist": "BTS", "title": "Dynamite"}
+        _save_to_db(win._manager._conn, info_a)
+        _save_to_db(win._manager._conn, info_b)
+        win._load_table()
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_realtime_search_filters_table(self):
+        """Verify that typing in search_edit filters the table immediately."""
+        win = self._make_window()
+        win.search_edit.setText("Queen")
+        self.assertEqual(win.table.rowCount(), 1)
+        self.assertEqual(win.table.item(0, 2).text(), "Queen")
+        win.close()
+
+    def test_realtime_search_empty_restores_all(self):
+        """Verify that clearing search_edit restores all rows."""
+        win = self._make_window()
+        win.search_edit.setText("Queen")
+        win.search_edit.clear()
+        self.assertEqual(win.table.rowCount(), 2)
+        win.close()
+
+    def test_search_clear_button_restores_all(self):
+        """Verify that btn_search_clear resets search and shows all rows."""
+        win = self._make_window()
+        win.search_edit.setText("BTS")
+        self.assertEqual(win.table.rowCount(), 1)
+        win.btn_search_clear.click()
+        self.assertEqual(win.table.rowCount(), 2)
+        win.close()
+
+
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):

@@ -71,13 +71,64 @@
       </item>
      </layout>
     </item>
+    <!-- Search row -->
+    <item>
+     <layout class="QHBoxLayout" name="searchLayout">
+      <item>
+       <widget class="QLabel" name="label_search">
+        <property name="text">
+         <string>검색:</string>
+        </property>
+        <property name="minimumWidth">
+         <number>40</number>
+        </property>
+        <property name="maximumWidth">
+         <number>40</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="search_edit">
+        <property name="placeholderText">
+         <string>파일명, 제목, 아티스트, 앨범 검색...</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_search">
+        <property name="text">
+         <string>검색</string>
+        </property>
+        <property name="minimumWidth">
+         <number>70</number>
+        </property>
+        <property name="maximumWidth">
+         <number>70</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_search_clear">
+        <property name="text">
+         <string>초기화</string>
+        </property>
+        <property name="minimumWidth">
+         <number>70</number>
+        </property>
+        <property name="maximumWidth">
+         <number>70</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
     <!-- Toolbar row -->
     <item>
      <layout class="QHBoxLayout" name="toolbarLayout">
       <item>
        <widget class="QPushButton" name="btn_scan">
         <property name="text">
-         <string>증분 스캔</string>
+         <string>빠른 스캔</string>
         </property>
         <property name="minimumWidth">
          <number>110</number>
@@ -90,7 +141,7 @@
       <item>
        <widget class="QPushButton" name="btn_force_scan">
         <property name="text">
-         <string>전체 재스캔</string>
+         <string>전체 스캔</string>
         </property>
         <property name="minimumWidth">
          <number>110</number>
@@ -103,7 +154,7 @@
       <item>
        <widget class="QPushButton" name="btn_delete">
         <property name="text">
-         <string>선택 삭제</string>
+         <string>삭제</string>
         </property>
         <property name="minimumWidth">
          <number>100</number>
