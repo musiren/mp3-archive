@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>900</width>
-    <height>580</height>
+    <height>620</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -30,19 +30,60 @@
     <property name="bottomMargin">
      <number>12</number>
     </property>
+    <!-- Path configuration row -->
+    <item>
+     <layout class="QHBoxLayout" name="pathLayout">
+      <item>
+       <widget class="QLabel" name="label_path">
+        <property name="text">
+         <string>MP3 경로:</string>
+        </property>
+        <property name="minimumWidth">
+         <number>70</number>
+        </property>
+        <property name="maximumWidth">
+         <number>70</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="path_edit">
+        <property name="placeholderText">
+         <string>스캔할 디렉토리를 선택하세요...</string>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_browse">
+        <property name="text">
+         <string>찾아보기</string>
+        </property>
+        <property name="minimumWidth">
+         <number>90</number>
+        </property>
+        <property name="maximumWidth">
+         <number>90</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
     <!-- Toolbar row -->
     <item>
      <layout class="QHBoxLayout" name="toolbarLayout">
       <item>
        <widget class="QPushButton" name="btn_scan">
         <property name="text">
-         <string>디렉토리 스캔</string>
+         <string>스캔 시작</string>
         </property>
         <property name="minimumWidth">
-         <number>140</number>
+         <number>120</number>
         </property>
         <property name="maximumWidth">
-         <number>140</number>
+         <number>120</number>
         </property>
        </widget>
       </item>

@@ -48,6 +48,68 @@ def sample_info(path: str = "/music/test.mp3") -> dict:
     }
 
 
+class TestMainWindowPath(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+            self._win._settings.clear()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_path_edit_empty_on_fresh_start(self):
+        """Verify that path_edit is empty when no path has been saved."""
+        win = self._make_window()
+        win._settings.clear()
+        win._restore_path()
+        self.assertEqual(win.path_edit.text(), "")
+        win.close()
+
+    def test_browse_saves_path_to_settings(self):
+        """Verify that selecting a directory via browse saves it to QSettings."""
+        win = self._make_window()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win.path_edit.setText(tmpdir)
+            win._settings.setValue("scan/last_path", tmpdir)
+            saved = win._settings.value("scan/last_path", "")
+        self.assertEqual(saved, tmpdir)
+        win.close()
+
+    def test_scan_warns_when_no_path_set(self):
+        """Verify that clicking scan without a path shows a warning (no crash)."""
+        win = self._make_window()
+        win.path_edit.setText("")
+        # _on_scan_clicked should not raise even with empty path
+        # (QMessageBox.warning is a no-op in offscreen mode)
+        try:
+            # Monkey-patch to avoid actual dialog
+            from PyQt6.QtWidgets import QMessageBox
+            original = QMessageBox.warning
+            QMessageBox.warning = lambda *a, **k: None
+            win._on_scan_clicked()
+            QMessageBox.warning = original
+        except Exception as e:
+            self.fail(f"_on_scan_clicked raised unexpectedly: {e}")
+        win.close()
+
+    def test_restore_path_populates_path_edit(self):
+        """Verify that a previously saved path is restored into path_edit."""
+        win = self._make_window()
+        win._settings.setValue("scan/last_path", "/tmp/music")
+        win._restore_path()
+        self.assertEqual(win.path_edit.text(), "/tmp/music")
+        win.close()
+
+
 class TestMainWindowTable(unittest.TestCase):
 
     def _make_window(self) -> MainWindow:

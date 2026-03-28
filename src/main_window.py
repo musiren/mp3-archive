@@ -2,7 +2,9 @@
 main_window.py - PyQt6 UI for the MP3 archive manager.
 
 Provides a main window with:
-  - Directory picker to scan for MP3 files
+  - Directory path configurator (persisted via QSettings)
+  - Browse button to open a system file explorer and select a directory
+  - Scan button to recursively find all MP3 files under the configured path
   - Progress bar updated during scan via QThread
   - Table view listing all stored MP3 records
   - Delete button to remove selected records from the database
@@ -19,7 +21,7 @@ import os
 import sys
 
 from PyQt6 import uic
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -33,6 +35,11 @@ from mp3_manager import Mp3Manager
 
 # Path to the Qt Designer UI file, relative to this module.
 _UI_FILE = os.path.join(os.path.dirname(__file__), "main_window.ui")
+
+# QSettings keys
+_SETTINGS_ORG  = "mp3-archive"
+_SETTINGS_APP  = "MP3ArchiveManager"
+_KEY_LAST_PATH = "scan/last_path"
 
 
 class ScanWorker(QThread):
@@ -51,14 +58,14 @@ class ScanWorker(QThread):
 
         Args:
             manager:   Shared Mp3Manager instance.
-            directory: Directory path to scan.
+            directory: Directory path to scan recursively.
         """
         super().__init__()
         self._manager = manager
         self._directory = directory
 
     def run(self) -> None:
-        """Execute the scan and emit progress/finished signals."""
+        """Execute the recursive scan and emit progress/finished signals."""
         count = self._manager.scan(
             self._directory,
             progress_callback=lambda cur, tot, path: self.progress.emit(cur, tot, path),
@@ -71,12 +78,13 @@ class MainWindow(QMainWindow):
     Main application window for the MP3 archive manager.
 
     Layout is loaded from main_window.ui; this class wires up
-    signals/slots and drives the Mp3Manager backend.
+    signals/slots, drives the Mp3Manager backend, and persists
+    the last-used directory path across sessions via QSettings.
     """
 
     def __init__(self, db_path: str) -> None:
         """
-        Load the UI file, connect signals, and open the database.
+        Load the UI file, restore saved path, connect signals, and open the database.
 
         Args:
             db_path: Path to the SQLite database file.
@@ -84,11 +92,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         uic.loadUi(_UI_FILE, self)
 
-        self._manager = Mp3Manager(db_path)
+        self._manager  = Mp3Manager(db_path)
         self._worker: ScanWorker | None = None
+        self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
 
         self._connect_signals()
         self._setup_table()
+        self._restore_path()
         self._load_table()
 
     # ------------------------------------------------------------------
@@ -96,7 +106,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _connect_signals(self) -> None:
-        """Connect button click signals to their handler slots."""
+        """Connect all button click signals to their handler slots."""
+        self.btn_browse.clicked.connect(self._on_browse_clicked)
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
 
@@ -109,16 +120,46 @@ class MainWindow(QMainWindow):
             1, QHeaderView.ResizeMode.Stretch
         )
 
+    def _restore_path(self) -> None:
+        """Load the last-used directory path from QSettings and display it."""
+        saved = self._settings.value(_KEY_LAST_PATH, "")
+        if saved:
+            self.path_edit.setText(saved)
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_scan_clicked(self) -> None:
-        """Open a directory picker and start the background scan worker."""
-        directory = QFileDialog.getExistingDirectory(self, "스캔할 디렉토리 선택")
+    def _on_browse_clicked(self) -> None:
+        """
+        Open the system file explorer to select a directory.
+
+        The chosen path is saved to QSettings and shown in path_edit.
+        """
+        start_dir = self.path_edit.text() or os.path.expanduser("~")
+        directory = QFileDialog.getExistingDirectory(
+            self, "MP3 경로 선택", start_dir
+        )
         if not directory:
             return
+        self.path_edit.setText(directory)
+        self._settings.setValue(_KEY_LAST_PATH, directory)
 
+    def _on_scan_clicked(self) -> None:
+        """
+        Start a recursive scan of the configured directory.
+
+        Shows an error if no path has been set yet.
+        """
+        directory = self.path_edit.text().strip()
+        if not directory:
+            QMessageBox.warning(self, "경고", "먼저 MP3 경로를 설정해주세요.")
+            return
+        if not os.path.isdir(directory):
+            QMessageBox.warning(self, "경고", f"'{directory}' 는 유효한 디렉토리가 아닙니다.")
+            return
+
+        self.btn_browse.setEnabled(False)
         self.btn_scan.setEnabled(False)
         self.btn_delete.setEnabled(False)
         self.progress_bar.setValue(0)
@@ -132,12 +173,12 @@ class MainWindow(QMainWindow):
 
     def _on_scan_progress(self, current: int, total: int, path: str) -> None:
         """
-        Update the progress bar during a scan.
+        Update the progress bar as each file is scanned.
 
         Args:
             current: 1-based index of the file just processed.
-            total:   Total number of MP3 files in the directory.
-            path:    Path of the file just processed.
+            total:   Total number of MP3 files found in the directory.
+            path:    Absolute path of the file just processed.
         """
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
@@ -151,6 +192,7 @@ class MainWindow(QMainWindow):
             count: Number of MP3 files that were scanned and saved.
         """
         self.progress_bar.setVisible(False)
+        self.btn_browse.setEnabled(True)
         self.btn_scan.setEnabled(True)
         self.btn_delete.setEnabled(True)
         self.status_label.setText(f"완료: {count}개 파일 저장됨")
