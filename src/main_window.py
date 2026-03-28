@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
         self.btn_search.clicked.connect(self._on_search_clicked)
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
+        self.search_edit.textChanged.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
         """Apply column resize modes that cannot be set in Qt Designer."""
@@ -219,6 +220,22 @@ class MainWindow(QMainWindow):
             f"완료: {processed}개 업데이트, {skipped}개 변경 없음"
         )
         self._load_table()
+
+    def _on_search_text_changed(self, text: str) -> None:
+        """
+        Filter the table in real time as the user types.
+
+        Args:
+            text: Current text in search_edit.
+        """
+        keyword = text.strip()
+        if keyword:
+            files = self._manager.search(keyword)
+            self.status_label.setText(f"검색 결과: {len(files)}개")
+        else:
+            files = self._manager.list_files()
+            self.status_label.setText("준비")
+        self._fill_table(files)
 
     def _on_search_clicked(self) -> None:
         """
