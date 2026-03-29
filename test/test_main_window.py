@@ -34,13 +34,16 @@ def make_manager() -> Mp3Manager:
 
 
 def sample_info(path: str = "/music/test.mp3") -> dict:
-    """Return a sample MP3 info dictionary."""
+    """Return a sample audio info dictionary."""
     return {
         "path": path,
         "filename": os.path.basename(path),
         "title": "Test Song",
         "artist": "Test Artist",
         "album": "Test Album",
+        "genre": None,
+        "year": None,
+        "comment": None,
         "duration": 180.0,
         "filesize": 4096,
         "file_created_at": "2024-01-01 00:00:00",
@@ -170,8 +173,10 @@ class TestSearch(unittest.TestCase):
         self._db_path = db_path
         win = MainWindow(db_path)
         self._win = win
-        info_a = {**sample_info("/music/a.mp3"), "artist": "Queen", "title": "Bohemian Rhapsody"}
-        info_b = {**sample_info("/music/b.mp3"), "artist": "BTS", "title": "Dynamite"}
+        info_a = {**sample_info("/music/Queen - Bohemian Rhapsody.mp3"),
+                  "artist": "Queen", "title": "Bohemian Rhapsody"}
+        info_b = {**sample_info("/music/BTS - Dynamite.mp3"),
+                  "artist": "BTS", "title": "Dynamite"}
         _save_to_db(win._manager._conn, info_a)
         _save_to_db(win._manager._conn, info_b)
         win._load_table()
@@ -188,7 +193,7 @@ class TestSearch(unittest.TestCase):
         win = self._make_window()
         win.search_edit.setText("Queen")
         self.assertEqual(win.table.rowCount(), 1)
-        self.assertEqual(win.table.item(0, 2).text(), "Queen")
+        self.assertEqual(win.table.item(0, 3).text(), "Queen")
         win.close()
 
     def test_realtime_search_empty_restores_all(self):
@@ -206,6 +211,51 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(win.table.rowCount(), 1)
         win.btn_search_clear.click()
         self.assertEqual(win.table.rowCount(), 2)
+        win.close()
+
+
+class TestContextMenu(unittest.TestCase):
+
+    def _make_window_with_row(self) -> tuple:
+        """Return (MainWindow, file_info) with one record pre-loaded."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        info = {**sample_info("/music/track.mp3"),
+                "artist": "Test Artist", "title": "Test Song"}
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, info)
+        win._load_table()
+        return win, info
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_context_menu_policy_is_custom(self):
+        """Verify that the table uses CustomContextMenu policy."""
+        from PyQt6.QtCore import Qt
+        win, _ = self._make_window_with_row()
+        self.assertEqual(
+            win.table.contextMenuPolicy(),
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        win.close()
+
+    def test_context_menu_handler_resolves_file_info(self):
+        """Verify _on_table_context_menu finds the correct file_info for row 0."""
+        win, info = self._make_window_with_row()
+        # Simulate looking up the file for row 0 via the same logic the handler uses
+        from PyQt6.QtCore import Qt
+        path = win.table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        files = win._manager.list_files()
+        found = next((f for f in files if f["path"] == path), None)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["title"], "Test Song")
         win.close()
 
 

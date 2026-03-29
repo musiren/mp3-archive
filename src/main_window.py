@@ -27,14 +27,29 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHeaderView,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QTableWidgetItem,
 )
 
 from mp3_manager import Mp3Manager
 
-# Path to the Qt Designer UI file, relative to this module.
-_UI_FILE = os.path.join(os.path.dirname(__file__), "main_window.ui")
+
+def _fmt_duration(seconds) -> str:
+    """Convert a duration in seconds to 'm:ss' format (e.g. 100 -> '1:40')."""
+    if not seconds:
+        return "-"
+    total = int(seconds)
+    return f"{total // 60}:{total % 60:02d}"
+from tag_fetch_dialog import TagFetchDialog
+from song_info_dialog import SongInfoDialog
+from tag_detail_dialog import TagDetailDialog
+
+# Path to the Qt Designer UI file.
+# When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
+# to the temp bundle directory; otherwise it lives next to this module.
+_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+_UI_FILE = os.path.join(_BASE_DIR, "main_window.ui")
 
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
@@ -114,19 +129,25 @@ class MainWindow(QMainWindow):
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
+        self.btn_tag_fetch.clicked.connect(self._on_tag_fetch_clicked)
         self.btn_search.clicked.connect(self._on_search_clicked)
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
+        self.chk_search_tags.toggled.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
-        """Apply column resize modes that cannot be set in Qt Designer."""
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
+        """Apply column resize modes, enable sorting, and set up context menus."""
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        hdr.customContextMenuRequested.connect(self._on_column_visibility_menu)
+        self.table.setSortingEnabled(True)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self._restore_column_visibility()
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -170,7 +191,7 @@ class MainWindow(QMainWindow):
         """
         directory = self.path_edit.text().strip()
         if not directory:
-            QMessageBox.warning(self, "경고", "먼저 MP3 경로를 설정해주세요.")
+            QMessageBox.warning(self, "경고", "먼저 음악 경로를 설정해주세요.")
             return
         if not os.path.isdir(directory):
             QMessageBox.warning(self, "경고", f"'{directory}' 는 유효한 디렉토리가 아닙니다.")
@@ -221,16 +242,79 @@ class MainWindow(QMainWindow):
         )
         self._load_table()
 
-    def _on_search_text_changed(self, text: str) -> None:
+    def _on_table_context_menu(self, pos) -> None:
         """
-        Filter the table in real time as the user types.
+        Show a right-click context menu on the table.
+
+        Provides '인터넷에서 정보 보기' and '태그 찾기' actions
+        for the row under the cursor.
 
         Args:
-            text: Current text in search_edit.
+            pos: Cursor position relative to the table viewport.
         """
-        keyword = text.strip()
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        row = index.row()
+        path = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        files = self._manager.list_files()
+        file_info = next((f for f in files if f["path"] == path), None)
+        if file_info is None:
+            return
+
+        menu = QMenu(self)
+        action_detail = menu.addAction("자세히")
+        menu.addSeparator()
+        action_info   = menu.addAction("인터넷에서 정보 보기")
+        action_tag    = menu.addAction("태그 찾기")
+
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+
+        if action == action_detail:
+            dlg = TagDetailDialog(file_info, parent=self)
+            dlg.exec()
+        elif action == action_info:
+            dlg = SongInfoDialog(self._manager, file_info, parent=self)
+            dlg.exec()
+            self._load_table()
+        elif action == action_tag:
+            dlg = TagFetchDialog(self._manager, [file_info], parent=self)
+            dlg.exec()
+            self._load_table()
+
+    def _on_tag_fetch_clicked(self) -> None:
+        """
+        Open the TagFetchDialog for all selected rows.
+
+        If no rows are selected, process all files in the table that
+        are missing a title or artist tag.
+        """
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            paths = {
+                self.table.item(idx.row(), 0).data(Qt.ItemDataRole.UserRole)
+                for idx in selected_rows
+            }
+            files = [f for f in self._manager.list_files() if f["path"] in paths]
+        else:
+            files = self._manager.list_files()
+
+        dlg = TagFetchDialog(self._manager, files, parent=self)
+        dlg.exec()
+        self._load_table()
+
+    def _on_search_text_changed(self, text=None) -> None:
+        """
+        Filter the table in real time as the user types or toggles the checkbox.
+
+        Args:
+            text: Current text in search_edit (ignored; read directly from widget).
+        """
+        keyword = self.search_edit.text().strip()
         if keyword:
-            files = self._manager.search(keyword)
+            filename_only = not self.chk_search_tags.isChecked()
+            files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
         else:
             files = self._manager.list_files()
@@ -245,7 +329,8 @@ class MainWindow(QMainWindow):
         """
         keyword = self.search_edit.text().strip()
         if keyword:
-            files = self._manager.search(keyword)
+            filename_only = not self.chk_search_tags.isChecked()
+            files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
         else:
             files = self._manager.list_files()
@@ -292,26 +377,89 @@ class MainWindow(QMainWindow):
         """
         Populate the table widget with the given list of MP3 records.
 
+        Sorting is temporarily disabled during insertion to prevent
+        rows from being reordered mid-fill.
+
         Args:
             files: List of row dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
         """
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(files))
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
+            filename_item.setToolTip(f["path"])
 
-            duration = f"{f['duration']:.1f}" if f["duration"] else "-"
+            path_item = QTableWidgetItem(f["path"])
+            path_item.setToolTip(f["path"])
+
+            duration = _fmt_duration(f["duration"])
             filesize = str(f["filesize"]) if f["filesize"] else "-"
 
+            def _item(text: str) -> QTableWidgetItem:
+                """Create a table item whose tooltip matches its text."""
+                it = QTableWidgetItem(text)
+                it.setToolTip(text)
+                return it
+
             self.table.setItem(row, 0, filename_item)
-            self.table.setItem(row, 1, QTableWidgetItem(f["title"] or "-"))
-            self.table.setItem(row, 2, QTableWidgetItem(f["artist"] or "-"))
-            self.table.setItem(row, 3, QTableWidgetItem(f["album"] or "-"))
-            self.table.setItem(row, 4, QTableWidgetItem(duration))
-            self.table.setItem(row, 5, QTableWidgetItem(filesize))
-            self.table.setItem(row, 6, QTableWidgetItem(f["file_created_at"] or "-"))
-            self.table.setItem(row, 7, QTableWidgetItem(f["file_modified_at"] or "-"))
+            self.table.setItem(row, 1, path_item)
+            self.table.setItem(row, 2, _item(f["title"] or "-"))
+            self.table.setItem(row, 3, _item(f["artist"] or "-"))
+            self.table.setItem(row, 4, _item(f["album"] or "-"))
+            self.table.setItem(row, 5, _item(f.get("genre") or "-"))
+            self.table.setItem(row, 6, _item(f.get("year") or "-"))
+            self.table.setItem(row, 7, _item(duration))
+            self.table.setItem(row, 8, _item(filesize))
+            self.table.setItem(row, 9, _item(f["file_created_at"] or "-"))
+            self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
+
+        self.table.setSortingEnabled(True)
+
+    def _on_column_visibility_menu(self, pos) -> None:
+        """
+        Show a right-click menu on the table header to toggle column visibility.
+
+        Each column is listed as a checkable action.  Clicking an action
+        toggles that column's hidden state and persists the choice to QSettings.
+
+        Args:
+            pos: Cursor position relative to the header viewport.
+        """
+        menu = QMenu(self)
+        hdr = self.table.horizontalHeader()
+        for col in range(self.table.columnCount()):
+            label = self.table.horizontalHeaderItem(col).text()
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(not self.table.isColumnHidden(col))
+            action.setData(col)
+
+        chosen = menu.exec(hdr.mapToGlobal(pos))
+        if chosen is None:
+            return
+
+        col = chosen.data()
+        self.table.setColumnHidden(col, not self.table.isColumnHidden(col))
+        self._save_column_visibility()
+
+    def _save_column_visibility(self) -> None:
+        """Persist the set of hidden column indices to QSettings."""
+        hidden = [
+            col for col in range(self.table.columnCount())
+            if self.table.isColumnHidden(col)
+        ]
+        self._settings.setValue("table/hidden_columns", hidden)
+
+    def _restore_column_visibility(self) -> None:
+        """Restore hidden column indices from QSettings."""
+        hidden = self._settings.value("table/hidden_columns", [])
+        # QSettings may return a single string when only one value was saved
+        if isinstance(hidden, str):
+            hidden = [hidden]
+        for col in hidden:
+            self.table.setColumnHidden(int(col), True)
 
     def closeEvent(self, event) -> None:
         """Close the database connection when the window is closed."""

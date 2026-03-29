@@ -10,10 +10,15 @@
 # Output:
 #   dist/mp3-archive.exe  (single self-contained executable)
 
+import os
 import sys
 from pathlib import Path
 
 block_cipher = None
+
+# SPECPATH is the directory containing this spec file (i.e. build/).
+# ROOT is the project root (one level up).
+ROOT = os.path.dirname(SPECPATH)
 
 # ---------------------------------------------------------------------------
 # Collect all data files required by PyQt6 (translations, plugins, etc.)
@@ -25,16 +30,18 @@ mutagen_datas = collect_data_files("mutagen")
 
 a = Analysis(
     # Entry point
-    scripts=["src/main_window.py"],
+    scripts=[os.path.join(ROOT, "src", "main_window.py")],
 
     # Search paths so 'from mp3_manager import ...' resolves correctly
-    pathex=["src"],
+    pathex=[os.path.join(ROOT, "src")],
 
     # Shared libraries to bundle (PyQt6 platform plugins, etc.)
     binaries=collect_dynamic_libs("PyQt6"),
 
     # Data files (Qt translations, Qt plugins)
-    datas=pyqt6_datas + mutagen_datas,
+    datas=pyqt6_datas + mutagen_datas + [
+        (os.path.join(ROOT, "src", "main_window.ui"), "."),
+    ],
 
     # Python-level hidden imports that PyInstaller may miss
     hiddenimports=[
@@ -46,6 +53,12 @@ a = Analysis(
         "mutagen.mp3",
         "mutagen.id3",
         "sqlite3",
+        "musicbrainzngs",
+        "tag_fetcher",
+        "tag_fetch_dialog",
+        "song_info_dialog",
+        "tag_detail_dialog",
+        "mp3_manager",
     ],
 
     hookspath=[],
@@ -56,10 +69,6 @@ a = Analysis(
     excludes=[
         "tkinter",
         "unittest",
-        "email",
-        "html",
-        "http",
-        "urllib",
         "xmlrpc",
     ],
 
