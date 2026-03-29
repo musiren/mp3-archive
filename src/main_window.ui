@@ -165,6 +165,19 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="btn_tag_fetch">
+        <property name="text">
+         <string>태그 찾기</string>
+        </property>
+        <property name="minimumWidth">
+         <number>90</number>
+        </property>
+        <property name="maximumWidth">
+         <number>90</number>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer name="toolbarSpacer">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>

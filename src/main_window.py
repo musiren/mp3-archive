@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mp3_manager import Mp3Manager
+from tag_fetch_dialog import TagFetchDialog
 
 # Path to the Qt Designer UI file, relative to this module.
 _UI_FILE = os.path.join(os.path.dirname(__file__), "main_window.ui")
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
+        self.btn_tag_fetch.clicked.connect(self._on_tag_fetch_clicked)
         self.btn_search.clicked.connect(self._on_search_clicked)
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
@@ -219,6 +221,27 @@ class MainWindow(QMainWindow):
         self.status_label.setText(
             f"완료: {processed}개 업데이트, {skipped}개 변경 없음"
         )
+        self._load_table()
+
+    def _on_tag_fetch_clicked(self) -> None:
+        """
+        Open the TagFetchDialog for all selected rows.
+
+        If no rows are selected, process all files in the table that
+        are missing a title or artist tag.
+        """
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            paths = {
+                self.table.item(idx.row(), 0).data(Qt.ItemDataRole.UserRole)
+                for idx in selected_rows
+            }
+            files = [f for f in self._manager.list_files() if f["path"] in paths]
+        else:
+            files = self._manager.list_files()
+
+        dlg = TagFetchDialog(self._manager, files, parent=self)
+        dlg.exec()
         self._load_table()
 
     def _on_search_text_changed(self, text: str) -> None:

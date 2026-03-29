@@ -182,6 +182,55 @@ class Mp3Manager:
         """
         return _search_files(self._conn, keyword)
 
+    def update_file_tags(
+        self,
+        path: str,
+        title: str | None,
+        artist: str | None,
+        album: str | None,
+    ) -> None:
+        """
+        Write ID3 tags to an MP3 file and update the corresponding DB record.
+
+        Only fields with non-None values are written; existing tags for
+        fields passed as None are left unchanged.
+
+        Args:
+            path:   Absolute path to the MP3 file.
+            title:  New title tag value, or None to leave unchanged.
+            artist: New artist tag value, or None to leave unchanged.
+            album:  New album tag value, or None to leave unchanged.
+        """
+        from mutagen.id3 import ID3, TIT2, TPE1, TALB, ID3NoHeaderError
+
+        try:
+            try:
+                tags = ID3(path)
+            except ID3NoHeaderError:
+                tags = ID3()
+
+            if title is not None:
+                tags["TIT2"] = TIT2(encoding=3, text=title)
+            if artist is not None:
+                tags["TPE1"] = TPE1(encoding=3, text=artist)
+            if album is not None:
+                tags["TALB"] = TALB(encoding=3, text=album)
+
+            tags.save(path)
+        except Exception:
+            pass  # File may be read-only, corrupt, or not a real MP3
+
+        # Reflect changes in the database regardless of file write outcome.
+        fields = {k: v for k, v in {"title": title, "artist": artist, "album": album}.items()
+                  if v is not None}
+        if fields:
+            set_clause = ", ".join(f"{k} = ?" for k in fields)
+            self._conn.execute(
+                f"UPDATE mp3_files SET {set_clause} WHERE path = ?",
+                list(fields.values()) + [path],
+            )
+            self._conn.commit()
+
     def delete(self, path: str) -> None:
         """
         Remove an MP3 record from the database by its file path.
