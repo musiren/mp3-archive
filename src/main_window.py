@@ -43,6 +43,7 @@ def _fmt_duration(seconds) -> str:
     return f"{total // 60}:{total % 60:02d}"
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
+from tag_detail_dialog import TagDetailDialog
 
 # Path to the Qt Designer UI file.
 # When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
@@ -261,12 +262,17 @@ class MainWindow(QMainWindow):
             return
 
         menu = QMenu(self)
-        action_info = menu.addAction("인터넷에서 정보 보기")
-        action_tag  = menu.addAction("태그 찾기")
+        action_detail = menu.addAction("자세히")
+        menu.addSeparator()
+        action_info   = menu.addAction("인터넷에서 정보 보기")
+        action_tag    = menu.addAction("태그 찾기")
 
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
 
-        if action == action_info:
+        if action == action_detail:
+            dlg = TagDetailDialog(file_info, parent=self)
+            dlg.exec()
+        elif action == action_info:
             dlg = SongInfoDialog(self._manager, file_info, parent=self)
             dlg.exec()
             self._load_table()
