@@ -122,13 +122,14 @@ class MainWindow(QMainWindow):
         self.search_edit.textChanged.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
-        """Apply column resize modes that cannot be set in Qt Designer."""
+        """Apply column resize modes and enable header click sorting."""
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
+        self.table.setSortingEnabled(True)
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -315,10 +316,14 @@ class MainWindow(QMainWindow):
         """
         Populate the table widget with the given list of MP3 records.
 
+        Sorting is temporarily disabled during insertion to prevent
+        rows from being reordered mid-fill.
+
         Args:
             files: List of row dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
         """
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(files))
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
@@ -335,6 +340,8 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 5, QTableWidgetItem(filesize))
             self.table.setItem(row, 6, QTableWidgetItem(f["file_created_at"] or "-"))
             self.table.setItem(row, 7, QTableWidgetItem(f["file_modified_at"] or "-"))
+
+        self.table.setSortingEnabled(True)
 
     def closeEvent(self, event) -> None:
         """Close the database connection when the window is closed."""
