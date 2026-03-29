@@ -90,7 +90,14 @@
       <item>
        <widget class="QLineEdit" name="search_edit">
         <property name="placeholderText">
-         <string>파일명, 제목, 아티스트, 앨범 검색...</string>
+         <string>파일명 검색...</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="chk_search_tags">
+        <property name="text">
+         <string>태그 포함</string>
         </property>
        </widget>
       </item>

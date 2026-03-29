@@ -173,8 +173,10 @@ class TestSearch(unittest.TestCase):
         self._db_path = db_path
         win = MainWindow(db_path)
         self._win = win
-        info_a = {**sample_info("/music/a.mp3"), "artist": "Queen", "title": "Bohemian Rhapsody"}
-        info_b = {**sample_info("/music/b.mp3"), "artist": "BTS", "title": "Dynamite"}
+        info_a = {**sample_info("/music/Queen - Bohemian Rhapsody.mp3"),
+                  "artist": "Queen", "title": "Bohemian Rhapsody"}
+        info_b = {**sample_info("/music/BTS - Dynamite.mp3"),
+                  "artist": "BTS", "title": "Dynamite"}
         _save_to_db(win._manager._conn, info_a)
         _save_to_db(win._manager._conn, info_b)
         win._load_table()

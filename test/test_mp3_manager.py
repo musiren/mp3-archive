@@ -183,6 +183,18 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["comment"], "great track")
 
+    def test_filename_only_excludes_tag_fields(self):
+        """Verify that filename_only=True does not match keywords found only in tags."""
+        # "Rock" is in the genre tag of info_a but not in any filename
+        results = self.mgr.search("Rock", filename_only=True)
+        self.assertEqual(results, [])
+
+    def test_filename_only_matches_filename(self):
+        """Verify that filename_only=True still matches the filename column."""
+        results = self.mgr.search("Song One", filename_only=True)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["filename"], "Artist A - Song One.mp3")
+
 
 class TestDelete(unittest.TestCase):
 

@@ -167,20 +167,22 @@ class Mp3Manager:
         """
         return _list_files(self._conn)
 
-    def search(self, keyword: str) -> list[dict]:
+    def search(self, keyword: str, filename_only: bool = False) -> list[dict]:
         """
         Search audio records by keyword.
 
-        Performs a case-insensitive substring match against filename,
-        title, artist, and album fields.
+        Performs a case-insensitive substring match.  By default searches
+        all tag fields (filename, title, artist, album, genre, year, comment).
+        Pass filename_only=True to restrict the match to the filename column.
 
         Args:
-            keyword: The search term to look for.
+            keyword:       The search term to look for.
+            filename_only: When True, only the filename column is searched.
 
         Returns:
             List of matching row dictionaries ordered by artist and title.
         """
-        return _search_files(self._conn, keyword)
+        return _search_files(self._conn, keyword, filename_only=filename_only)
 
     def update_file_tags(
         self,
@@ -416,31 +418,46 @@ def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> No
         conn.commit()
 
 
-def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
+def _search_files(
+    conn: sqlite3.Connection,
+    keyword: str,
+    filename_only: bool = False,
+) -> list[dict]:
     """
-    Search audio_files rows where keyword appears in filename, title, artist, or album.
+    Search audio_files rows where keyword appears in the selected fields.
 
     Args:
-        conn:    Active SQLite connection.
-        keyword: Search term; partial matches are included.
+        conn:          Active SQLite connection.
+        keyword:       Search term; partial matches are included.
+        filename_only: When True, only the filename column is matched.
+                       When False (default), all tag fields are searched.
 
     Returns:
         List of matching row dictionaries ordered by artist and title.
     """
     pattern = f"%{keyword}%"
-    cursor = conn.execute("""
-        SELECT id, path, filename, title, artist, album, genre, year, comment,
-               duration, filesize, file_created_at, file_modified_at
-        FROM audio_files
-        WHERE filename LIKE ?
-           OR title    LIKE ?
-           OR artist   LIKE ?
-           OR album    LIKE ?
-           OR genre    LIKE ?
-           OR year     LIKE ?
-           OR comment  LIKE ?
-        ORDER BY artist, title
-    """, (pattern, pattern, pattern, pattern, pattern, pattern, pattern))
+    if filename_only:
+        cursor = conn.execute("""
+            SELECT id, path, filename, title, artist, album, genre, year, comment,
+                   duration, filesize, file_created_at, file_modified_at
+            FROM audio_files
+            WHERE filename LIKE ?
+            ORDER BY artist, title
+        """, (pattern,))
+    else:
+        cursor = conn.execute("""
+            SELECT id, path, filename, title, artist, album, genre, year, comment,
+                   duration, filesize, file_created_at, file_modified_at
+            FROM audio_files
+            WHERE filename LIKE ?
+               OR title    LIKE ?
+               OR artist   LIKE ?
+               OR album    LIKE ?
+               OR genre    LIKE ?
+               OR year     LIKE ?
+               OR comment  LIKE ?
+            ORDER BY artist, title
+        """, (pattern, pattern, pattern, pattern, pattern, pattern, pattern))
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 

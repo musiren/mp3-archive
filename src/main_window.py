@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
+        self.chk_search_tags.toggled.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
         """Apply column resize modes, enable sorting, and set up context menu."""
@@ -302,16 +303,17 @@ class MainWindow(QMainWindow):
         dlg.exec()
         self._load_table()
 
-    def _on_search_text_changed(self, text: str) -> None:
+    def _on_search_text_changed(self, text=None) -> None:
         """
-        Filter the table in real time as the user types.
+        Filter the table in real time as the user types or toggles the checkbox.
 
         Args:
-            text: Current text in search_edit.
+            text: Current text in search_edit (ignored; read directly from widget).
         """
-        keyword = text.strip()
+        keyword = self.search_edit.text().strip()
         if keyword:
-            files = self._manager.search(keyword)
+            filename_only = not self.chk_search_tags.isChecked()
+            files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
         else:
             files = self._manager.list_files()
@@ -326,7 +328,8 @@ class MainWindow(QMainWindow):
         """
         keyword = self.search_edit.text().strip()
         if keyword:
-            files = self._manager.search(keyword)
+            filename_only = not self.chk_search_tags.isChecked()
+            files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
         else:
             files = self._manager.list_files()
