@@ -230,6 +230,9 @@
        <property name="text"><string>파일명</string></property>
       </column>
       <column>
+       <property name="text"><string>경로</string></property>
+      </column>
+      <column>
        <property name="text"><string>제목</string></property>
       </column>
       <column>

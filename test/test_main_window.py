@@ -193,7 +193,7 @@ class TestSearch(unittest.TestCase):
         win = self._make_window()
         win.search_edit.setText("Queen")
         self.assertEqual(win.table.rowCount(), 1)
-        self.assertEqual(win.table.item(0, 2).text(), "Queen")
+        self.assertEqual(win.table.item(0, 3).text(), "Queen")
         win.close()
 
     def test_realtime_search_empty_restores_all(self):

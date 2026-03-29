@@ -144,6 +144,9 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
@@ -393,15 +396,16 @@ class MainWindow(QMainWindow):
             filesize = str(f["filesize"]) if f["filesize"] else "-"
 
             self.table.setItem(row, 0, filename_item)
-            self.table.setItem(row, 1, QTableWidgetItem(f["title"] or "-"))
-            self.table.setItem(row, 2, QTableWidgetItem(f["artist"] or "-"))
-            self.table.setItem(row, 3, QTableWidgetItem(f["album"] or "-"))
-            self.table.setItem(row, 4, QTableWidgetItem(f.get("genre") or "-"))
-            self.table.setItem(row, 5, QTableWidgetItem(f.get("year") or "-"))
-            self.table.setItem(row, 6, QTableWidgetItem(duration))
-            self.table.setItem(row, 7, QTableWidgetItem(filesize))
-            self.table.setItem(row, 8, QTableWidgetItem(f["file_created_at"] or "-"))
-            self.table.setItem(row, 9, QTableWidgetItem(f["file_modified_at"] or "-"))
+            self.table.setItem(row, 1, QTableWidgetItem(f["path"]))
+            self.table.setItem(row, 2, QTableWidgetItem(f["title"] or "-"))
+            self.table.setItem(row, 3, QTableWidgetItem(f["artist"] or "-"))
+            self.table.setItem(row, 4, QTableWidgetItem(f["album"] or "-"))
+            self.table.setItem(row, 5, QTableWidgetItem(f.get("genre") or "-"))
+            self.table.setItem(row, 6, QTableWidgetItem(f.get("year") or "-"))
+            self.table.setItem(row, 7, QTableWidgetItem(duration))
+            self.table.setItem(row, 8, QTableWidgetItem(filesize))
+            self.table.setItem(row, 9, QTableWidgetItem(f["file_created_at"] or "-"))
+            self.table.setItem(row, 10, QTableWidgetItem(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
 
