@@ -17,9 +17,11 @@ Usage:
 """
 
 import argparse
+import base64
 import os
 import sys
 
+from mutagen import File as MutagenFile
 from PyQt6 import uic
 from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -41,6 +43,56 @@ def _fmt_duration(seconds) -> str:
         return "-"
     total = int(seconds)
     return f"{total // 60}:{total % 60:02d}"
+
+
+def _get_album_art(file_path: str) -> bytes | None:
+    """
+    Extract embedded album art from an audio file.
+
+    Supports ID3 (APIC), FLAC/Ogg (pictures), and MP4/M4A (covr).
+    Returns the raw image bytes, or None if no art is found.
+
+    Args:
+        file_path: Path to the audio file.
+    """
+    try:
+        audio = MutagenFile(file_path)
+        if audio is None:
+            return None
+        # ID3 tags (MP3, AIFF): look for any APIC frame
+        if audio.tags:
+            for key in audio.tags.keys():
+                if key.startswith("APIC"):
+                    return audio.tags[key].data
+        # FLAC / Ogg Vorbis / Opus: pictures attribute
+        if hasattr(audio, "pictures") and audio.pictures:
+            return audio.pictures[0].data
+        # MP4 / M4A / AAC: covr atom
+        if audio.tags and "covr" in audio.tags:
+            return bytes(audio.tags["covr"][0])
+    except Exception:
+        pass
+    return None
+
+
+def _album_art_tooltip(file_path: str) -> str:
+    """
+    Build a tooltip string for a filename cell.
+
+    Returns an HTML <img> tag with the embedded album art encoded as
+    base64 when art is available, otherwise returns the plain file path.
+
+    Args:
+        file_path: Absolute path to the audio file.
+    """
+    art = _get_album_art(file_path)
+    if art:
+        b64 = base64.b64encode(art).decode("ascii")
+        return (
+            f'<img src="data:image/jpeg;base64,{b64}" '
+            f'width="160" height="160"><br><small>{file_path}</small>'
+        )
+    return file_path
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
 from tag_detail_dialog import TagDetailDialog
@@ -389,7 +441,7 @@ class MainWindow(QMainWindow):
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
-            filename_item.setToolTip(f["path"])
+            filename_item.setToolTip(_album_art_tooltip(f["path"]))
 
             path_item = QTableWidgetItem(f["path"])
             path_item.setToolTip(f["path"])
