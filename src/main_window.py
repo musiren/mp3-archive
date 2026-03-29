@@ -33,6 +33,14 @@ from PyQt6.QtWidgets import (
 )
 
 from mp3_manager import Mp3Manager
+
+
+def _fmt_duration(seconds) -> str:
+    """Convert a duration in seconds to 'm:ss' format (e.g. 100 -> '1:40')."""
+    if not seconds:
+        return "-"
+    total = int(seconds)
+    return f"{total // 60}:{total % 60:02d}"
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
 
@@ -372,7 +380,7 @@ class MainWindow(QMainWindow):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
 
-            duration = f"{f['duration']:.1f}" if f["duration"] else "-"
+            duration = _fmt_duration(f["duration"])
             filesize = str(f["filesize"]) if f["filesize"] else "-"
 
             self.table.setItem(row, 0, filename_item)
