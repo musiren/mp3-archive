@@ -263,6 +263,9 @@ def _create_table(conn: sqlite3.Connection) -> None:
             title            TEXT,
             artist           TEXT,
             album            TEXT,
+            genre            TEXT,
+            year             TEXT,
+            comment          TEXT,
             duration         REAL,
             filesize         INTEGER,
             file_created_at  TEXT,
@@ -271,6 +274,9 @@ def _create_table(conn: sqlite3.Connection) -> None:
     """)
     _migrate_add_column(conn, "file_created_at", "TEXT")
     _migrate_add_column(conn, "file_modified_at", "TEXT")
+    _migrate_add_column(conn, "genre", "TEXT")
+    _migrate_add_column(conn, "year", "TEXT")
+    _migrate_add_column(conn, "comment", "TEXT")
     conn.commit()
 
 
@@ -312,6 +318,9 @@ def _get_audio_info(file_path: str) -> dict:
         "title":            None,
         "artist":           None,
         "album":            None,
+        "genre":            None,
+        "year":             None,
+        "comment":          None,
         "duration":         None,
         "filesize":         os.path.getsize(file_path),
         "file_created_at":  _ts(os.path.getctime(file_path)),
@@ -325,9 +334,12 @@ def _get_audio_info(file_path: str) -> dict:
             if hasattr(audio, "info") and hasattr(audio.info, "length"):
                 info["duration"] = round(audio.info.length, 2)
             if audio.tags:
-                info["title"]  = _first_tag(audio.tags, "title")
-                info["artist"] = _first_tag(audio.tags, "artist")
-                info["album"]  = _first_tag(audio.tags, "album")
+                info["title"]   = _first_tag(audio.tags, "title")
+                info["artist"]  = _first_tag(audio.tags, "artist")
+                info["album"]   = _first_tag(audio.tags, "album")
+                info["genre"]   = _first_tag(audio.tags, "genre")
+                info["year"]    = _first_tag(audio.tags, "date")
+                info["comment"] = _first_tag(audio.tags, "comment")
     except Exception:
         pass
 
@@ -394,11 +406,11 @@ def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> No
     """
     conn.execute("""
         INSERT OR REPLACE INTO audio_files
-            (path, filename, title, artist, album, duration, filesize,
-             file_created_at, file_modified_at)
+            (path, filename, title, artist, album, genre, year, comment,
+             duration, filesize, file_created_at, file_modified_at)
         VALUES
-            (:path, :filename, :title, :artist, :album, :duration, :filesize,
-             :file_created_at, :file_modified_at)
+            (:path, :filename, :title, :artist, :album, :genre, :year, :comment,
+             :duration, :filesize, :file_created_at, :file_modified_at)
     """, info)
     if commit:
         conn.commit()
@@ -417,15 +429,18 @@ def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
     """
     pattern = f"%{keyword}%"
     cursor = conn.execute("""
-        SELECT id, path, filename, title, artist, album, duration, filesize,
-               file_created_at, file_modified_at
+        SELECT id, path, filename, title, artist, album, genre, year, comment,
+               duration, filesize, file_created_at, file_modified_at
         FROM audio_files
         WHERE filename LIKE ?
            OR title    LIKE ?
            OR artist   LIKE ?
            OR album    LIKE ?
+           OR genre    LIKE ?
+           OR year     LIKE ?
+           OR comment  LIKE ?
         ORDER BY artist, title
-    """, (pattern, pattern, pattern, pattern))
+    """, (pattern, pattern, pattern, pattern, pattern, pattern, pattern))
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -441,8 +456,8 @@ def _list_files(conn: sqlite3.Connection) -> list[dict]:
         List of row dictionaries.
     """
     cursor = conn.execute("""
-        SELECT id, path, filename, title, artist, album, duration, filesize,
-               file_created_at, file_modified_at
+        SELECT id, path, filename, title, artist, album, genre, year, comment,
+               duration, filesize, file_created_at, file_modified_at
         FROM audio_files
         ORDER BY artist, title
     """)

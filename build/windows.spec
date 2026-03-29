@@ -56,6 +56,8 @@ a = Analysis(
         "musicbrainzngs",
         "tag_fetcher",
         "tag_fetch_dialog",
+        "song_info_dialog",
+        "tag_detail_dialog",
         "mp3_manager",
     ],
 

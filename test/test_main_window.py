@@ -34,13 +34,16 @@ def make_manager() -> Mp3Manager:
 
 
 def sample_info(path: str = "/music/test.mp3") -> dict:
-    """Return a sample MP3 info dictionary."""
+    """Return a sample audio info dictionary."""
     return {
         "path": path,
         "filename": os.path.basename(path),
         "title": "Test Song",
         "artist": "Test Artist",
         "album": "Test Album",
+        "genre": None,
+        "year": None,
+        "comment": None,
         "duration": 180.0,
         "filesize": 4096,
         "file_created_at": "2024-01-01 00:00:00",

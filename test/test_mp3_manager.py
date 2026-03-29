@@ -26,13 +26,16 @@ def make_manager() -> Mp3Manager:
 
 
 def sample_info(path: str = "/music/test.mp3") -> dict:
-    """Return a sample MP3 info dictionary for testing."""
+    """Return a sample audio info dictionary for testing."""
     return {
         "path": path,
         "filename": os.path.basename(path),
         "title": "Test Song",
         "artist": "Test Artist",
         "album": "Test Album",
+        "genre": "Pop",
+        "year": "2024",
+        "comment": "Test comment",
         "duration": 180.0,
         "filesize": 4096,
         "file_created_at": "2024-01-01 00:00:00",
@@ -77,8 +80,8 @@ class TestListFiles(unittest.TestCase):
         mgr = make_manager()
         _save_to_db(mgr._conn, sample_info())
         row = mgr.list_files()[0]
-        for key in ("id", "filename", "title", "artist", "album", "duration", "filesize",
-                    "file_created_at", "file_modified_at"):
+        for key in ("id", "filename", "title", "artist", "album", "genre", "year", "comment",
+                    "duration", "filesize", "file_created_at", "file_modified_at"):
             self.assertIn(key, row)
         mgr.close()
 
@@ -94,6 +97,9 @@ class TestSearch(unittest.TestCase):
             "title": "Song One",
             "artist": "Artist A",
             "album": "Album X",
+            "genre": "Rock",
+            "year": "2020",
+            "comment": "great track",
             "duration": 200.0,
             "filesize": 1024,
             "file_created_at": "2024-01-01 00:00:00",
@@ -105,6 +111,9 @@ class TestSearch(unittest.TestCase):
             "title": "Another Track",
             "artist": "Artist B",
             "album": "Album Y",
+            "genre": "Jazz",
+            "year": "2021",
+            "comment": None,
             "duration": 180.0,
             "filesize": 2048,
             "file_created_at": "2024-02-01 00:00:00",
@@ -155,6 +164,24 @@ class TestSearch(unittest.TestCase):
         results = self.mgr.search("artist a")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["artist"], "Artist A")
+
+    def test_search_by_genre(self):
+        """Verify that search matches the genre field."""
+        results = self.mgr.search("Rock")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["genre"], "Rock")
+
+    def test_search_by_year(self):
+        """Verify that search matches the year field."""
+        results = self.mgr.search("2021")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["year"], "2021")
+
+    def test_search_by_comment(self):
+        """Verify that search matches the comment field."""
+        results = self.mgr.search("great track")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["comment"], "great track")
 
 
 class TestDelete(unittest.TestCase):

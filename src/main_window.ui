@@ -232,6 +232,12 @@
        <property name="text"><string>앨범</string></property>
       </column>
       <column>
+       <property name="text"><string>장르</string></property>
+      </column>
+      <column>
+       <property name="text"><string>년도</string></property>
+      </column>
+      <column>
        <property name="text"><string>길이</string></property>
       </column>
       <column>

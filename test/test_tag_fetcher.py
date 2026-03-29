@@ -132,6 +132,7 @@ class TestUpdateFileTags(unittest.TestCase):
             _save_to_db(mgr._conn, {
                 "path": path, "filename": "track.mp3",
                 "title": None, "artist": None, "album": None,
+                "genre": None, "year": None, "comment": None,
                 "duration": None, "filesize": 0,
                 "file_created_at": None, "file_modified_at": None,
             })
@@ -148,6 +149,7 @@ class TestUpdateFileTags(unittest.TestCase):
             _save_to_db(mgr._conn, {
                 "path": path, "filename": "track.mp3",
                 "title": "Old Title", "artist": None, "album": None,
+                "genre": None, "year": None, "comment": None,
                 "duration": None, "filesize": 0,
                 "file_created_at": None, "file_modified_at": None,
             })
@@ -166,6 +168,7 @@ class TestUpdateFileTags(unittest.TestCase):
             _save_to_db(mgr._conn, {
                 "path": path, "filename": "track.mp3",
                 "title": "Keep Me", "artist": "Keep Artist", "album": "Keep Album",
+                "genre": None, "year": None, "comment": None,
                 "duration": None, "filesize": 0,
                 "file_created_at": None, "file_modified_at": None,
             })
