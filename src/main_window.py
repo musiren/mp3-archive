@@ -27,12 +27,14 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHeaderView,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QTableWidgetItem,
 )
 
 from mp3_manager import Mp3Manager
 from tag_fetch_dialog import TagFetchDialog
+from song_info_dialog import SongInfoDialog
 
 # Path to the Qt Designer UI file.
 # When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
@@ -125,7 +127,7 @@ class MainWindow(QMainWindow):
         self.search_edit.textChanged.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
-        """Apply column resize modes and enable header click sorting."""
+        """Apply column resize modes, enable sorting, and set up context menu."""
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -133,6 +135,8 @@ class MainWindow(QMainWindow):
             1, QHeaderView.ResizeMode.Stretch
         )
         self.table.setSortingEnabled(True)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -226,6 +230,42 @@ class MainWindow(QMainWindow):
             f"완료: {processed}개 업데이트, {skipped}개 변경 없음"
         )
         self._load_table()
+
+    def _on_table_context_menu(self, pos) -> None:
+        """
+        Show a right-click context menu on the table.
+
+        Provides '인터넷에서 정보 보기' and '태그 찾기' actions
+        for the row under the cursor.
+
+        Args:
+            pos: Cursor position relative to the table viewport.
+        """
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        row = index.row()
+        path = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        files = self._manager.list_files()
+        file_info = next((f for f in files if f["path"] == path), None)
+        if file_info is None:
+            return
+
+        menu = QMenu(self)
+        action_info = menu.addAction("인터넷에서 정보 보기")
+        action_tag  = menu.addAction("태그 찾기")
+
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+
+        if action == action_info:
+            dlg = SongInfoDialog(self._manager, file_info, parent=self)
+            dlg.exec()
+            self._load_table()
+        elif action == action_tag:
+            dlg = TagFetchDialog(self._manager, [file_info], parent=self)
+            dlg.exec()
+            self._load_table()
 
     def _on_tag_fetch_clicked(self) -> None:
         """

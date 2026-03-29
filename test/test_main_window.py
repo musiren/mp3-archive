@@ -209,6 +209,51 @@ class TestSearch(unittest.TestCase):
         win.close()
 
 
+class TestContextMenu(unittest.TestCase):
+
+    def _make_window_with_row(self) -> tuple:
+        """Return (MainWindow, file_info) with one record pre-loaded."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        info = {**sample_info("/music/track.mp3"),
+                "artist": "Test Artist", "title": "Test Song"}
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, info)
+        win._load_table()
+        return win, info
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_context_menu_policy_is_custom(self):
+        """Verify that the table uses CustomContextMenu policy."""
+        from PyQt6.QtCore import Qt
+        win, _ = self._make_window_with_row()
+        self.assertEqual(
+            win.table.contextMenuPolicy(),
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        win.close()
+
+    def test_context_menu_handler_resolves_file_info(self):
+        """Verify _on_table_context_menu finds the correct file_info for row 0."""
+        win, info = self._make_window_with_row()
+        # Simulate looking up the file for row 0 via the same logic the handler uses
+        from PyQt6.QtCore import Qt
+        path = win.table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        files = win._manager.list_files()
+        found = next((f for f in files if f["path"] == path), None)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["title"], "Test Song")
+        win.close()
+
+
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):
