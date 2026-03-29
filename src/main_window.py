@@ -389,21 +389,31 @@ class MainWindow(QMainWindow):
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
+            filename_item.setToolTip(f["path"])
+
+            path_item = QTableWidgetItem(f["path"])
+            path_item.setToolTip(f["path"])
 
             duration = _fmt_duration(f["duration"])
             filesize = str(f["filesize"]) if f["filesize"] else "-"
 
+            def _item(text: str) -> QTableWidgetItem:
+                """Create a table item whose tooltip matches its text."""
+                it = QTableWidgetItem(text)
+                it.setToolTip(text)
+                return it
+
             self.table.setItem(row, 0, filename_item)
-            self.table.setItem(row, 1, QTableWidgetItem(f["path"]))
-            self.table.setItem(row, 2, QTableWidgetItem(f["title"] or "-"))
-            self.table.setItem(row, 3, QTableWidgetItem(f["artist"] or "-"))
-            self.table.setItem(row, 4, QTableWidgetItem(f["album"] or "-"))
-            self.table.setItem(row, 5, QTableWidgetItem(f.get("genre") or "-"))
-            self.table.setItem(row, 6, QTableWidgetItem(f.get("year") or "-"))
-            self.table.setItem(row, 7, QTableWidgetItem(duration))
-            self.table.setItem(row, 8, QTableWidgetItem(filesize))
-            self.table.setItem(row, 9, QTableWidgetItem(f["file_created_at"] or "-"))
-            self.table.setItem(row, 10, QTableWidgetItem(f["file_modified_at"] or "-"))
+            self.table.setItem(row, 1, path_item)
+            self.table.setItem(row, 2, _item(f["title"] or "-"))
+            self.table.setItem(row, 3, _item(f["artist"] or "-"))
+            self.table.setItem(row, 4, _item(f["album"] or "-"))
+            self.table.setItem(row, 5, _item(f.get("genre") or "-"))
+            self.table.setItem(row, 6, _item(f.get("year") or "-"))
+            self.table.setItem(row, 7, _item(duration))
+            self.table.setItem(row, 8, _item(filesize))
+            self.table.setItem(row, 9, _item(f["file_created_at"] or "-"))
+            self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
 
