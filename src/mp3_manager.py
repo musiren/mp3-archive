@@ -1,28 +1,29 @@
 """
-mp3_manager.py - MP3 file scanner and SQLite manager, usable as a library.
+mp3_manager.py - Audio file scanner and SQLite manager, usable as a library.
 
+Supports MP3, FLAC, OGG, WAV, AAC, M4A, WMA, and Opus files.
 Intended for use with PyQt via the Mp3Manager class.
-The class supports context manager usage and an optional progress
-callback so it can be driven from a QThread without coupling to Qt.
 
 Example (PyQt):
     class ScanWorker(QThread):
         progress = pyqtSignal(int, int, str)   # current, total, path
-        finished = pyqtSignal(int)
+        finished = pyqtSignal(int, int)        # processed, skipped
 
-        def __init__(self, manager, directory):
+        def __init__(self, manager, directory, force=False):
             super().__init__()
             self.manager = manager
             self.directory = directory
+            self.force = force
 
         def run(self):
-            count = self.manager.scan(
+            processed, skipped = self.manager.scan(
                 self.directory,
                 progress_callback=lambda cur, tot, p: self.progress.emit(cur, tot, p),
+                force=self.force,
             )
-            self.finished.emit(count)
+            self.finished.emit(processed, skipped)
 
-    manager = Mp3Manager("mp3_archive.db")
+    manager = Mp3Manager("archive.db")
     worker = ScanWorker(manager, "/music")
     worker.start()
 
@@ -36,21 +37,27 @@ import os
 import sqlite3
 from typing import Callable
 
-from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, ID3NoHeaderError
+from mutagen import File as MutagenFile
 
 
 DB_DEFAULT = "mp3_archive.db"
 
+# All file extensions this manager recognises.
+SUPPORTED_EXTENSIONS = {
+    ".mp3", ".flac", ".ogg", ".wav",
+    ".aac", ".m4a", ".wma", ".opus",
+}
+
 
 class Mp3Manager:
     """
-    High-level interface for scanning MP3 files and persisting metadata.
+    High-level interface for scanning audio files and persisting metadata.
 
-    Wraps all SQLite operations and MP3 parsing behind a clean API
-    that is easy to use from PyQt widgets or worker threads.
+    Supports MP3, FLAC, OGG, WAV, AAC, M4A, WMA, and Opus formats.
+    Wraps all SQLite operations and tag parsing behind a clean API
+    suitable for PyQt widgets and worker threads.
 
-    Supports the context manager protocol for automatic connection cleanup:
+    Supports the context manager protocol for automatic cleanup:
         with Mp3Manager("archive.db") as mgr:
             mgr.scan("/music")
             files = mgr.list_files()
@@ -90,54 +97,49 @@ class Mp3Manager:
         force: bool = False,
     ) -> tuple[int, int]:
         """
-        Recursively scan a directory for MP3 files and update the database.
+        Recursively scan a directory for audio files and update the database.
+
+        Recognises: .mp3 .flac .ogg .wav .aac .m4a .wma .opus
 
         By default runs an incremental scan: files already in the database
-        whose file_modified_at timestamp has not changed are skipped, so
-        only new or modified files are processed.  Pass force=True to
-        re-read every file regardless of its stored timestamp.
+        whose file_modified_at timestamp has not changed are skipped.
+        Pass force=True to re-read every file regardless of timestamp.
 
         All inserts are batched into a single transaction for performance.
 
         Args:
             directory:         Root directory path to scan.
-            progress_callback: Optional callable invoked for each file found.
-                               Signature: callback(current, total, file_path)
-            force:             When True, ignore cached timestamps and process
-                               every file (full rescan).
+            progress_callback: Optional callable(current, total, file_path).
+            force:             When True, ignore cached timestamps.
 
         Returns:
-            A tuple (processed, skipped) where processed is the number of
-            files that were read and saved, and skipped is the number of
-            unchanged files that were left untouched.
+            A tuple (processed, skipped).
         """
-        mp3_paths = [
+        audio_paths = [
             os.path.join(root, f)
             for root, _, files in os.walk(directory)
             for f in files
-            if f.lower().endswith(".mp3")
+            if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
         ]
-        total = len(mp3_paths)
+        total = len(audio_paths)
 
-        # Build a {path: file_modified_at} cache from the DB for quick lookup.
         cached_mtime: dict[str, str] = {}
         if not force:
             cursor = self._conn.execute(
-                "SELECT path, file_modified_at FROM mp3_files"
+                "SELECT path, file_modified_at FROM audio_files"
             )
             cached_mtime = {row[0]: row[1] for row in cursor}
 
         def _current_mtime(file_path: str) -> str:
             """Return the file's mtime as an ISO-8601 string."""
-            import datetime as _dt
-            return _dt.datetime.fromtimestamp(
+            return datetime.datetime.fromtimestamp(
                 os.path.getmtime(file_path)
             ).strftime("%Y-%m-%d %H:%M:%S")
 
         processed = 0
         skipped   = 0
 
-        for idx, file_path in enumerate(mp3_paths, start=1):
+        for idx, file_path in enumerate(audio_paths, start=1):
             if not force:
                 mtime = _current_mtime(file_path)
                 if cached_mtime.get(file_path) == mtime:
@@ -146,7 +148,7 @@ class Mp3Manager:
                         progress_callback(idx, total, file_path)
                     continue
 
-            info = _get_mp3_info(file_path)
+            info = _get_audio_info(file_path)
             _save_to_db(self._conn, info, commit=False)
             processed += 1
 
@@ -158,18 +160,16 @@ class Mp3Manager:
 
     def list_files(self) -> list[dict]:
         """
-        Retrieve all MP3 records from the database.
+        Retrieve all audio records from the database.
 
         Returns:
             List of row dictionaries ordered by artist and title.
-            Each dict contains: id, filename, title, artist,
-            album, duration, filesize.
         """
         return _list_files(self._conn)
 
     def search(self, keyword: str) -> list[dict]:
         """
-        Search MP3 records by keyword.
+        Search audio records by keyword.
 
         Performs a case-insensitive substring match against filename,
         title, artist, and album fields.
@@ -190,55 +190,46 @@ class Mp3Manager:
         album: str | None,
     ) -> None:
         """
-        Write ID3 tags to an MP3 file and update the corresponding DB record.
+        Write tags to an audio file and update the corresponding DB record.
 
-        Only fields with non-None values are written; existing tags for
-        fields passed as None are left unchanged.
+        Uses mutagen's generic File() interface so the write works for all
+        supported formats.  Only fields with non-None values are written.
 
         Args:
-            path:   Absolute path to the MP3 file.
-            title:  New title tag value, or None to leave unchanged.
-            artist: New artist tag value, or None to leave unchanged.
-            album:  New album tag value, or None to leave unchanged.
+            path:   Absolute path to the audio file.
+            title:  New title value, or None to leave unchanged.
+            artist: New artist value, or None to leave unchanged.
+            album:  New album value, or None to leave unchanged.
         """
-        from mutagen.id3 import ID3, TIT2, TPE1, TALB, ID3NoHeaderError
-
         try:
-            try:
-                tags = ID3(path)
-            except ID3NoHeaderError:
-                tags = ID3()
-
-            if title is not None:
-                tags["TIT2"] = TIT2(encoding=3, text=title)
-            if artist is not None:
-                tags["TPE1"] = TPE1(encoding=3, text=artist)
-            if album is not None:
-                tags["TALB"] = TALB(encoding=3, text=album)
-
-            tags.save(path)
+            audio = MutagenFile(path, easy=True)
+            if audio is not None:
+                if title  is not None: audio["title"]  = [title]
+                if artist is not None: audio["artist"] = [artist]
+                if album  is not None: audio["album"]  = [album]
+                audio.save()
         except Exception:
-            pass  # File may be read-only, corrupt, or not a real MP3
+            pass  # File may be read-only, corrupt, or unsupported format
 
-        # Reflect changes in the database regardless of file write outcome.
-        fields = {k: v for k, v in {"title": title, "artist": artist, "album": album}.items()
+        fields = {k: v for k, v in
+                  {"title": title, "artist": artist, "album": album}.items()
                   if v is not None}
         if fields:
             set_clause = ", ".join(f"{k} = ?" for k in fields)
             self._conn.execute(
-                f"UPDATE mp3_files SET {set_clause} WHERE path = ?",
+                f"UPDATE audio_files SET {set_clause} WHERE path = ?",
                 list(fields.values()) + [path],
             )
             self._conn.commit()
 
     def delete(self, path: str) -> None:
         """
-        Remove an MP3 record from the database by its file path.
+        Remove an audio record from the database by its file path.
 
         Args:
             path: The exact file path stored in the database.
         """
-        self._conn.execute("DELETE FROM mp3_files WHERE path = ?", (path,))
+        self._conn.execute("DELETE FROM audio_files WHERE path = ?", (path,))
         self._conn.commit()
 
     def close(self) -> None:
@@ -252,13 +243,20 @@ class Mp3Manager:
 
 def _create_table(conn: sqlite3.Connection) -> None:
     """
-    Create the mp3_files table if it does not already exist.
+    Ensure the audio_files table exists, migrating from mp3_files if needed.
 
     Args:
         conn: Active SQLite connection.
     """
+    # Migrate: rename legacy mp3_files table to audio_files.
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+    if "mp3_files" in tables and "audio_files" not in tables:
+        conn.execute("ALTER TABLE mp3_files RENAME TO audio_files")
+
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS mp3_files (
+        CREATE TABLE IF NOT EXISTS audio_files (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             path             TEXT UNIQUE NOT NULL,
             filename         TEXT NOT NULL,
@@ -271,7 +269,6 @@ def _create_table(conn: sqlite3.Connection) -> None:
             file_modified_at TEXT
         )
     """)
-    # Migrate existing databases that predate the timestamp columns.
     _migrate_add_column(conn, "file_created_at", "TEXT")
     _migrate_add_column(conn, "file_modified_at", "TEXT")
     conn.commit()
@@ -279,72 +276,92 @@ def _create_table(conn: sqlite3.Connection) -> None:
 
 def _migrate_add_column(conn: sqlite3.Connection, column: str, col_type: str) -> None:
     """
-    Add a column to mp3_files if it does not already exist.
+    Add a column to audio_files if it does not already exist.
 
     Args:
         conn:     Active SQLite connection.
         column:   Column name to add.
         col_type: SQLite type string (e.g. 'TEXT', 'REAL').
     """
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(mp3_files)")}
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(audio_files)")}
     if column not in existing:
-        conn.execute(f"ALTER TABLE mp3_files ADD COLUMN {column} {col_type}")
+        conn.execute(f"ALTER TABLE audio_files ADD COLUMN {column} {col_type}")
 
 
-def _get_mp3_info(file_path: str) -> dict:
+def _get_audio_info(file_path: str) -> dict:
     """
-    Extract metadata from a single MP3 file.
+    Extract metadata from a single audio file using mutagen.
+
+    Supports ID3 (MP3), VorbisComment (FLAC/OGG/Opus), MP4 (M4A/AAC),
+    ASF (WMA), and falls back to filename parsing when tags are absent.
 
     Args:
-        file_path: Absolute or relative path to the MP3 file.
+        file_path: Absolute or relative path to the audio file.
 
     Returns:
         Dictionary with keys: path, filename, title, artist,
-        album, duration, filesize. Missing tags are stored as None.
+        album, duration, filesize, file_created_at, file_modified_at.
     """
     def _ts(epoch: float) -> str:
         """Convert a POSIX timestamp to an ISO-8601 local-time string."""
         return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
 
     info = {
-        "path": file_path,
-        "filename": os.path.basename(file_path),
-        "title": None,
-        "artist": None,
-        "album": None,
-        "duration": None,
-        "filesize": os.path.getsize(file_path),
-        "file_created_at": _ts(os.path.getctime(file_path)),
+        "path":             file_path,
+        "filename":         os.path.basename(file_path),
+        "title":            None,
+        "artist":           None,
+        "album":            None,
+        "duration":         None,
+        "filesize":         os.path.getsize(file_path),
+        "file_created_at":  _ts(os.path.getctime(file_path)),
         "file_modified_at": _ts(os.path.getmtime(file_path)),
     }
 
     try:
-        audio = MP3(file_path)
-        info["duration"] = round(audio.info.length, 2)
+        # easy=True normalises tag keys to lowercase across all formats.
+        audio = MutagenFile(file_path, easy=True)
+        if audio is not None:
+            if hasattr(audio, "info") and hasattr(audio.info, "length"):
+                info["duration"] = round(audio.info.length, 2)
+            if audio.tags:
+                info["title"]  = _first_tag(audio.tags, "title")
+                info["artist"] = _first_tag(audio.tags, "artist")
+                info["album"]  = _first_tag(audio.tags, "album")
     except Exception:
         pass
 
-    try:
-        tags = ID3(file_path)
-        info["title"] = str(tags.get("TIT2", "")).strip() or None
-        info["artist"] = str(tags.get("TPE1", "")).strip() or None
-        info["album"] = str(tags.get("TALB", "")).strip() or None
-    except ID3NoHeaderError:
-        pass
-
-    # Fall back to filename parsing when tags are missing.
-    # Expected format: "Artist - Title.mp3"
     if info["title"] is None or info["artist"] is None:
         _parse_filename_fallback(info)
 
     return info
 
 
+def _first_tag(tags, key: str) -> str | None:
+    """
+    Return the first string value for a tag key, or None if absent.
+
+    mutagen's easy=True interface returns list values for all formats.
+
+    Args:
+        tags: mutagen tags object.
+        key:  Lowercase tag key (e.g. 'title', 'artist', 'album').
+
+    Returns:
+        Stripped string value or None.
+    """
+    val = tags.get(key)
+    if not val:
+        return None
+    text = str(val[0]).strip() if isinstance(val, list) else str(val).strip()
+    return text or None
+
+
 def _parse_filename_fallback(info: dict) -> None:
     """
-    Attempt to extract artist and title from the filename when ID3 tags are absent.
+    Attempt to extract artist and title from the filename when tags are absent.
 
-    The expected filename format is "Artist - Title.mp3".
+    The expected filename format is "Artist - Title.ext".
     The separator is " - " (space-hyphen-space).
     If the filename does not contain the separator, only the title is inferred
     from the stem (filename without extension).
@@ -367,16 +384,16 @@ def _parse_filename_fallback(info: dict) -> None:
 
 def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> None:
     """
-    Insert or replace an MP3 record in the database.
+    Insert or replace an audio record in the database.
 
     Args:
         conn:   Active SQLite connection.
-        info:   Dictionary as returned by _get_mp3_info().
+        info:   Dictionary as returned by _get_audio_info().
         commit: If True (default), commit immediately after the insert.
-                Pass False when batching many inserts; caller must commit.
+                Pass False when batching; caller must commit.
     """
     conn.execute("""
-        INSERT OR REPLACE INTO mp3_files
+        INSERT OR REPLACE INTO audio_files
             (path, filename, title, artist, album, duration, filesize,
              file_created_at, file_modified_at)
         VALUES
@@ -389,9 +406,7 @@ def _save_to_db(conn: sqlite3.Connection, info: dict, commit: bool = True) -> No
 
 def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
     """
-    Search mp3_files rows where keyword appears in filename, title, artist, or album.
-
-    The match is case-insensitive (SQLite LIKE is case-insensitive for ASCII).
+    Search audio_files rows where keyword appears in filename, title, artist, or album.
 
     Args:
         conn:    Active SQLite connection.
@@ -404,7 +419,7 @@ def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
     cursor = conn.execute("""
         SELECT id, path, filename, title, artist, album, duration, filesize,
                file_created_at, file_modified_at
-        FROM mp3_files
+        FROM audio_files
         WHERE filename LIKE ?
            OR title    LIKE ?
            OR artist   LIKE ?
@@ -417,7 +432,7 @@ def _search_files(conn: sqlite3.Connection, keyword: str) -> list[dict]:
 
 def _list_files(conn: sqlite3.Connection) -> list[dict]:
     """
-    Retrieve all rows from mp3_files ordered by artist and title.
+    Retrieve all rows from audio_files ordered by artist and title.
 
     Args:
         conn: Active SQLite connection.
@@ -428,7 +443,7 @@ def _list_files(conn: sqlite3.Connection) -> list[dict]:
     cursor = conn.execute("""
         SELECT id, path, filename, title, artist, album, duration, filesize,
                file_created_at, file_modified_at
-        FROM mp3_files
+        FROM audio_files
         ORDER BY artist, title
     """)
     columns = [col[0] for col in cursor.description]
@@ -441,10 +456,10 @@ def _list_files(conn: sqlite3.Connection) -> list[dict]:
 
 def _main() -> None:
     """Parse CLI arguments and run the scan or list operation."""
-    parser = argparse.ArgumentParser(description="MP3 file manager using SQLite")
-    parser.add_argument("directory", nargs="?", help="Directory to scan for MP3 files")
+    parser = argparse.ArgumentParser(description="Audio file manager using SQLite")
+    parser.add_argument("directory", nargs="?", help="Directory to scan for audio files")
     parser.add_argument("--db", default=DB_DEFAULT, help="SQLite database file path")
-    parser.add_argument("--list", action="store_true", help="List all stored MP3 files")
+    parser.add_argument("--list", action="store_true", help="List all stored audio files")
     args = parser.parse_args()
 
     with Mp3Manager(args.db) as mgr:
@@ -457,13 +472,13 @@ def _main() -> None:
                 """Print scan progress to stdout."""
                 print(f"[{current}/{total}] {path}")
 
-            count = mgr.scan(args.directory, progress_callback=on_progress)
-            print(f"\nSaved {count} MP3 file(s) to '{args.db}'.")
+            processed, skipped = mgr.scan(args.directory, progress_callback=on_progress)
+            print(f"\nProcessed {processed}, skipped {skipped} in '{args.db}'.")
 
         if args.list:
             files = mgr.list_files()
             if not files:
-                print("No MP3 files in database.")
+                print("No audio files in database.")
             else:
                 print(f"{'ID':<4} {'Filename':<40} {'Artist':<20} {'Title':<30} {'Duration':>8}")
                 print("-" * 106)

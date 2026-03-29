@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
         """
         directory = self.path_edit.text().strip()
         if not directory:
-            QMessageBox.warning(self, "경고", "먼저 MP3 경로를 설정해주세요.")
+            QMessageBox.warning(self, "경고", "먼저 음악 경로를 설정해주세요.")
             return
         if not os.path.isdir(directory):
             QMessageBox.warning(self, "경고", f"'{directory}' 는 유효한 디렉토리가 아닙니다.")

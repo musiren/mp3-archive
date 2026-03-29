@@ -36,7 +36,7 @@
       <item>
        <widget class="QLabel" name="label_path">
         <property name="text">
-         <string>MP3 경로:</string>
+         <string>음악 경로:</string>
         </property>
         <property name="minimumWidth">
          <number>70</number>
@@ -49,7 +49,7 @@
       <item>
        <widget class="QLineEdit" name="path_edit">
         <property name="placeholderText">
-         <string>스캔할 디렉토리를 선택하세요...</string>
+         <string>스캔할 음악 디렉토리를 선택하세요...</string>
         </property>
         <property name="readOnly">
          <bool>true</bool>

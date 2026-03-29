@@ -12,7 +12,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from mp3_manager import Mp3Manager, _create_table, _save_to_db, _list_files, _parse_filename_fallback
+from mp3_manager import (Mp3Manager, _create_table, _save_to_db, _list_files,
+                         _parse_filename_fallback, SUPPORTED_EXTENSIONS)
 
 
 def make_manager() -> Mp3Manager:
@@ -183,17 +184,27 @@ class TestScan(unittest.TestCase):
             self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
         mgr.close()
 
-    def test_scan_ignores_non_mp3_files(self):
-        """Verify that non-MP3 files are not counted or saved."""
+    def test_scan_ignores_non_audio_files(self):
+        """Verify that non-audio files (txt, jpg, etc.) are not counted or saved."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "notes.txt"), "w").close()
-            open(os.path.join(tmpdir, "song.flac"), "w").close()
+            open(os.path.join(tmpdir, "cover.jpg"), "w").close()
             self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
         mgr.close()
 
-    def test_scan_counts_mp3_files(self):
-        """Verify that scan returns the correct count of MP3 files."""
+    def test_scan_counts_all_supported_formats(self):
+        """Verify that all supported audio formats are counted by scan."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for ext in (".mp3", ".flac", ".ogg", ".wav", ".m4a"):
+                open(os.path.join(tmpdir, f"track{ext}"), "w").close()
+            processed, skipped = mgr.scan(tmpdir, force=True)
+        self.assertEqual(processed, 5)
+        mgr.close()
+
+    def test_scan_counts_audio_files(self):
+        """Verify that scan returns the correct count of audio files."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "track1.mp3"), "w").close()
