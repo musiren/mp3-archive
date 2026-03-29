@@ -10,10 +10,15 @@
 # Output:
 #   dist/mp3-archive  (single self-contained executable)
 
+import os
 import sys
 from pathlib import Path
 
 block_cipher = None
+
+# SPECPATH is the directory containing this spec file (i.e. build/).
+# ROOT is the project root (one level up).
+ROOT = os.path.dirname(SPECPATH)
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
@@ -21,10 +26,12 @@ pyqt6_datas = collect_data_files("PyQt6")
 mutagen_datas = collect_data_files("mutagen")
 
 a = Analysis(
-    scripts=["src/main_window.py"],
-    pathex=["src"],
+    scripts=[os.path.join(ROOT, "src", "main_window.py")],
+    pathex=[os.path.join(ROOT, "src")],
     binaries=collect_dynamic_libs("PyQt6"),
-    datas=pyqt6_datas + mutagen_datas + [("src/main_window.ui", ".")],
+    datas=pyqt6_datas + mutagen_datas + [
+        (os.path.join(ROOT, "src", "main_window.ui"), "."),
+    ],
     hiddenimports=[
         "PyQt6.QtCore",
         "PyQt6.QtGui",
@@ -45,10 +52,6 @@ a = Analysis(
     excludes=[
         "tkinter",
         "unittest",
-        "email",
-        "html",
-        "http",
-        "urllib",
         "xmlrpc",
     ],
     cipher=block_cipher,
