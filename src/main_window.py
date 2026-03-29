@@ -137,19 +137,17 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
-        """Apply column resize modes, enable sorting, and set up context menu."""
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
-        )
+        """Apply column resize modes, enable sorting, and set up context menus."""
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        hdr.customContextMenuRequested.connect(self._on_column_visibility_menu)
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self._restore_column_visibility()
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -408,6 +406,50 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 10, QTableWidgetItem(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
+
+    def _on_column_visibility_menu(self, pos) -> None:
+        """
+        Show a right-click menu on the table header to toggle column visibility.
+
+        Each column is listed as a checkable action.  Clicking an action
+        toggles that column's hidden state and persists the choice to QSettings.
+
+        Args:
+            pos: Cursor position relative to the header viewport.
+        """
+        menu = QMenu(self)
+        hdr = self.table.horizontalHeader()
+        for col in range(self.table.columnCount()):
+            label = self.table.horizontalHeaderItem(col).text()
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(not self.table.isColumnHidden(col))
+            action.setData(col)
+
+        chosen = menu.exec(hdr.mapToGlobal(pos))
+        if chosen is None:
+            return
+
+        col = chosen.data()
+        self.table.setColumnHidden(col, not self.table.isColumnHidden(col))
+        self._save_column_visibility()
+
+    def _save_column_visibility(self) -> None:
+        """Persist the set of hidden column indices to QSettings."""
+        hidden = [
+            col for col in range(self.table.columnCount())
+            if self.table.isColumnHidden(col)
+        ]
+        self._settings.setValue("table/hidden_columns", hidden)
+
+    def _restore_column_visibility(self) -> None:
+        """Restore hidden column indices from QSettings."""
+        hidden = self._settings.value("table/hidden_columns", [])
+        # QSettings may return a single string when only one value was saved
+        if isinstance(hidden, str):
+            hidden = [hidden]
+        for col in hidden:
+            self.table.setColumnHidden(int(col), True)
 
     def closeEvent(self, event) -> None:
         """Close the database connection when the window is closed."""
