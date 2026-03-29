@@ -34,7 +34,7 @@ a = Analysis(
     binaries=collect_dynamic_libs("PyQt6"),
 
     # Data files (Qt translations, Qt plugins)
-    datas=pyqt6_datas + mutagen_datas,
+    datas=pyqt6_datas + mutagen_datas + [("src/main_window.ui", ".")],
 
     # Python-level hidden imports that PyInstaller may miss
     hiddenimports=[
@@ -46,6 +46,10 @@ a = Analysis(
         "mutagen.mp3",
         "mutagen.id3",
         "sqlite3",
+        "musicbrainzngs",
+        "tag_fetcher",
+        "tag_fetch_dialog",
+        "mp3_manager",
     ],
 
     hookspath=[],

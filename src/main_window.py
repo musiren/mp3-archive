@@ -34,8 +34,11 @@ from PyQt6.QtWidgets import (
 from mp3_manager import Mp3Manager
 from tag_fetch_dialog import TagFetchDialog
 
-# Path to the Qt Designer UI file, relative to this module.
-_UI_FILE = os.path.join(os.path.dirname(__file__), "main_window.ui")
+# Path to the Qt Designer UI file.
+# When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
+# to the temp bundle directory; otherwise it lives next to this module.
+_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+_UI_FILE = os.path.join(_BASE_DIR, "main_window.ui")
 
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
