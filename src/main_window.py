@@ -189,16 +189,36 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
 
     def _setup_table(self) -> None:
-        """Apply column resize modes, enable sorting, and set up context menus."""
+        """Apply column resize modes, set initial widths, and set up context menus.
+
+        Column order: 파일명(0) 경로(1) 아티스트(2) 제목(3) 앨범(4)
+                      장르(5) 년도(6) 길이(7) 크기(8) 생성일시(9) 수정일시(10)
+        """
         hdr = self.table.horizontalHeader()
+        # Stretch columns fill available space
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        # Fixed-width columns are still user-resizable
+        for col in (2, 4, 5, 6, 7, 8, 9, 10):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionsMovable(True)
+        hdr.sectionMoved.connect(self._save_column_order)
         hdr.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         hdr.customContextMenuRequested.connect(self._on_column_visibility_menu)
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        # Initial pixel widths for non-stretch columns
+        self.table.setColumnWidth(2,  150)   # 아티스트
+        self.table.setColumnWidth(4,  130)   # 앨범
+        self.table.setColumnWidth(5,   70)   # 장르
+        self.table.setColumnWidth(6,   50)   # 년도
+        self.table.setColumnWidth(7,   55)   # 길이
+        self.table.setColumnWidth(8,   90)   # 크기
+        self.table.setColumnWidth(9,  130)   # 생성일시
+        self.table.setColumnWidth(10, 130)   # 수정일시
+        self._restore_column_order()
         self._restore_column_visibility()
 
     def _restore_path(self) -> None:
@@ -458,8 +478,8 @@ class MainWindow(QMainWindow):
 
             self.table.setItem(row, 0, filename_item)
             self.table.setItem(row, 1, path_item)
-            self.table.setItem(row, 2, _item(f["title"] or "-"))
-            self.table.setItem(row, 3, _item(f["artist"] or "-"))
+            self.table.setItem(row, 2, _item(f["artist"] or "-"))
+            self.table.setItem(row, 3, _item(f["title"] or "-"))
             self.table.setItem(row, 4, _item(f["album"] or "-"))
             self.table.setItem(row, 5, _item(f.get("genre") or "-"))
             self.table.setItem(row, 6, _item(f.get("year") or "-"))
@@ -496,6 +516,25 @@ class MainWindow(QMainWindow):
         col = chosen.data()
         self.table.setColumnHidden(col, not self.table.isColumnHidden(col))
         self._save_column_visibility()
+
+    def _save_column_order(self) -> None:
+        """Persist the current visual column order to QSettings."""
+        hdr = self.table.horizontalHeader()
+        order = [hdr.logicalIndex(vi) for vi in range(hdr.count())]
+        self._settings.setValue("table/column_order", order)
+
+    def _restore_column_order(self) -> None:
+        """Restore the saved visual column order from QSettings."""
+        order = self._settings.value("table/column_order", [])
+        if isinstance(order, str):
+            order = [order]
+        if not order:
+            return
+        hdr = self.table.horizontalHeader()
+        for visual_idx, logical_idx in enumerate(order):
+            current_visual = hdr.visualIndex(int(logical_idx))
+            if current_visual != visual_idx:
+                hdr.moveSection(current_visual, visual_idx)
 
     def _save_column_visibility(self) -> None:
         """Persist the set of hidden column indices to QSettings."""

@@ -266,10 +266,10 @@
        <property name="text"><string>경로</string></property>
       </column>
       <column>
-       <property name="text"><string>제목</string></property>
+       <property name="text"><string>아티스트</string></property>
       </column>
       <column>
-       <property name="text"><string>아티스트</string></property>
+       <property name="text"><string>제목</string></property>
       </column>
       <column>
        <property name="text"><string>앨범</string></property>
