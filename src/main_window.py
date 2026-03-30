@@ -247,8 +247,14 @@ class MainWindow(QMainWindow):
         self.seek_slider.sliderPressed.connect(self._on_seek_slider_pressed)
         self.seek_slider.sliderReleased.connect(self._on_seek_slider_released)
 
+        # Volume slider
+        self.volume_slider.valueChanged.connect(self._on_volume_changed)
+
         # Playlist double-click to play
         self.playlist_widget.itemDoubleClicked.connect(self._on_playlist_double_clicked)
+
+        # Table double-click: add to playlist and play immediately
+        self.table.cellDoubleClicked.connect(self._on_table_double_clicked)
 
     def _setup_table(self) -> None:
         """Apply column resize modes, set initial widths, and set up context menus.
@@ -449,6 +455,25 @@ class MainWindow(QMainWindow):
         path = item.data(Qt.ItemDataRole.UserRole)
         self._play_path(path)
 
+    def _on_table_double_clicked(self, row: int, _col: int) -> None:
+        """
+        Add the double-clicked table row to the playlist and play it immediately.
+
+        If the file is already in the playlist its existing entry is reused;
+        otherwise it is appended.  Playback starts right away.
+
+        Args:
+            row:  Row index that was double-clicked.
+            _col: Column index (ignored).
+        """
+        path = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._playlist_add(path)
+        # Find the item's row in the playlist and play it
+        for i in range(self.playlist_widget.count()):
+            if self.playlist_widget.item(i).data(Qt.ItemDataRole.UserRole) == path:
+                self._playlist_play_index(i)
+                break
+
     # ------------------------------------------------------------------
     # Media player signal handlers
     # ------------------------------------------------------------------
@@ -502,6 +527,17 @@ class MainWindow(QMainWindow):
             else:
                 self.seek_slider.setValue(0)
                 self.btn_play_pause.setText("▶")
+
+    def _on_volume_changed(self, value: int) -> None:
+        """
+        Apply the slider value as the audio output volume.
+
+        Args:
+            value: Integer in 0–100 range from the volume_slider.
+        """
+        self.volume_label.setText(str(value))
+        if self._audio_output is not None:
+            self._audio_output.setVolume(value / 100.0)
 
     def _on_seek_slider_pressed(self) -> None:
         """Mark that the user is dragging the seek slider."""

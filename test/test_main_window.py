@@ -343,12 +343,36 @@ class TestPlaylist(unittest.TestCase):
         win.close()
 
     def test_player_controls_exist(self):
-        """Verify that all playback control buttons exist on the window."""
+        """Verify that all playback control buttons and volume slider exist on the window."""
         win = self._make_window()
         for attr in ("btn_play_pause", "btn_stop", "btn_prev", "btn_next",
-                     "btn_playlist_clear", "seek_slider",
+                     "btn_playlist_clear", "seek_slider", "volume_slider", "volume_label",
                      "player_title_label", "time_current_label", "time_total_label"):
             self.assertTrue(hasattr(win, attr), f"Missing widget: {attr}")
+        win.close()
+
+    def test_table_double_click_adds_to_playlist_and_sets_title(self):
+        """Verify that double-clicking a table row adds it to playlist and sets the title label."""
+        win = self._make_window()
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        # Simulate double-click on row 0
+        win._on_table_double_clicked(0, 0)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "track.mp3")
+        self.assertEqual(win.player_title_label.text(), "track.mp3")
+        win.close()
+
+    def test_table_double_click_no_duplicate_in_playlist(self):
+        """Verify that double-clicking the same row twice adds only one playlist entry."""
+        win = self._make_window()
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        win._on_table_double_clicked(0, 0)
+        win._on_table_double_clicked(0, 0)
+        self.assertEqual(win.playlist_widget.count(), 1)
         win.close()
 
 
