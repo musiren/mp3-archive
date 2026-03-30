@@ -324,8 +324,9 @@ class MainWindow(QMainWindow):
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
 
         if action == action_detail:
-            dlg = TagDetailDialog(file_info, parent=self)
+            dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
             dlg.exec()
+            self._load_table()
         elif action == action_info:
             dlg = SongInfoDialog(self._manager, file_info, parent=self)
             dlg.exec()

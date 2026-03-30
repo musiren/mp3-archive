@@ -224,6 +224,55 @@ class Mp3Manager:
             )
             self._conn.commit()
 
+    def update_tags(self, path: str, tags: dict[str, str]) -> None:
+        """
+        Write arbitrary easy-tag key/value pairs to a file and sync the DB.
+
+        All keys must use the mutagen easy-tag naming convention (e.g.
+        'title', 'artist', 'album', 'genre', 'date', 'comment').
+        The DB columns title, artist, album, genre, year, and comment are
+        updated automatically; the easy-tag key 'date' maps to the 'year'
+        DB column.
+
+        Args:
+            path: Absolute path to the audio file.
+            tags: Mapping of easy-tag key → new string value.
+        """
+        if not tags:
+            return
+
+        # Write to the audio file
+        try:
+            audio = MutagenFile(path, easy=True)
+            if audio is not None:
+                for key, val in tags.items():
+                    audio[key] = [val]
+                audio.save()
+        except Exception:
+            pass
+
+        # Map easy-tag keys to DB column names
+        _KEY_TO_COL = {
+            "title":   "title",
+            "artist":  "artist",
+            "album":   "album",
+            "genre":   "genre",
+            "date":    "year",
+            "comment": "comment",
+        }
+        db_fields = {
+            _KEY_TO_COL[k]: v
+            for k, v in tags.items()
+            if k in _KEY_TO_COL
+        }
+        if db_fields:
+            set_clause = ", ".join(f"{col} = ?" for col in db_fields)
+            self._conn.execute(
+                f"UPDATE audio_files SET {set_clause} WHERE path = ?",
+                list(db_fields.values()) + [path],
+            )
+            self._conn.commit()
+
     def delete(self, path: str) -> None:
         """
         Remove an audio record from the database by its file path.
