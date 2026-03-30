@@ -76,8 +76,9 @@ class TagDetailDialog(QDialog):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.setStretchLastSection(True)
         layout.addWidget(self._table)
 
         self._status_label = QLabel("")
@@ -92,6 +93,13 @@ class TagDetailDialog(QDialog):
         btn_close.clicked.connect(self.accept)
 
         self._load_tags(path)
+
+    def showEvent(self, event) -> None:
+        """Set initial column widths to 30 / 70 % of the table width."""
+        super().showEvent(event)
+        total = self._table.viewport().width()
+        self._table.setColumnWidth(0, int(total * 0.30))
+        self._table.setColumnWidth(1, int(total * 0.70))
 
     # ------------------------------------------------------------------
     # Tag loading
