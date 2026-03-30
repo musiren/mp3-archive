@@ -259,6 +259,99 @@ class TestContextMenu(unittest.TestCase):
         win.close()
 
 
+class TestPlaylist(unittest.TestCase):
+    """Tests for the playlist panel and playback helper methods."""
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_playlist_add_appends_item(self):
+        """Verify that _playlist_add inserts an item into playlist_widget."""
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "track.mp3")
+        win.close()
+
+    def test_playlist_add_no_duplicates(self):
+        """Verify that adding the same path twice results in only one entry."""
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        win._playlist_add("/music/track.mp3")
+        self.assertEqual(win.playlist_widget.count(), 1)
+        win.close()
+
+    def test_playlist_add_stores_path_in_user_role(self):
+        """Verify that the full path is stored in UserRole of the playlist item."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        path = win.playlist_widget.item(0).data(Qt.ItemDataRole.UserRole)
+        self.assertEqual(path, "/music/track.mp3")
+        win.close()
+
+    def test_playlist_clear_empties_list(self):
+        """Verify that btn_playlist_clear removes all items from the playlist."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.btn_playlist_clear.click()
+        self.assertEqual(win.playlist_widget.count(), 0)
+        win.close()
+
+    def test_playlist_clear_resets_title_label(self):
+        """Verify that clearing the playlist resets player_title_label to '-'."""
+        win = self._make_window()
+        win.player_title_label.setText("Some Song")
+        win.btn_playlist_clear.click()
+        self.assertEqual(win.player_title_label.text(), "-")
+        win.close()
+
+    def test_playlist_current_path_returns_none_when_empty(self):
+        """Verify that _playlist_current_path returns None when no item is selected."""
+        win = self._make_window()
+        self.assertIsNone(win._playlist_current_path())
+        win.close()
+
+    def test_playlist_current_path_returns_selected(self):
+        """Verify that _playlist_current_path returns the selected item's path."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win.playlist_widget.setCurrentRow(0)
+        self.assertEqual(win._playlist_current_path(), "/music/a.mp3")
+        win.close()
+
+    def test_playlist_widget_exists(self):
+        """Verify that the playlist_widget attribute exists on the window."""
+        win = self._make_window()
+        self.assertTrue(hasattr(win, "playlist_widget"))
+        win.close()
+
+    def test_player_controls_exist(self):
+        """Verify that all playback control buttons exist on the window."""
+        win = self._make_window()
+        for attr in ("btn_play_pause", "btn_stop", "btn_prev", "btn_next",
+                     "btn_playlist_clear", "seek_slider",
+                     "player_title_label", "time_current_label", "time_total_label"):
+            self.assertTrue(hasattr(win, attr), f"Missing widget: {attr}")
+        win.close()
+
+
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):

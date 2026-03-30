@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 main_window.py - PyQt6 UI for the MP3 archive manager.
 
@@ -8,6 +10,8 @@ Provides a main window with:
   - Progress bar updated during scan via QThread
   - Table view listing all stored MP3 records
   - Delete button to remove selected records from the database
+  - Playlist panel: drag-and-drop from table, double-click to play
+  - Playback controls: play/pause, stop, previous, next, seek slider
 
 The window layout is defined in main_window.ui and can be edited
 with Qt Designer without touching this file.
@@ -23,11 +27,19 @@ import sys
 
 from mutagen import File as MutagenFile
 from PyQt6 import uic
-from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QThread, QUrl, pyqtSignal
+
+try:
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+    _MULTIMEDIA_AVAILABLE = True
+except ImportError:
+    _MULTIMEDIA_AVAILABLE = False
+
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHeaderView,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -42,6 +54,14 @@ def _fmt_duration(seconds) -> str:
     if not seconds:
         return "-"
     total = int(seconds)
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _fmt_ms(ms: int) -> str:
+    """Convert a duration in milliseconds to 'm:ss' format."""
+    if ms <= 0:
+        return "0:00"
+    total = ms // 1000
     return f"{total // 60}:{total % 60:02d}"
 
 
@@ -150,6 +170,9 @@ class MainWindow(QMainWindow):
     Layout is loaded from main_window.ui; this class wires up
     signals/slots, drives the Mp3Manager backend, and persists
     the last-used directory path across sessions via QSettings.
+
+    Includes a playlist panel (right side) where users can drag files
+    from the MP3 table and double-click to play them via QMediaPlayer.
     """
 
     def __init__(self, db_path: str) -> None:
@@ -166,14 +189,39 @@ class MainWindow(QMainWindow):
         self._worker: ScanWorker | None = None
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
 
+        self._setup_player()
         self._connect_signals()
         self._setup_table()
+        self._setup_playlist()
         self._restore_path()
         self._load_table()
 
     # ------------------------------------------------------------------
     # Initialisation helpers
     # ------------------------------------------------------------------
+
+    def _setup_player(self) -> None:
+        """Initialise QMediaPlayer and QAudioOutput for audio playback.
+
+        When the QtMultimedia library is not available (e.g. in headless
+        test environments without audio hardware), the player is set to
+        None and playback features are silently disabled.
+        """
+        self._seeking = False  # guard to prevent slider feedback loop
+        if not _MULTIMEDIA_AVAILABLE:
+            self._player = None
+            self._audio_output = None
+            return
+
+        self._audio_output = QAudioOutput()
+        self._player = QMediaPlayer()
+        self._player.setAudioOutput(self._audio_output)
+        self._audio_output.setVolume(1.0)
+
+        self._player.positionChanged.connect(self._on_position_changed)
+        self._player.durationChanged.connect(self._on_duration_changed)
+        self._player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self._player.mediaStatusChanged.connect(self._on_media_status_changed)
 
     def _connect_signals(self) -> None:
         """Connect all button click signals to their handler slots."""
@@ -187,6 +235,20 @@ class MainWindow(QMainWindow):
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
+
+        # Playback controls
+        self.btn_play_pause.clicked.connect(self._on_play_pause_clicked)
+        self.btn_stop.clicked.connect(self._on_stop_clicked)
+        self.btn_prev.clicked.connect(self._on_prev_clicked)
+        self.btn_next.clicked.connect(self._on_next_clicked)
+        self.btn_playlist_clear.clicked.connect(self._on_playlist_clear_clicked)
+
+        # Seek slider
+        self.seek_slider.sliderPressed.connect(self._on_seek_slider_pressed)
+        self.seek_slider.sliderReleased.connect(self._on_seek_slider_released)
+
+        # Playlist double-click to play
+        self.playlist_widget.itemDoubleClicked.connect(self._on_playlist_double_clicked)
 
     def _setup_table(self) -> None:
         """Apply column resize modes, set initial widths, and set up context menus.
@@ -209,6 +271,9 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        # Enable drag from table for playlist
+        self.table.setDragEnabled(True)
+        self.table.setDragDropMode(self.table.DragDropMode.DragOnly)
         # Initial pixel widths for non-stretch columns
         self.table.setColumnWidth(2,  150)   # 아티스트
         self.table.setColumnWidth(4,  130)   # 앨범
@@ -221,11 +286,236 @@ class MainWindow(QMainWindow):
         self._restore_column_order()
         self._restore_column_visibility()
 
+    def _setup_playlist(self) -> None:
+        """Configure the playlist widget to accept drops from the MP3 table."""
+        self.playlist_widget.setAcceptDrops(True)
+        self.playlist_widget.setDropIndicatorShown(True)
+        # Override drop handling via event filter
+        self.playlist_widget.viewport().installEventFilter(self)
+
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
         saved = self._settings.value(_KEY_LAST_PATH, "")
         if saved:
             self.path_edit.setText(saved)
+
+    # ------------------------------------------------------------------
+    # Qt event filter: handle drag-and-drop onto playlist
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj, event) -> bool:
+        """
+        Intercept drag-and-drop events on the playlist viewport.
+
+        Accepts text/uri-list drags from the MP3 table and adds the
+        corresponding file path to the playlist.
+
+        Args:
+            obj:   The watched object (playlist viewport).
+            event: The Qt event.
+
+        Returns:
+            True if the event was handled, False to pass it on.
+        """
+        from PyQt6.QtCore import QEvent
+        if obj is self.playlist_widget.viewport():
+            if event.type() == QEvent.Type.DragEnter:
+                if event.mimeData().hasUrls() or event.mimeData().hasText():
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Type.Drop:
+                mime = event.mimeData()
+                paths = []
+                if mime.hasUrls():
+                    paths = [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+                elif mime.hasText():
+                    paths = [p for p in mime.text().splitlines() if p.strip()]
+                for path in paths:
+                    self._playlist_add(path)
+                event.acceptProposedAction()
+                return True
+        return super().eventFilter(obj, event)
+
+    # ------------------------------------------------------------------
+    # Playlist helpers
+    # ------------------------------------------------------------------
+
+    def _playlist_add(self, path: str) -> None:
+        """
+        Add a file path to the playlist widget if not already present.
+
+        Args:
+            path: Absolute path of the audio file to add.
+        """
+        # Avoid duplicates
+        for i in range(self.playlist_widget.count()):
+            if self.playlist_widget.item(i).data(Qt.ItemDataRole.UserRole) == path:
+                return
+        display = os.path.basename(path)
+        item = QListWidgetItem(display)
+        item.setData(Qt.ItemDataRole.UserRole, path)
+        item.setToolTip(path)
+        self.playlist_widget.addItem(item)
+
+    def _playlist_current_path(self) -> str | None:
+        """Return the file path of the currently selected playlist item, or None."""
+        item = self.playlist_widget.currentItem()
+        if item is None:
+            return None
+        return item.data(Qt.ItemDataRole.UserRole)
+
+    def _playlist_play_index(self, index: int) -> None:
+        """
+        Select the playlist item at *index* and start playback.
+
+        Args:
+            index: Row index in the playlist widget.
+        """
+        if index < 0 or index >= self.playlist_widget.count():
+            return
+        self.playlist_widget.setCurrentRow(index)
+        path = self.playlist_widget.item(index).data(Qt.ItemDataRole.UserRole)
+        self._play_path(path)
+
+    def _play_path(self, path: str) -> None:
+        """
+        Load *path* into the media player and begin playback.
+
+        Does nothing when QtMultimedia is unavailable.
+
+        Args:
+            path: Absolute path to the audio file.
+        """
+        name = os.path.basename(path)
+        self.player_title_label.setText(name)
+        if self._player is None:
+            return
+        self._player.setSource(QUrl.fromLocalFile(path))
+        self._player.play()
+
+    # ------------------------------------------------------------------
+    # Playback slots
+    # ------------------------------------------------------------------
+
+    def _on_play_pause_clicked(self) -> None:
+        """Toggle between play and pause; start first playlist item if idle."""
+        if self._player is None:
+            return
+        state = self._player.playbackState()
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self._player.pause()
+        elif state == QMediaPlayer.PlaybackState.PausedState:
+            self._player.play()
+        else:
+            # Stopped or no source — play selected or first item
+            idx = self.playlist_widget.currentRow()
+            if idx < 0 and self.playlist_widget.count() > 0:
+                idx = 0
+            if idx >= 0:
+                self._playlist_play_index(idx)
+
+    def _on_stop_clicked(self) -> None:
+        """Stop playback and reset the seek slider."""
+        if self._player is not None:
+            self._player.stop()
+
+    def _on_prev_clicked(self) -> None:
+        """Play the previous item in the playlist."""
+        idx = self.playlist_widget.currentRow()
+        self._playlist_play_index(max(0, idx - 1))
+
+    def _on_next_clicked(self) -> None:
+        """Play the next item in the playlist."""
+        idx = self.playlist_widget.currentRow()
+        self._playlist_play_index(idx + 1)
+
+    def _on_playlist_clear_clicked(self) -> None:
+        """Stop playback and remove all items from the playlist."""
+        if self._player is not None:
+            self._player.stop()
+        self.playlist_widget.clear()
+        self.player_title_label.setText("-")
+        self.time_current_label.setText("0:00")
+        self.time_total_label.setText("0:00")
+        self.seek_slider.setValue(0)
+
+    def _on_playlist_double_clicked(self, item: QListWidgetItem) -> None:
+        """
+        Start playback of the double-clicked playlist item.
+
+        Args:
+            item: The list widget item that was double-clicked.
+        """
+        path = item.data(Qt.ItemDataRole.UserRole)
+        self._play_path(path)
+
+    # ------------------------------------------------------------------
+    # Media player signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_position_changed(self, position: int) -> None:
+        """
+        Update the seek slider and current time label as the track plays.
+
+        Args:
+            position: Current playback position in milliseconds.
+        """
+        if not self._seeking:
+            duration = self._player.duration()
+            if duration > 0:
+                self.seek_slider.setValue(int(position * 1000 / duration))
+        self.time_current_label.setText(_fmt_ms(position))
+
+    def _on_duration_changed(self, duration: int) -> None:
+        """
+        Update the total time label when a new track is loaded.
+
+        Args:
+            duration: Total track duration in milliseconds.
+        """
+        self.time_total_label.setText(_fmt_ms(duration))
+
+    def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
+        """
+        Update the play/pause button icon to reflect current playback state.
+
+        Args:
+            state: New playback state.
+        """
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.btn_play_pause.setText("⏸")
+        else:
+            self.btn_play_pause.setText("▶")
+
+    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        """
+        Advance to the next track automatically when the current one ends.
+
+        Args:
+            status: New media status from QMediaPlayer.
+        """
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            idx = self.playlist_widget.currentRow()
+            next_idx = idx + 1
+            if next_idx < self.playlist_widget.count():
+                self._playlist_play_index(next_idx)
+            else:
+                self.seek_slider.setValue(0)
+                self.btn_play_pause.setText("▶")
+
+    def _on_seek_slider_pressed(self) -> None:
+        """Mark that the user is dragging the seek slider."""
+        self._seeking = True
+
+    def _on_seek_slider_released(self) -> None:
+        """Seek to the slider position when the user releases the handle."""
+        self._seeking = False
+        if self._player is None:
+            return
+        duration = self._player.duration()
+        if duration > 0:
+            pos = int(self.seek_slider.value() * duration / 1000)
+            self._player.setPosition(pos)
 
     # ------------------------------------------------------------------
     # Slots
@@ -337,6 +627,7 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(self)
         action_detail = menu.addAction("자세히")
+        action_playlist = menu.addAction("재생 목록에 추가")
         menu.addSeparator()
         action_info   = menu.addAction("인터넷에서 정보 보기")
         action_tag    = menu.addAction("태그 찾기")
@@ -347,6 +638,8 @@ class MainWindow(QMainWindow):
             dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
             dlg.exec()
             self._load_table()
+        elif action == action_playlist:
+            self._playlist_add(path)
         elif action == action_info:
             dlg = SongInfoDialog(self._manager, file_info, parent=self)
             dlg.exec()
@@ -554,7 +847,9 @@ class MainWindow(QMainWindow):
             self.table.setColumnHidden(int(col), True)
 
     def closeEvent(self, event) -> None:
-        """Close the database connection when the window is closed."""
+        """Close the database connection and stop media player when the window is closed."""
+        if self._player is not None:
+            self._player.stop()
         self._manager.close()
         super().closeEvent(event)
 
