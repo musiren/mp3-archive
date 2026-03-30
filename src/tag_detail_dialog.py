@@ -26,6 +26,31 @@ from PyQt6.QtWidgets import (
 
 from mutagen import File as MutagenFile
 
+# Human-readable Korean labels for normalised mutagen easy-tag keys.
+_TAG_LABELS: dict[str, str] = {
+    "title":        "제목",
+    "artist":       "아티스트",
+    "albumartist":  "앨범 아티스트",
+    "album":        "앨범",
+    "date":         "년도",
+    "genre":        "장르",
+    "tracknumber":  "트랙",
+    "discnumber":   "디스크",
+    "comment":      "코멘트",
+    "composer":     "작곡가",
+    "lyricist":     "작사가",
+    "lyrics":       "가사",
+    "copyright":    "저작권",
+    "encodedby":    "인코더",
+    "bpm":          "BPM",
+    "isrc":         "ISRC",
+    "language":     "언어",
+    "organization": "레이블",
+    "website":      "웹사이트",
+    "replaygain_track_gain": "ReplayGain (트랙)",
+    "replaygain_album_gain": "ReplayGain (앨범)",
+}
+
 
 class TagDetailDialog(QDialog):
     """
@@ -127,7 +152,7 @@ class TagDetailDialog(QDialog):
 
         # --- Tags from file ---
         try:
-            audio = MutagenFile(path)
+            audio = MutagenFile(path, easy=True)
             if audio is None:
                 self._status_label.setText("파일을 읽을 수 없습니다.")
             else:
@@ -145,7 +170,9 @@ class TagDetailDialog(QDialog):
 
                 if audio.tags:
                     for key, val in sorted(audio.tags.items()):
-                        rows.append((str(key), str(val)))
+                        label = _TAG_LABELS.get(key, key)
+                        text  = val[0] if isinstance(val, list) and val else str(val)
+                        rows.append((label, str(text)))
                 else:
                     rows.append(("(태그 없음)", ""))
         except Exception as e:
