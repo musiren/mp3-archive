@@ -87,6 +87,16 @@ from PIL import Image, ImageDraw, ImageFont
 python -m unittest discover -s test -v
 ```
 
+### 3. 메서드 변경 시 반드시 테스트 코드도 함께 수정한다
+
+`src/` 의 메서드·함수를 **추가·삭제·수정**한 경우,
+반드시 `test/` 의 관련 테스트 코드도 같은 커밋에 함께 수정해야 한다.
+테스트 코드 수정 없이 구현 코드만 커밋하지 않는다.
+
+- 메서드 **추가** → 해당 동작을 검증하는 테스트 추가
+- 메서드 **삭제** → 해당 테스트 삭제 또는 관련 케이스 제거
+- 시그니처·동작 **변경** → 영향받는 테스트 업데이트
+
 ---
 
 ## Summary of Rules
@@ -97,3 +107,4 @@ python -m unittest discover -s test -v
 4. All code and comments written in English
 5. **[MANDATORY]** Run all tests and confirm they pass before every commit to `src/`.
 6. **[MANDATORY]** Regenerate `docs/ui-preview.jpg` and include it in the commit whenever `src/main_window.ui` or `src/main_window.py` changes.
+7. **[MANDATORY]** When any method/function in `src/` is added, removed, or changed, update the corresponding tests in `test/` in the same commit. Never commit implementation changes without matching test updates.
