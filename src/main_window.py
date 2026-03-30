@@ -282,6 +282,8 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        # Lazy album-art tooltip: only load art when the mouse enters a cell
+        self.table.viewport().installEventFilter(self)
         # Enable drag from table for playlist
         self.table.setDragEnabled(True)
         self.table.setDragDropMode(self.table.DragDropMode.DragOnly)
@@ -329,6 +331,17 @@ class MainWindow(QMainWindow):
             True if the event was handled, False to pass it on.
         """
         from PyQt6.QtCore import QEvent
+        # Lazy album-art tooltip for the MP3 table
+        if obj is self.table.viewport() and event.type() == QEvent.Type.ToolTip:
+            pos = event.pos()
+            index = self.table.indexAt(pos)
+            if index.isValid() and index.column() == 0:
+                item = self.table.item(index.row(), 0)
+                if item and not item.toolTip():
+                    path = item.data(Qt.ItemDataRole.UserRole)
+                    item.setToolTip(_album_art_tooltip(path))
+            return False  # let Qt show the tooltip normally
+
         if obj is self.playlist_widget.viewport():
             if event.type() == QEvent.Type.DragEnter:
                 if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -885,7 +898,7 @@ class MainWindow(QMainWindow):
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
-            filename_item.setToolTip(_album_art_tooltip(f["path"]))
+            # Tooltip is populated lazily on hover via _on_table_tooltip
 
             path_item = QTableWidgetItem(f["path"])
             path_item.setToolTip(f["path"])
