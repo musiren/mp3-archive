@@ -241,15 +241,14 @@ class Mp3Manager:
         if not tags:
             return
 
-        # Write to the audio file
-        try:
-            audio = MutagenFile(path, easy=True)
-            if audio is not None:
-                for key, val in tags.items():
-                    audio[key] = [val]
-                audio.save()
-        except Exception:
-            pass
+        # Write to the audio file first; raise on any error so the DB
+        # is never updated when the file write fails.
+        audio = MutagenFile(path, easy=True)
+        if audio is None:
+            raise ValueError(f"mutagen could not open file: {path}")
+        for key, val in tags.items():
+            audio[key] = [val]
+        audio.save()
 
         # Map easy-tag keys to DB column names
         _KEY_TO_COL = {
