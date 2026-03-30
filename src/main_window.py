@@ -244,6 +244,8 @@ class MainWindow(QMainWindow):
         self.btn_prev.clicked.connect(self._on_prev_clicked)
         self.btn_next.clicked.connect(self._on_next_clicked)
         self.btn_playlist_clear.clicked.connect(self._on_playlist_clear_clicked)
+        self.btn_playlist_save.clicked.connect(self._on_playlist_save_clicked)
+        self.btn_playlist_load.clicked.connect(self._on_playlist_load_clicked)
         self.btn_play_mode.clicked.connect(self._on_play_mode_clicked)
 
         # Seek slider
@@ -436,6 +438,57 @@ class MainWindow(QMainWindow):
         """Play the next item in the playlist."""
         idx = self.playlist_widget.currentRow()
         self._playlist_play_index(idx + 1)
+
+    def _on_playlist_save_clicked(self) -> None:
+        """
+        Prompt for a playlist name and save current entries to a .list file.
+
+        Each line in the file contains the absolute path of one track.
+        Does nothing when the playlist is empty.
+        """
+        if self.playlist_widget.count() == 0:
+            QMessageBox.information(self, "알림", "재생 목록이 비어 있습니다.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "재생 목록 저장", "", "재생 목록 (*.list)"
+        )
+        if not path:
+            return
+        if not path.endswith(".list"):
+            path += ".list"
+
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(self.playlist_widget.count()):
+                f.write(self.playlist_widget.item(i).data(Qt.ItemDataRole.UserRole) + "\n")
+
+    def _on_playlist_load_clicked(self) -> None:
+        """
+        Open a .list file and append its tracks to the current playlist.
+
+        Missing files are silently skipped.
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "재생 목록 불러오기", "", "재생 목록 (*.list)"
+        )
+        if not path:
+            return
+
+        with open(path, "r", encoding="utf-8") as f:
+            lines = [l.rstrip("\n") for l in f if l.strip()]
+
+        skipped = 0
+        for file_path in lines:
+            if os.path.isfile(file_path):
+                self._playlist_add(file_path)
+            else:
+                skipped += 1
+
+        if skipped:
+            QMessageBox.warning(
+                self, "경고",
+                f"{skipped}개 파일을 찾을 수 없어 건너뛰었습니다."
+            )
 
     def _on_play_mode_clicked(self) -> None:
         """

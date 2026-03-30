@@ -506,6 +506,30 @@
          </layout>
         </item>
         <item>
+         <layout class="QHBoxLayout" name="playlistFileLayout">
+          <item>
+           <widget class="QPushButton" name="btn_playlist_save">
+            <property name="text">
+             <string>저장</string>
+            </property>
+            <property name="toolTip">
+             <string>현재 재생 목록을 .list 파일로 저장합니다</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_playlist_load">
+            <property name="text">
+             <string>불러오기</string>
+            </property>
+            <property name="toolTip">
+             <string>.list 파일에서 재생 목록을 불러옵니다</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
          <widget class="QPushButton" name="btn_playlist_clear">
           <property name="text">
            <string>목록 비우기</string>
