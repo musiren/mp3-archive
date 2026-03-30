@@ -287,12 +287,12 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(win.playlist_widget.item(0).text(), "track.mp3")
         win.close()
 
-    def test_playlist_add_no_duplicates(self):
-        """Verify that adding the same path twice results in only one entry."""
+    def test_playlist_add_allows_duplicates(self):
+        """Verify that adding the same path twice results in two entries."""
         win = self._make_window()
         win._playlist_add("/music/track.mp3")
         win._playlist_add("/music/track.mp3")
-        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.count(), 2)
         win.close()
 
     def test_playlist_add_stores_path_in_user_role(self):
@@ -364,15 +364,15 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(win.player_title_label.text(), "track.mp3")
         win.close()
 
-    def test_table_double_click_no_duplicate_in_playlist(self):
-        """Verify that double-clicking the same row twice adds only one playlist entry."""
+    def test_table_double_click_allows_duplicate_in_playlist(self):
+        """Verify that double-clicking the same row twice adds two playlist entries."""
         win = self._make_window()
         from mp3_manager import _save_to_db
         _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
         win._load_table()
         win._on_table_double_clicked(0, 0)
         win._on_table_double_clicked(0, 0)
-        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.count(), 2)
         win.close()
 
 

@@ -348,15 +348,14 @@ class MainWindow(QMainWindow):
 
     def _playlist_add(self, path: str) -> None:
         """
-        Add a file path to the playlist widget if not already present.
+        Append a file path to the playlist widget.
+
+        Duplicate entries are allowed so the same track can appear
+        multiple times in the playlist.
 
         Args:
             path: Absolute path of the audio file to add.
         """
-        # Avoid duplicates
-        for i in range(self.playlist_widget.count()):
-            if self.playlist_widget.item(i).data(Qt.ItemDataRole.UserRole) == path:
-                return
         display = os.path.basename(path)
         item = QListWidgetItem(display)
         item.setData(Qt.ItemDataRole.UserRole, path)
@@ -468,11 +467,8 @@ class MainWindow(QMainWindow):
         """
         path = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         self._playlist_add(path)
-        # Find the item's row in the playlist and play it
-        for i in range(self.playlist_widget.count()):
-            if self.playlist_widget.item(i).data(Qt.ItemDataRole.UserRole) == path:
-                self._playlist_play_index(i)
-                break
+        # Play the item just appended (always the last one added)
+        self._playlist_play_index(self.playlist_widget.count() - 1)
 
     # ------------------------------------------------------------------
     # Media player signal handlers
