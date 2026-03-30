@@ -450,6 +450,16 @@
          </layout>
         </item>
         <item>
+         <widget class="QPushButton" name="btn_play_mode">
+          <property name="text">
+           <string>➡ 전체재생</string>
+          </property>
+          <property name="toolTip">
+           <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <layout class="QHBoxLayout" name="volumeLayout">
           <item>
            <widget class="QLabel" name="label_volume">

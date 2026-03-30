@@ -376,6 +376,56 @@ class TestPlaylist(unittest.TestCase):
         win.close()
 
 
+class TestPlayMode(unittest.TestCase):
+    """Tests for playback mode toggle button."""
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_initial_mode_is_sequential(self):
+        """Verify that the default playback mode is sequential."""
+        win = self._make_window()
+        self.assertEqual(win._play_mode, "sequential")
+        win.close()
+
+    def test_mode_cycles_through_all_modes(self):
+        """Verify that clicking btn_play_mode cycles through all four modes."""
+        win = self._make_window()
+        expected = ["repeat_one", "repeat_all", "shuffle", "sequential"]
+        for mode in expected:
+            win.btn_play_mode.click()
+            self.assertEqual(win._play_mode, mode)
+        win.close()
+
+    def test_button_label_updates_with_mode(self):
+        """Verify that the button label matches the active mode."""
+        win = self._make_window()
+        labels = {
+            "repeat_one": "🔂 한곡반복",
+            "repeat_all": "🔁 전체반복",
+            "shuffle":    "🔀 랜덤",
+            "sequential": "➡ 전체재생",
+        }
+        for _ in range(4):
+            win.btn_play_mode.click()
+            self.assertEqual(win.btn_play_mode.text(), labels[win._play_mode])
+        win.close()
+
+
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):

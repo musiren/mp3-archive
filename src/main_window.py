@@ -208,6 +208,8 @@ class MainWindow(QMainWindow):
         None and playback features are silently disabled.
         """
         self._seeking = False  # guard to prevent slider feedback loop
+        # Playback mode cycles: sequential → repeat_one → repeat_all → shuffle
+        self._play_mode = "sequential"
         if not _MULTIMEDIA_AVAILABLE:
             self._player = None
             self._audio_output = None
@@ -242,6 +244,7 @@ class MainWindow(QMainWindow):
         self.btn_prev.clicked.connect(self._on_prev_clicked)
         self.btn_next.clicked.connect(self._on_next_clicked)
         self.btn_playlist_clear.clicked.connect(self._on_playlist_clear_clicked)
+        self.btn_play_mode.clicked.connect(self._on_play_mode_clicked)
 
         # Seek slider
         self.seek_slider.sliderPressed.connect(self._on_seek_slider_pressed)
@@ -434,6 +437,24 @@ class MainWindow(QMainWindow):
         idx = self.playlist_widget.currentRow()
         self._playlist_play_index(idx + 1)
 
+    def _on_play_mode_clicked(self) -> None:
+        """
+        Cycle through playback modes in order:
+        sequential → repeat_one → repeat_all → shuffle → sequential …
+
+        Updates the button label to reflect the active mode.
+        """
+        _modes = [
+            ("sequential",  "➡ 전체재생"),
+            ("repeat_one",  "🔂 한곡반복"),
+            ("repeat_all",  "🔁 전체반복"),
+            ("shuffle",     "🔀 랜덤"),
+        ]
+        keys = [m[0] for m in _modes]
+        idx = (keys.index(self._play_mode) + 1) % len(_modes)
+        self._play_mode = _modes[idx][0]
+        self.btn_play_mode.setText(_modes[idx][1])
+
     def _on_playlist_clear_clicked(self) -> None:
         """Stop playback and remove all items from the playlist."""
         if self._player is not None:
@@ -510,15 +531,39 @@ class MainWindow(QMainWindow):
 
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
         """
-        Advance to the next track automatically when the current one ends.
+        Handle end-of-track according to the current playback mode.
+
+        Modes:
+          sequential  – advance to next; stop after last track
+          repeat_one  – replay the same track
+          repeat_all  – advance to next; wrap around to first after last
+          shuffle     – pick a random track from the playlist
 
         Args:
             status: New media status from QMediaPlayer.
         """
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
-            idx = self.playlist_widget.currentRow()
+        if status != QMediaPlayer.MediaStatus.EndOfMedia:
+            return
+
+        count = self.playlist_widget.count()
+        if count == 0:
+            return
+
+        idx = self.playlist_widget.currentRow()
+
+        if self._play_mode == "repeat_one":
+            self._playlist_play_index(idx)
+
+        elif self._play_mode == "repeat_all":
+            self._playlist_play_index((idx + 1) % count)
+
+        elif self._play_mode == "shuffle":
+            import random
+            self._playlist_play_index(random.randrange(count))
+
+        else:  # sequential
             next_idx = idx + 1
-            if next_idx < self.playlist_widget.count():
+            if next_idx < count:
                 self._playlist_play_index(next_idx)
             else:
                 self.seek_slider.setValue(0)
