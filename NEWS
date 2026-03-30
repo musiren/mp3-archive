@@ -1,16 +1,54 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260329 (2026-03-29)
+===========================================================================
+
+New features
+------------
+- Genre, year, comment fields added to DB and extracted from audio tags
+- Search now covers genre, year, comment in addition to existing fields
+- "태그 포함" checkbox: toggle between filename-only and full-tag search
+  (default: filename-only)
+- File path shown as a dedicated "경로" column in the main table
+- Column visibility toggle: right-click any table header to show/hide columns;
+  state is persisted across sessions via QSettings
+- Tooltips added to all buttons, controls, and table cells
+
+Bug fixes
+---------
+- song_info_dialog and tag_detail_dialog added to PyInstaller hiddenimports
+
+===========================================================================
+v20260328 (2026-03-28) — third batch
+===========================================================================
+
+New features
+------------
+- Support for FLAC, OGG, WAV, M4A, WMA, Opus in addition to MP3
+- MusicBrainz tag lookup: "태그 찾기" button auto-fills missing tags
+- Right-click context menu on table rows:
+    - "자세히": show all embedded tags from the file
+    - "인터넷에서 정보 보기": MusicBrainz song info popup
+    - "태그 찾기": fetch and apply tags for that row
+- Duration displayed in m:ss format (e.g. 1:40 instead of 100s)
+- Column sorting by clicking table headers
+- PyInstaller spec files for Windows and Linux standalone builds
+
+Bug fixes
+---------
+- Fixed ModuleNotFoundError for urllib in PyInstaller build
+- Fixed spec file path resolution using SPECPATH
+
+===========================================================================
 v20260328 (2026-03-28) — second batch
 ===========================================================================
 
-Commits
--------
-- ui: use more natural Korean labels for toolbar buttons
-- feat: real-time search as user types in search field
-- feat: add keyword search for MP3 records
-- refactor: reorganize project directory structure
-- docs: update README with usage guide and add NEWS file
+New features
+------------
+- Real-time search as user types (textChanged signal)
+- Keyword search across filename, title, artist, album
+- More natural Korean button labels (빠른 스캔 / 전체 스캔 / 삭제)
 
 ===========================================================================
 v20260328 (2026-03-28) — initial release
@@ -18,26 +56,12 @@ v20260328 (2026-03-28) — initial release
 
 Initial release.
 
-Commits
--------
-- refactor: reorganize project directory structure
-- feat: add incremental scan with force-rescan option
-- docs: fix Korean rendering in ui-preview.jpg
-- feat: add persistent MP3 path configurator with browse dialog
-- docs: update ui-preview.jpg to reflect filename fallback feature
-- docs: add UI preview regeneration rule to coding-guide
-- chore: ignore generated ui-preview.jpg
-- feat: parse artist and title from filename when ID3 tags are absent
-- refactor: separate UI layout into main_window.ui for Qt Designer
-- docs: require test verification before committing src changes
-- feat: add KivyMD UI for Android (main_window_android.py)
-- build: split spec files by OS (Windows, Linux, Android)
-- build: add PyInstaller spec for Windows standalone executable
-- docs: add PR and merge workflow rules to git-guide
-- feat: track file creation and modification timestamps in DB
-- feat: add PyQt6 UI for MP3 archive manager
-- refactor: convert mp3_manager to class-based library for PyQt use
-- feat: add MP3 file scanner and SQLite manager
-- docs: add coding conventions for src, test, and method comments
-- docs: add CLAUDE.md with planning and git conventions
-- skills: add git rules for push confirmation, commit style, and language
+Features
+--------
+- Recursive MP3 scan with SQLite metadata storage
+- Incremental scan (skip unchanged files) and force full rescan
+- Filename fallback parser: "Artist - Title.mp3" when ID3 tags are absent
+- File creation/modification timestamp tracking
+- Persistent scan path via QSettings
+- Record deletion
+- PyQt6 desktop UI with Qt Designer layout

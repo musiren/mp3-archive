@@ -60,26 +60,51 @@ def test_load_mp3_returns_title():
     assert result["title"] == "Sample Title"
 ```
 
+## ⚠️ 반드시 지켜야 할 규칙
+
+> 아래 규칙들은 예외 없이 항상 적용된다.
+
+### 1. UI 파일 변경 시 반드시 ui-preview.jpg 를 업데이트한다
+
+`src/main_window.ui` 또는 `src/main_window.py` 가 변경된 경우,
+커밋 및 푸시 **전에** `docs/ui-preview.jpg` 를 재생성하고 함께 커밋해야 한다.
+프리뷰 이미지 업데이트 없이 UI 변경을 커밋하지 않는다.
+
+```bash
+# 프리뷰 이미지 재생성
+python -c "
+from PIL import Image, ImageDraw, ImageFont
+# ... current UI layout rendering logic
+"
+```
+
+### 2. 커밋 전 반드시 테스트를 통과한다
+
+`src/` 의 파일을 수정한 경우, 커밋 전에 반드시 전체 테스트를 실행하고
+모든 테스트가 통과하는지 확인한다.
+
+```bash
+python -m unittest discover -s test -v
+```
+
+### 3. 메서드 변경 시 반드시 테스트 코드도 함께 수정한다
+
+`src/` 의 메서드·함수를 **추가·삭제·수정**한 경우,
+반드시 `test/` 의 관련 테스트 코드도 같은 커밋에 함께 수정해야 한다.
+테스트 코드 수정 없이 구현 코드만 커밋하지 않는다.
+
+- 메서드 **추가** → 해당 동작을 검증하는 테스트 추가
+- 메서드 **삭제** → 해당 테스트 삭제 또는 관련 케이스 제거
+- 시그니처·동작 **변경** → 영향받는 테스트 업데이트
+
+---
+
 ## Summary of Rules
 
 1. Source code → `src/`
 2. Test code → `test/`
 3. Every method/function must have a docstring or comment
 4. All code and comments written in English
-5. When modifying any file in `src/`, run the related test script(s) in `test/` and confirm all tests pass before committing.
-
-```bash
-# Run all tests
-python -m unittest discover -s test -v
-```
-
-6. When `src/main_window.ui` or `src/main_window.py` is modified, regenerate `docs/ui-preview.jpg` and commit it before pushing.
-
-```bash
-# Regenerate UI preview image
-python -c "
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-# ... (see ui-preview generation script)
-"
-# Or simply run the generation script if extracted separately
-```
+5. **[MANDATORY]** Run all tests and confirm they pass before every commit to `src/`.
+6. **[MANDATORY]** Regenerate `docs/ui-preview.jpg` and include it in the commit whenever `src/main_window.ui` or `src/main_window.py` changes.
+7. **[MANDATORY]** When any method/function in `src/` is added, removed, or changed, update the corresponding tests in `test/` in the same commit. Never commit implementation changes without matching test updates.
