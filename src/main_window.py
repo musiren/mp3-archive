@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
 
     def _playlist_play_index(self, index: int) -> None:
         """
-        Select the playlist item at *index* and start playback.
+        Select the playlist item at *index*, highlight it, and start playback.
 
         Args:
             index: Row index in the playlist widget.
@@ -401,8 +401,32 @@ class MainWindow(QMainWindow):
         if index < 0 or index >= self.playlist_widget.count():
             return
         self.playlist_widget.setCurrentRow(index)
+        self._highlight_playing_row(index)
         path = self.playlist_widget.item(index).data(Qt.ItemDataRole.UserRole)
         self._play_path(path)
+
+    def _highlight_playing_row(self, index: int) -> None:
+        """
+        Apply a highlight background to the currently playing playlist row
+        and reset all other rows to the default background.
+
+        Args:
+            index: Row index of the track that is now playing.
+        """
+        from PyQt6.QtGui import QColor
+        playing_bg = QColor("#1a6b3a")   # dark green — clearly visible
+        playing_fg = QColor("#ffffff")
+        default_bg = QColor(0, 0, 0, 0)  # transparent = use widget default
+        default_fg = QColor(0, 0, 0, 0)
+
+        for i in range(self.playlist_widget.count()):
+            item = self.playlist_widget.item(i)
+            if i == index:
+                item.setBackground(playing_bg)
+                item.setForeground(playing_fg)
+            else:
+                item.setBackground(default_bg)
+                item.setForeground(default_fg)
 
     def _play_path(self, path: str) -> None:
         """
@@ -442,9 +466,10 @@ class MainWindow(QMainWindow):
                 self._playlist_play_index(idx)
 
     def _on_stop_clicked(self) -> None:
-        """Stop playback and reset the seek slider."""
+        """Stop playback, reset the seek slider, and clear the row highlight."""
         if self._player is not None:
             self._player.stop()
+        self._highlight_playing_row(-1)  # -1 → no row matches, all reset
 
     def _on_prev_clicked(self) -> None:
         """Play the previous item in the playlist."""
@@ -529,7 +554,7 @@ class MainWindow(QMainWindow):
         """Stop playback and remove all items from the playlist."""
         if self._player is not None:
             self._player.stop()
-        self.playlist_widget.clear()
+        self.playlist_widget.clear()  # clears items and their highlights
         self.player_title_label.setText("-")
         self.time_current_label.setText("0:00")
         self.time_total_label.setText("0:00")
