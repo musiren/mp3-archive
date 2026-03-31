@@ -31,7 +31,7 @@
      <number>12</number>
     </property>
     <!-- Path configuration row -->
-    <item>
+    <item stretch="0">
      <layout class="QHBoxLayout" name="pathLayout">
       <item>
        <widget class="QLabel" name="label_path">
@@ -78,7 +78,7 @@
      </layout>
     </item>
     <!-- Search row -->
-    <item>
+    <item stretch="0">
      <layout class="QHBoxLayout" name="searchLayout">
       <item>
        <widget class="QLabel" name="label_search">
@@ -148,7 +148,7 @@
      </layout>
     </item>
     <!-- Toolbar row -->
-    <item>
+    <item stretch="0">
      <layout class="QHBoxLayout" name="toolbarLayout">
       <item>
        <widget class="QPushButton" name="btn_scan">
@@ -237,7 +237,7 @@
      </layout>
     </item>
     <!-- Progress bar -->
-    <item>
+    <item stretch="0">
      <widget class="QProgressBar" name="progress_bar">
       <property name="value">
        <number>0</number>
@@ -248,7 +248,7 @@
      </widget>
     </item>
     <!-- Splitter: MP3 table (left) + Playlist panel (right) -->
-    <item>
+    <item stretch="1">
      <widget class="QSplitter" name="main_splitter">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
