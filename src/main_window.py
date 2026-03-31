@@ -189,6 +189,10 @@ class MainWindow(QMainWindow):
         self._worker: ScanWorker | None = None
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
 
+        # Make only the splitter (table + playlist) grow when the window is resized.
+        # Items: 0=pathLayout 1=searchLayout 2=toolbarLayout 3=progress_bar 4=splitter
+        self.centralWidget().layout().setStretch(4, 1)
+
         self._setup_player()
         self._connect_signals()
         self._setup_table()
