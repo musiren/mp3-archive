@@ -654,6 +654,7 @@ class MainWindow(QMainWindow):
 
         elif self._play_mode == "shuffle":
             import random
+            random.seed()  # reseed with current system time for true randomness
             self._playlist_play_index(random.randrange(count))
 
         else:  # sequential
