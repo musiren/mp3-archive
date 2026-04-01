@@ -442,10 +442,10 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         # Lazy album-art tooltip: only load art when the mouse enters a cell
         self.table.viewport().installEventFilter(self)
-        # Enable drag from table for playlist (multi-row aware)
-        self.table.setDragEnabled(True)
-        self.table.setDragDropMode(self.table.DragDropMode.DragOnly)
-        self._install_table_drag_override()
+        # Drag is handled manually via eventFilter so we get all selected rows.
+        # Built-in drag is disabled to prevent it from firing with default MIME data.
+        self.table.setDragEnabled(False)
+        self._drag_start_pos = None
         # Initial pixel widths for non-stretch columns
         self.table.setColumnWidth(2,  150)   # 아티스트
         self.table.setColumnWidth(4,  130)   # 앨범
@@ -457,36 +457,6 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(10, 130)   # 수정일시
         self._restore_column_order()
         self._restore_column_visibility()
-
-    def _install_table_drag_override(self) -> None:
-        """
-        Replace QTableWidget.startDrag so that dragging multiple selected rows
-        sends all their file paths as a text/uri-list MIME payload.
-
-        The default implementation only uses the model's mimeData which does
-        not include our custom UserRole path data.
-        """
-        import types
-        from PyQt6.QtCore import QMimeData, QUrl
-        from PyQt6.QtGui import QDrag
-
-        def _start_drag(table_self, supported_actions):
-            """Custom startDrag: collect paths from all selected rows."""
-            rows = sorted({idx.row() for idx in table_self.selectedIndexes()})
-            paths = []
-            for row in rows:
-                item = table_self.item(row, 0)
-                if item:
-                    paths.append(item.data(Qt.ItemDataRole.UserRole))
-            if not paths:
-                return
-            mime = QMimeData()
-            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
-            drag = QDrag(table_self)
-            drag.setMimeData(mime)
-            drag.exec(supported_actions)
-
-        self.table.startDrag = types.MethodType(_start_drag, self.table)
 
     def _setup_playlist(self) -> None:
         """Configure the playlist widget to accept drops from the MP3 table."""
@@ -556,7 +526,38 @@ class MainWindow(QMainWindow):
         Returns:
             True if the event was handled, False to pass it on.
         """
-        from PyQt6.QtCore import QEvent
+        from PyQt6.QtCore import QEvent, QMimeData, QUrl
+        from PyQt6.QtGui import QDrag
+
+        # --- Table viewport: manual drag to support multi-row selection ---
+        if obj is self.table.viewport():
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_start_pos = event.pos()
+            elif event.type() == QEvent.Type.MouseMove:
+                if (
+                    event.buttons() & Qt.MouseButton.LeftButton
+                    and self._drag_start_pos is not None
+                    and (event.pos() - self._drag_start_pos).manhattanLength()
+                        >= QApplication.startDragDistance()
+                ):
+                    rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
+                    paths = [
+                        self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        for r in rows
+                        if self.table.item(r, 0)
+                    ]
+                    if paths:
+                        mime = QMimeData()
+                        mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+                        drag = QDrag(self.table)
+                        drag.setMimeData(mime)
+                        drag.exec(Qt.DropAction.CopyAction)
+                    self._drag_start_pos = None
+                    return True
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self._drag_start_pos = None
+
         # Delete key removes the selected playlist item
         if obj is self.playlist_widget and event.type() == QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Delete:
