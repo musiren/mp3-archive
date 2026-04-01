@@ -535,11 +535,16 @@ class MainWindow(QMainWindow):
             if event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._drag_start_pos = event.pos()
-                    index = self.table.indexAt(event.pos())
-                    if index.isValid() and self.table.selectionModel().isSelected(index):
-                        # Click lands on an already-selected row.
-                        # Swallow the event so the table does NOT reset the selection;
-                        # we will handle selection on release if no drag occurs.
+                    # Use row-number set — more reliable than isSelected() per cell
+                    selected_rows = {idx.row() for idx in self.table.selectedIndexes()}
+                    clicked_row = self.table.indexAt(event.pos()).row()
+                    if (
+                        len(selected_rows) > 1
+                        and clicked_row >= 0
+                        and clicked_row in selected_rows
+                    ):
+                        # Multi-selection: swallow so the table doesn't reset it.
+                        # Selection is applied on release if no drag occurs.
                         self._drag_swallowed_press = True
                         return True
                     self._drag_swallowed_press = False
@@ -610,7 +615,7 @@ class MainWindow(QMainWindow):
             return False  # let Qt show the tooltip normally
 
         if obj is self.playlist_widget.viewport():
-            if event.type() == QEvent.Type.DragEnter:
+            if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
                 if event.mimeData().hasUrls() or event.mimeData().hasText():
                     event.acceptProposedAction()
                     return True
