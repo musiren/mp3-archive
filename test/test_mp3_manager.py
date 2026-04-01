@@ -378,5 +378,35 @@ class TestParseFilenameFallback(unittest.TestCase):
         mgr.close()
 
 
+class TestGetByPath(unittest.TestCase):
+
+    def test_returns_dict_for_existing_path(self):
+        """Verify that get_by_path returns a dict when the path exists in the DB."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/track.mp3"))
+        result = mgr.get_by_path("/music/track.mp3")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["path"], "/music/track.mp3")
+        self.assertEqual(result["title"], "Test Song")
+        mgr.close()
+
+    def test_returns_none_for_missing_path(self):
+        """Verify that get_by_path returns None when the path is not in the DB."""
+        mgr = make_manager()
+        result = mgr.get_by_path("/music/nonexistent.mp3")
+        self.assertIsNone(result)
+        mgr.close()
+
+    def test_does_not_return_other_records(self):
+        """Verify that get_by_path returns only the record matching the given path."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/a.mp3"))
+        _save_to_db(mgr._conn, sample_info("/music/b.mp3"))
+        result = mgr.get_by_path("/music/a.mp3")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["path"], "/music/a.mp3")
+        mgr.close()
+
+
 if __name__ == "__main__":
     unittest.main()

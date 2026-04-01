@@ -897,11 +897,22 @@ class MainWindow(QMainWindow):
         action = menu.exec(self.playlist_widget.viewport().mapToGlobal(pos))
 
         if action == action_detail:
-            files = self._manager.list_files()
-            file_info = next((f for f in files if f["path"] == path), None)
-            if file_info:
-                dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
-                dlg.exec()
+            file_info = self._manager.get_by_path(path)
+            if file_info is None:
+                # File not in DB (e.g. loaded from .list) — build a minimal dict
+                if not os.path.isfile(path):
+                    QMessageBox.warning(self, "오류", f"파일을 찾을 수 없습니다:\n{path}")
+                    return
+                file_info = {
+                    "path": path,
+                    "filename": os.path.basename(path),
+                    "title": None, "artist": None, "album": None,
+                    "genre": None, "year": None, "comment": None,
+                    "duration": None, "filesize": None,
+                    "file_created_at": None, "file_modified_at": None,
+                }
+            dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
+            dlg.exec()
         elif action == action_remove:
             self.playlist_widget.takeItem(row)
             if row == self._playing_index:

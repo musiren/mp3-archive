@@ -184,6 +184,29 @@ class Mp3Manager:
         """
         return _search_files(self._conn, keyword, filename_only=filename_only)
 
+    def get_by_path(self, path: str) -> dict | None:
+        """
+        Return the DB record for a single file path, or None if not found.
+
+        Args:
+            path: Absolute path of the audio file.
+
+        Returns:
+            Row dictionary with the same keys as list_files(), or None.
+        """
+        cursor = self._conn.execute(
+            """
+            SELECT id, path, filename, title, artist, album, genre, year, comment,
+                   duration, filesize, file_created_at, file_modified_at
+            FROM audio_files
+            WHERE path = ?
+            """,
+            (path,),
+        )
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        return dict(zip(columns, row)) if row else None
+
     def update_file_tags(
         self,
         path: str,
