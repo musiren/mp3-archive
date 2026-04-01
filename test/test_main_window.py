@@ -845,5 +845,133 @@ class TestScanWorker(unittest.TestCase):
         mgr.close()
 
 
+class TestTreeView(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow backed by an in-memory manager."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+            self._win._settings.clear()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_default_view_is_table(self):
+        """Verify that the table view (page 0) is shown on startup."""
+        win = self._make_window()
+        self.assertEqual(win.view_stack.currentIndex(), 0)
+        win.close()
+
+    def test_toggle_switches_to_tree(self):
+        """Verify that clicking view toggle switches to tree view (page 1)."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        self.assertEqual(win.view_stack.currentIndex(), 1)
+        win.close()
+
+    def test_toggle_switches_back_to_table(self):
+        """Verify that clicking view toggle twice returns to table view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        win.btn_view_toggle.click()
+        self.assertEqual(win.view_stack.currentIndex(), 0)
+        win.close()
+
+    def test_toggle_button_label_changes_to_table(self):
+        """Verify that the toggle button shows '📋 테이블' when in tree view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        self.assertIn("테이블", win.btn_view_toggle.text())
+        win.close()
+
+    def test_toggle_button_label_returns_to_tree(self):
+        """Verify that the toggle button shows '🌲 트리' when back in table view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        win.btn_view_toggle.click()
+        self.assertIn("트리", win.btn_view_toggle.text())
+        win.close()
+
+    def test_fill_tree_creates_top_level_items(self):
+        """Verify that _fill_tree creates at least one top-level item for a file."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        self.assertGreater(win.tree_widget.topLevelItemCount(), 0)
+        win.close()
+
+    def test_fill_tree_file_node_has_path_in_user_role(self):
+        """Verify that leaf file nodes store the full path in UserRole."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+
+        def _find_file_item(parent):
+            """Recursively find the first item with a non-None UserRole."""
+            from PyQt6.QtCore import Qt
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                data = child.data(0, Qt.ItemDataRole.UserRole)
+                if data is not None:
+                    return child
+                result = _find_file_item(child)
+                if result:
+                    return result
+            return None
+
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        file_item = _find_file_item(root)
+        self.assertIsNotNone(file_item)
+        self.assertEqual(file_item.data(0, Qt.ItemDataRole.UserRole), "/music/song.mp3")
+        win.close()
+
+    def test_fill_tree_directory_node_has_none_user_role(self):
+        """Verify that directory nodes have None in UserRole."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        # First top-level item should be a directory node
+        top = root.child(0)
+        self.assertIsNone(top.data(0, Qt.ItemDataRole.UserRole))
+        win.close()
+
+    def test_fill_tree_groups_files_by_directory(self):
+        """Verify that two files in the same directory share a parent node."""
+        win = self._make_window()
+        win._fill_tree([
+            sample_info("/music/pop/a.mp3"),
+            sample_info("/music/pop/b.mp3"),
+        ])
+        from PyQt6.QtCore import Qt
+
+        def _count_file_items(parent) -> int:
+            count = 0
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                if child.data(0, Qt.ItemDataRole.UserRole) is not None:
+                    count += 1
+                count += _count_file_items(child)
+            return count
+
+        total = _count_file_items(win.tree_widget.invisibleRootItem())
+        self.assertEqual(total, 2)
+        win.close()
+
+    def test_fill_tree_empty_clears_tree(self):
+        """Verify that filling with an empty list clears the tree."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        win._fill_tree([])
+        self.assertEqual(win.tree_widget.topLevelItemCount(), 0)
+        win.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -138,7 +138,7 @@ QWidget {
 QMainWindow, QDialog {
     background-color: #f5f5f5;
 }
-QTableWidget, QListWidget {
+QTableWidget, QListWidget, QTreeWidget {
     background-color: #ffffff;
     alternate-background-color: #f0f0f0;
     color: #1a1a1a;
@@ -210,7 +210,7 @@ QWidget {
 QMainWindow, QDialog {
     background-color: #2b2b2b;
 }
-QTableWidget, QListWidget {
+QTableWidget, QListWidget, QTreeWidget {
     background-color: #1e1e1e;
     alternate-background-color: #252525;
     color: #e8e8e8;
@@ -348,6 +348,7 @@ class MainWindow(QMainWindow):
         self._setup_player()
         self._connect_signals()
         self._setup_table()
+        self._setup_tree()
         self._setup_playlist()
         self._restore_path()
         self._restore_theme()
@@ -395,6 +396,12 @@ class MainWindow(QMainWindow):
         self.search_edit.textChanged.connect(self._on_search_text_changed)
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
+        self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
+
+        # Tree view
+        self.tree_widget.itemDoubleClicked.connect(self._on_tree_double_clicked)
+        self.tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(self._on_tree_context_menu)
 
         # Playback controls
         self.btn_play_pause.clicked.connect(self._on_play_pause_clicked)
@@ -447,6 +454,7 @@ class MainWindow(QMainWindow):
         self.table.setDragEnabled(False)
         self._drag_start_pos = None
         self._drag_swallowed_press = False  # True when we ate a MousePress to preserve selection
+        self._tree_drag_start_pos = None
         # Initial pixel widths for non-stretch columns
         self.table.setColumnWidth(2,  150)   # 아티스트
         self.table.setColumnWidth(4,  130)   # 앨범
@@ -469,6 +477,17 @@ class MainWindow(QMainWindow):
         self.playlist_widget.viewport().installEventFilter(self)
         # Delete key removes selected item
         self.playlist_widget.installEventFilter(self)
+
+    def _setup_tree(self) -> None:
+        """Configure the tree widget for path-based file browsing.
+
+        The tree shows the directory hierarchy derived from file paths in the
+        database.  Files are leaf nodes; directories are expandable parents.
+        Drag-and-drop to the playlist is handled via the event filter.
+        """
+        self.tree_widget.setHeaderLabel("파일명 / 경로")
+        self.tree_widget.setDragEnabled(False)
+        self.tree_widget.viewport().installEventFilter(self)
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -622,6 +641,37 @@ class MainWindow(QMainWindow):
                     path = item.data(Qt.ItemDataRole.UserRole)
                     item.setToolTip(_album_art_tooltip(path))
             return False  # let Qt show the tooltip normally
+
+        # --- Tree viewport: drag file items to playlist ---
+        if obj is self.tree_widget.viewport():
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._tree_drag_start_pos = event.pos()
+            elif event.type() == QEvent.Type.MouseMove:
+                if (
+                    event.buttons() & Qt.MouseButton.LeftButton
+                    and self._tree_drag_start_pos is not None
+                ):
+                    if (
+                        (event.pos() - self._tree_drag_start_pos).manhattanLength()
+                        >= QApplication.startDragDistance()
+                    ):
+                        paths = [
+                            item.data(0, Qt.ItemDataRole.UserRole)
+                            for item in self.tree_widget.selectedItems()
+                            if item.data(0, Qt.ItemDataRole.UserRole) is not None
+                        ]
+                        if paths:
+                            mime = QMimeData()
+                            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+                            drag = QDrag(self.tree_widget)
+                            drag.setMimeData(mime)
+                            drag.exec(Qt.DropAction.CopyAction)
+                        self._tree_drag_start_pos = None
+                        return True
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._tree_drag_start_pos = None
 
         if obj is self.playlist_widget.viewport():
             if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
@@ -1335,6 +1385,121 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
+        self._fill_tree(files)
+
+    def _fill_tree(self, files: list) -> None:
+        """
+        Populate the tree widget with a directory hierarchy derived from
+        the file paths in *files*.
+
+        Directory nodes are non-draggable parents; file nodes store the
+        absolute path in Qt.ItemDataRole.UserRole and can be dragged to
+        the playlist.
+
+        Args:
+            files: List of record dicts as returned by Mp3Manager.list_files()
+                   or Mp3Manager.search().
+        """
+        from pathlib import Path
+        from PyQt6.QtWidgets import QTreeWidgetItem
+
+        self.tree_widget.clear()
+
+        # Build a nested dict representing the directory tree.
+        # Each node is a dict whose keys are either sub-directory names or
+        # the sentinel "__files__" (value: list of file dicts at that level).
+        dir_tree: dict = {}
+        for f in files:
+            parts = Path(f["path"]).parts  # e.g. ('/', 'music', 'pop', 'song.mp3')
+            node = dir_tree
+            for part in parts[:-1]:        # directory components
+                node = node.setdefault(part, {"__files__": []})
+            node.setdefault("__files__", []).append(f)
+
+        def _add_nodes(parent, subtree: dict) -> None:
+            """Recursively create QTreeWidgetItems for dirs then files."""
+            for key in sorted(k for k in subtree if k != "__files__"):
+                dir_item = QTreeWidgetItem(parent, [key])
+                dir_item.setData(0, Qt.ItemDataRole.UserRole, None)
+                # Directory nodes must not be dragged as if they were files
+                dir_item.setFlags(dir_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+                _add_nodes(dir_item, subtree[key])
+            for f in sorted(subtree.get("__files__", []),
+                            key=lambda x: x["filename"].lower()):
+                file_item = QTreeWidgetItem(parent, [f["filename"]])
+                file_item.setData(0, Qt.ItemDataRole.UserRole, f["path"])
+                file_item.setToolTip(0, f["path"])
+
+        _add_nodes(self.tree_widget, dir_tree)
+        self.tree_widget.expandAll()
+
+    def _on_view_toggle_clicked(self) -> None:
+        """Toggle between table view (page 0) and tree view (page 1)."""
+        if self.view_stack.currentIndex() == 0:
+            self.view_stack.setCurrentIndex(1)
+            self.btn_view_toggle.setText("📋 테이블")
+        else:
+            self.view_stack.setCurrentIndex(0)
+            self.btn_view_toggle.setText("🌲 트리")
+
+    def _on_tree_double_clicked(self, item) -> None:
+        """
+        Add the double-clicked tree file item to the playlist and play it.
+
+        Double-clicking a directory node is ignored.
+
+        Args:
+            item: The QTreeWidgetItem that was double-clicked.
+        """
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if path is None:
+            return  # directory node
+        self._playlist_add(path)
+        self._playlist_play_index(self.playlist_widget.count() - 1)
+
+    def _on_tree_context_menu(self, pos) -> None:
+        """
+        Show a right-click context menu on the tree widget.
+
+        File nodes offer '자세히' and '재생목록에 추가'.
+        Directory nodes are ignored.
+
+        Args:
+            pos: Cursor position relative to the tree viewport.
+        """
+        item = self.tree_widget.itemAt(pos)
+        if item is None:
+            return
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if path is None:
+            return  # directory node
+
+        selected_paths = [
+            it.data(0, Qt.ItemDataRole.UserRole)
+            for it in self.tree_widget.selectedItems()
+            if it.data(0, Qt.ItemDataRole.UserRole) is not None
+        ]
+        if not selected_paths:
+            selected_paths = [path]
+
+        file_info = self._manager.get_by_path(path)
+        if file_info is None:
+            return
+
+        n = len(selected_paths)
+        menu = QMenu(self)
+        action_detail   = menu.addAction("자세히")
+        label = f"재생목록에 추가 ({n}곡)" if n > 1 else "재생목록에 추가"
+        action_playlist = menu.addAction(label)
+
+        action = menu.exec(self.tree_widget.viewport().mapToGlobal(pos))
+
+        if action == action_detail:
+            dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
+            dlg.exec()
+        elif action == action_playlist:
+            for p in selected_paths:
+                self._playlist_add(p)
 
     def _on_column_visibility_menu(self, pos) -> None:
         """

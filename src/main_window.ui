@@ -215,6 +215,22 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="btn_view_toggle">
+        <property name="text">
+         <string>🌲 트리</string>
+        </property>
+        <property name="toolTip">
+         <string>테이블 보기와 경로 트리 보기를 전환합니다</string>
+        </property>
+        <property name="minimumWidth">
+         <number>80</number>
+        </property>
+        <property name="maximumWidth">
+         <number>80</number>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer name="toolbarSpacer">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -269,53 +285,96 @@
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
-      <!-- MP3 table -->
-      <widget class="QTableWidget" name="table">
-       <property name="toolTip">
-        <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
+      <!-- View stack: table (page 0) and path tree (page 1) -->
+      <widget class="QStackedWidget" name="view_stack">
+       <property name="currentIndex">
+        <number>0</number>
        </property>
-       <property name="selectionMode">
-        <enum>QAbstractItemView::ExtendedSelection</enum>
-       </property>
-       <property name="selectionBehavior">
-        <enum>QAbstractItemView::SelectRows</enum>
-       </property>
-       <property name="editTriggers">
-        <set>QAbstractItemView::NoEditTriggers</set>
-       </property>
-       <column>
-        <property name="text"><string>파일명</string></property>
-       </column>
-       <column>
-        <property name="text"><string>경로</string></property>
-       </column>
-       <column>
-        <property name="text"><string>아티스트</string></property>
-       </column>
-       <column>
-        <property name="text"><string>제목</string></property>
-       </column>
-       <column>
-        <property name="text"><string>앨범</string></property>
-       </column>
-       <column>
-        <property name="text"><string>장르</string></property>
-       </column>
-       <column>
-        <property name="text"><string>년도</string></property>
-       </column>
-       <column>
-        <property name="text"><string>길이</string></property>
-       </column>
-       <column>
-        <property name="text"><string>크기(bytes)</string></property>
-       </column>
-       <column>
-        <property name="text"><string>생성일시</string></property>
-       </column>
-       <column>
-        <property name="text"><string>수정일시</string></property>
-       </column>
+       <!-- Page 0: MP3 table -->
+       <widget class="QWidget" name="page_table">
+        <layout class="QVBoxLayout" name="pageTableLayout">
+         <property name="spacing"><number>0</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QTableWidget" name="table">
+           <property name="toolTip">
+            <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectRows</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <column>
+            <property name="text"><string>파일명</string></property>
+           </column>
+           <column>
+            <property name="text"><string>경로</string></property>
+           </column>
+           <column>
+            <property name="text"><string>아티스트</string></property>
+           </column>
+           <column>
+            <property name="text"><string>제목</string></property>
+           </column>
+           <column>
+            <property name="text"><string>앨범</string></property>
+           </column>
+           <column>
+            <property name="text"><string>장르</string></property>
+           </column>
+           <column>
+            <property name="text"><string>년도</string></property>
+           </column>
+           <column>
+            <property name="text"><string>길이</string></property>
+           </column>
+           <column>
+            <property name="text"><string>크기(bytes)</string></property>
+           </column>
+           <column>
+            <property name="text"><string>생성일시</string></property>
+           </column>
+           <column>
+            <property name="text"><string>수정일시</string></property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <!-- Page 1: Path tree -->
+       <widget class="QWidget" name="page_tree">
+        <layout class="QVBoxLayout" name="pageTreeLayout">
+         <property name="spacing"><number>0</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QTreeWidget" name="tree_widget">
+           <property name="toolTip">
+            <string>파일을 더블클릭하면 재생목록에 추가됩니다&#10;드래그해서 재생목록에 넣을 수 있습니다</string>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <column>
+            <property name="text"><string>파일명 / 경로</string></property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </widget>
       <!-- Playlist panel -->
       <widget class="QWidget" name="playlist_panel">
