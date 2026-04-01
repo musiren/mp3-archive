@@ -463,6 +463,8 @@ class MainWindow(QMainWindow):
         """Configure the playlist widget to accept drops from the MP3 table."""
         self.playlist_widget.setAcceptDrops(True)
         self.playlist_widget.setDropIndicatorShown(True)
+        self.playlist_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.playlist_widget.customContextMenuRequested.connect(self._on_playlist_context_menu)
         # Override drop handling via event filter
         self.playlist_widget.viewport().installEventFilter(self)
         # Delete key removes selected item
@@ -869,6 +871,43 @@ class MainWindow(QMainWindow):
         idx = (keys.index(self._play_mode) + 1) % len(_modes)
         self._play_mode = _modes[idx][0]
         self.btn_play_mode.setText(_modes[idx][1])
+
+    def _on_playlist_context_menu(self, pos) -> None:
+        """
+        Show a right-click context menu on the playlist widget.
+
+        Provides '자세히' (tag detail dialog) and '재생목록에서 제거'
+        actions for the item under the cursor.
+
+        Args:
+            pos: Cursor position relative to the playlist viewport.
+        """
+        item = self.playlist_widget.itemAt(pos)
+        if item is None:
+            return
+
+        path = item.data(Qt.ItemDataRole.UserRole)
+        row = self.playlist_widget.row(item)
+
+        menu = QMenu(self)
+        action_detail = menu.addAction("자세히")
+        menu.addSeparator()
+        action_remove = menu.addAction("재생목록에서 제거")
+
+        action = menu.exec(self.playlist_widget.viewport().mapToGlobal(pos))
+
+        if action == action_detail:
+            files = self._manager.list_files()
+            file_info = next((f for f in files if f["path"] == path), None)
+            if file_info:
+                dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
+                dlg.exec()
+        elif action == action_remove:
+            self.playlist_widget.takeItem(row)
+            if row == self._playing_index:
+                self._playing_index = -1
+            elif row < self._playing_index:
+                self._playing_index -= 1
 
     def _on_playlist_clear_clicked(self) -> None:
         """Stop playback and remove all items from the playlist."""

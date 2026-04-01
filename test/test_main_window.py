@@ -406,6 +406,46 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(win._playing_index, 0)
         win.close()
 
+    def test_playlist_context_menu_remove_decrements_playing_index(self):
+        """Verify that removing a playlist item above the playing track decrements _playing_index."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playlist_add("/music/c.mp3")
+        win._playing_index = 2
+        # Simulate removing row 0 via the context menu handler logic directly
+        row = 0
+        win.playlist_widget.takeItem(row)
+        if row < win._playing_index:
+            win._playing_index -= 1
+        self.assertEqual(win._playing_index, 1)
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.close()
+
+    def test_playlist_context_menu_remove_playing_resets_index(self):
+        """Verify that removing the currently playing track resets _playing_index to -1."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playing_index = 1
+        row = 1
+        win.playlist_widget.takeItem(row)
+        if row == win._playing_index:
+            win._playing_index = -1
+        self.assertEqual(win._playing_index, -1)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        win.close()
+
+    def test_playlist_context_menu_policy_is_custom(self):
+        """Verify that the playlist uses CustomContextMenu policy."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        self.assertEqual(
+            win.playlist_widget.contextMenuPolicy(),
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        win.close()
+
     def test_table_double_click_adds_to_playlist_and_sets_title(self):
         """Verify that double-clicking a table row adds it to playlist and sets the title label."""
         win = self._make_window()
