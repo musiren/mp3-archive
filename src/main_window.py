@@ -442,9 +442,10 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         # Lazy album-art tooltip: only load art when the mouse enters a cell
         self.table.viewport().installEventFilter(self)
-        # Enable drag from table for playlist
+        # Enable drag from table for playlist (multi-row aware)
         self.table.setDragEnabled(True)
         self.table.setDragDropMode(self.table.DragDropMode.DragOnly)
+        self._install_table_drag_override()
         # Initial pixel widths for non-stretch columns
         self.table.setColumnWidth(2,  150)   # 아티스트
         self.table.setColumnWidth(4,  130)   # 앨범
@@ -456,6 +457,36 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(10, 130)   # 수정일시
         self._restore_column_order()
         self._restore_column_visibility()
+
+    def _install_table_drag_override(self) -> None:
+        """
+        Replace QTableWidget.startDrag so that dragging multiple selected rows
+        sends all their file paths as a text/uri-list MIME payload.
+
+        The default implementation only uses the model's mimeData which does
+        not include our custom UserRole path data.
+        """
+        import types
+        from PyQt6.QtCore import QMimeData, QUrl
+        from PyQt6.QtGui import QDrag
+
+        def _start_drag(table_self, supported_actions):
+            """Custom startDrag: collect paths from all selected rows."""
+            rows = sorted({idx.row() for idx in table_self.selectedIndexes()})
+            paths = []
+            for row in rows:
+                item = table_self.item(row, 0)
+                if item:
+                    paths.append(item.data(Qt.ItemDataRole.UserRole))
+            if not paths:
+                return
+            mime = QMimeData()
+            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+            drag = QDrag(table_self)
+            drag.setMimeData(mime)
+            drag.exec(supported_actions)
+
+        self.table.startDrag = types.MethodType(_start_drag, self.table)
 
     def _setup_playlist(self) -> None:
         """Configure the playlist widget to accept drops from the MP3 table."""
@@ -1041,6 +1072,11 @@ class MainWindow(QMainWindow):
         if not index.isValid():
             return
 
+        # Collect all selected rows; fall back to the right-clicked row
+        selected_rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
+        if not selected_rows:
+            selected_rows = [index.row()]
+
         row = index.row()
         path = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         files = self._manager.list_files()
@@ -1048,9 +1084,11 @@ class MainWindow(QMainWindow):
         if file_info is None:
             return
 
+        n = len(selected_rows)
         menu = QMenu(self)
         action_detail = menu.addAction("자세히")
-        action_playlist = menu.addAction("재생 목록에 추가")
+        label = f"재생 목록에 추가 ({n}곡)" if n > 1 else "재생 목록에 추가"
+        action_playlist = menu.addAction(label)
         menu.addSeparator()
         action_info   = menu.addAction("인터넷에서 정보 보기")
         action_tag    = menu.addAction("태그 찾기")
@@ -1062,7 +1100,9 @@ class MainWindow(QMainWindow):
             dlg.exec()
             self._load_table()
         elif action == action_playlist:
-            self._playlist_add(path)
+            for r in selected_rows:
+                p = self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                self._playlist_add(p)
         elif action == action_info:
             dlg = SongInfoDialog(self._manager, file_info, parent=self)
             dlg.exec()
