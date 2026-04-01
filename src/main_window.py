@@ -496,6 +496,8 @@ class MainWindow(QMainWindow):
             QApplication.instance().setStyleSheet("")
         self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
+        # Re-apply highlight so playing-row colour matches the new theme
+        self._highlight_playing_row(self.playlist_widget.currentRow())
 
     def _on_theme_clicked(self) -> None:
         """Cycle through themes: system → light → dark → system …"""
@@ -603,13 +605,13 @@ class MainWindow(QMainWindow):
         Args:
             index: Row index of the track that is now playing.
         """
-        from PyQt6.QtGui import QColor
+        from PyQt6.QtGui import QBrush, QColor
         theme = self._settings.value(_KEY_THEME, "system")
         bg_hex, fg_hex = _PLAYING_HIGHLIGHT.get(theme, ("#1a6b3a", "#ffffff"))
-        playing_bg = QColor(bg_hex)
-        playing_fg = QColor(fg_hex)
-        default_bg = QColor(0, 0, 0, 0)  # transparent = use widget default
-        default_fg = QColor(0, 0, 0, 0)
+        playing_bg = QBrush(QColor(bg_hex))
+        playing_fg = QBrush(QColor(fg_hex))
+        # Empty QBrush lets the item inherit colour from the QSS stylesheet
+        default_brush = QBrush()
 
         for i in range(self.playlist_widget.count()):
             item = self.playlist_widget.item(i)
@@ -617,8 +619,8 @@ class MainWindow(QMainWindow):
                 item.setBackground(playing_bg)
                 item.setForeground(playing_fg)
             else:
-                item.setBackground(default_bg)
-                item.setForeground(default_fg)
+                item.setBackground(default_brush)
+                item.setForeground(default_brush)
 
     def _play_path(self, path: str) -> None:
         """

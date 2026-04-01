@@ -323,27 +323,30 @@ class TestPlaylist(unittest.TestCase):
         win.close()
 
     def test_highlight_playing_row_sets_background(self):
-        """Verify that _highlight_playing_row sets a non-transparent background on the playing row."""
-        from PyQt6.QtGui import QColor
+        """Verify that _highlight_playing_row sets a solid background on the playing row
+        and resets the other row to an empty (null) brush."""
+        from PyQt6.QtGui import QBrush
         win = self._make_window()
         win._playlist_add("/music/a.mp3")
         win._playlist_add("/music/b.mp3")
         win._highlight_playing_row(0)
         item0 = win.playlist_widget.item(0)
         item1 = win.playlist_widget.item(1)
-        self.assertNotEqual(item0.background().color(), QColor(0, 0, 0, 0))
-        self.assertEqual(item1.background().color(), QColor(0, 0, 0, 0))
+        # Playing row must have a non-null brush
+        self.assertNotEqual(item0.background(), QBrush())
+        # Non-playing row must have the default null brush
+        self.assertEqual(item1.background(), QBrush())
         win.close()
 
     def test_highlight_playing_row_minus_one_resets_all(self):
-        """Verify that _highlight_playing_row(-1) resets all rows to transparent."""
-        from PyQt6.QtGui import QColor
+        """Verify that _highlight_playing_row(-1) resets all rows to null brush."""
+        from PyQt6.QtGui import QBrush
         win = self._make_window()
         win._playlist_add("/music/a.mp3")
         win._highlight_playing_row(0)
         win._highlight_playing_row(-1)
         item0 = win.playlist_widget.item(0)
-        self.assertEqual(item0.background().color(), QColor(0, 0, 0, 0))
+        self.assertEqual(item0.background(), QBrush())
         win.close()
 
     def test_playlist_current_path_returns_none_when_empty(self):
