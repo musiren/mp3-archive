@@ -553,24 +553,31 @@ class MainWindow(QMainWindow):
                 if (
                     event.buttons() & Qt.MouseButton.LeftButton
                     and self._drag_start_pos is not None
-                    and (event.pos() - self._drag_start_pos).manhattanLength()
-                        >= QApplication.startDragDistance()
                 ):
-                    rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
-                    paths = [
-                        self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                        for r in rows
-                        if self.table.item(r, 0)
-                    ]
-                    if paths:
-                        mime = QMimeData()
-                        mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
-                        drag = QDrag(self.table)
-                        drag.setMimeData(mime)
-                        drag.exec(Qt.DropAction.CopyAction)
-                    self._drag_start_pos = None
-                    self._drag_swallowed_press = False
-                    return True
+                    if (
+                        (event.pos() - self._drag_start_pos).manhattanLength()
+                        >= QApplication.startDragDistance()
+                    ):
+                        rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
+                        paths = [
+                            self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                            for r in rows
+                            if self.table.item(r, 0)
+                        ]
+                        if paths:
+                            mime = QMimeData()
+                            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+                            drag = QDrag(self.table)
+                            drag.setMimeData(mime)
+                            drag.exec(Qt.DropAction.CopyAction)
+                        self._drag_start_pos = None
+                        self._drag_swallowed_press = False
+                        return True
+                    elif self._drag_swallowed_press:
+                        # Below drag threshold but press was swallowed —
+                        # keep swallowing moves so the table cannot
+                        # start rubber-band / range re-selection.
+                        return True
 
             elif event.type() == QEvent.Type.MouseButtonRelease:
                 if event.button() == Qt.MouseButton.LeftButton:
