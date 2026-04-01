@@ -666,14 +666,52 @@ class MainWindow(QMainWindow):
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
 
     def _on_prev_clicked(self) -> None:
-        """Play the previous item in the playlist."""
+        """
+        Play the previous track according to the current playback mode.
+
+          sequential  – go to idx-1, stop at first track
+          repeat_one  – replay the same track
+          repeat_all  – wrap around to last track from first
+          shuffle     – pick a random track
+        """
+        count = self.playlist_widget.count()
+        if count == 0:
+            return
         idx = self.playlist_widget.currentRow()
-        self._playlist_play_index(max(0, idx - 1))
+        if self._play_mode == "repeat_one":
+            self._playlist_play_index(idx)
+        elif self._play_mode == "repeat_all":
+            self._playlist_play_index((idx - 1) % count)
+        elif self._play_mode == "shuffle":
+            import random
+            random.seed()
+            self._playlist_play_index(random.randrange(count))
+        else:  # sequential
+            self._playlist_play_index(max(0, idx - 1))
 
     def _on_next_clicked(self) -> None:
-        """Play the next item in the playlist."""
+        """
+        Play the next track according to the current playback mode.
+
+          sequential  – go to idx+1, stop at last track
+          repeat_one  – replay the same track
+          repeat_all  – wrap around to first track from last
+          shuffle     – pick a random track
+        """
+        count = self.playlist_widget.count()
+        if count == 0:
+            return
         idx = self.playlist_widget.currentRow()
-        self._playlist_play_index(idx + 1)
+        if self._play_mode == "repeat_one":
+            self._playlist_play_index(idx)
+        elif self._play_mode == "repeat_all":
+            self._playlist_play_index((idx + 1) % count)
+        elif self._play_mode == "shuffle":
+            import random
+            random.seed()
+            self._playlist_play_index(random.randrange(count))
+        else:  # sequential
+            self._playlist_play_index(min(count - 1, idx + 1))
 
     def _on_playlist_save_clicked(self) -> None:
         """

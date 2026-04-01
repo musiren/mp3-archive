@@ -561,6 +561,113 @@ class TestTheme(unittest.TestCase):
         win.close()
 
 
+class TestPrevNext(unittest.TestCase):
+    """Tests for prev/next button behaviour per playback mode."""
+
+    def _make_window_with_playlist(self) -> MainWindow:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        for path in ["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]:
+            win._playlist_add(path)
+        win.playlist_widget.setCurrentRow(1)  # start on middle track
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_sequential_next_advances(self):
+        """sequential: next goes to idx+1."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_sequential_prev_goes_back(self):
+        """sequential: prev goes to idx-1."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_sequential_next_clamps_at_last(self):
+        """sequential: next on last track stays on last track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win.playlist_widget.setCurrentRow(2)
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_sequential_prev_clamps_at_first(self):
+        """sequential: prev on first track stays on first track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win.playlist_widget.setCurrentRow(0)
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_repeat_one_next_replays_same(self):
+        """repeat_one: next replays the same track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_one"
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 1)
+        win.close()
+
+    def test_repeat_one_prev_replays_same(self):
+        """repeat_one: prev replays the same track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_one"
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 1)
+        win.close()
+
+    def test_repeat_all_next_wraps(self):
+        """repeat_all: next on last track wraps to first."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_all"
+        win.playlist_widget.setCurrentRow(2)
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_repeat_all_prev_wraps(self):
+        """repeat_all: prev on first track wraps to last."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_all"
+        win.playlist_widget.setCurrentRow(0)
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_shuffle_next_picks_valid_index(self):
+        """shuffle: next picks a valid playlist index."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "shuffle"
+        win._on_next_clicked()
+        self.assertIn(win.playlist_widget.currentRow(), [0, 1, 2])
+        win.close()
+
+    def test_shuffle_prev_picks_valid_index(self):
+        """shuffle: prev picks a valid playlist index."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "shuffle"
+        win._on_prev_clicked()
+        self.assertIn(win.playlist_widget.currentRow(), [0, 1, 2])
+        win.close()
+
+
 class TestPlayMode(unittest.TestCase):
     """Tests for playback mode toggle button."""
 
