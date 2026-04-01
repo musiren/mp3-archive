@@ -446,6 +446,7 @@ class MainWindow(QMainWindow):
         # Built-in drag is disabled to prevent it from firing with default MIME data.
         self.table.setDragEnabled(False)
         self._drag_start_pos = None
+        self._drag_swallowed_press = False  # True when we ate a MousePress to preserve selection
         # Initial pixel widths for non-stretch columns
         self.table.setColumnWidth(2,  150)   # 아티스트
         self.table.setColumnWidth(4,  130)   # 앨범
@@ -534,6 +535,15 @@ class MainWindow(QMainWindow):
             if event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._drag_start_pos = event.pos()
+                    index = self.table.indexAt(event.pos())
+                    if index.isValid() and self.table.selectionModel().isSelected(index):
+                        # Click lands on an already-selected row.
+                        # Swallow the event so the table does NOT reset the selection;
+                        # we will handle selection on release if no drag occurs.
+                        self._drag_swallowed_press = True
+                        return True
+                    self._drag_swallowed_press = False
+
             elif event.type() == QEvent.Type.MouseMove:
                 if (
                     event.buttons() & Qt.MouseButton.LeftButton
@@ -554,9 +564,26 @@ class MainWindow(QMainWindow):
                         drag.setMimeData(mime)
                         drag.exec(Qt.DropAction.CopyAction)
                     self._drag_start_pos = None
+                    self._drag_swallowed_press = False
                     return True
+
             elif event.type() == QEvent.Type.MouseButtonRelease:
-                self._drag_start_pos = None
+                if event.button() == Qt.MouseButton.LeftButton:
+                    if self._drag_swallowed_press and self._drag_start_pos is not None:
+                        # No drag happened; apply normal single-click selection now.
+                        index = self.table.indexAt(event.pos())
+                        if index.isValid():
+                            from PyQt6.QtCore import QItemSelectionModel
+                            sm = self.table.selectionModel()
+                            mod = event.modifiers()
+                            if mod & Qt.KeyboardModifier.ControlModifier:
+                                sm.select(index, QItemSelectionModel.SelectionFlag.Toggle
+                                          | QItemSelectionModel.SelectionFlag.Rows)
+                            else:
+                                sm.select(index, QItemSelectionModel.SelectionFlag.ClearAndSelect
+                                          | QItemSelectionModel.SelectionFlag.Rows)
+                    self._drag_start_pos = None
+                    self._drag_swallowed_press = False
 
         # Delete key removes the selected playlist item
         if obj is self.playlist_widget and event.type() == QEvent.Type.KeyPress:
