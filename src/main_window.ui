@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>900</width>
-    <height>620</height>
+    <height>660</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,282 +16,336 @@
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
     <property name="spacing">
-     <number>8</number>
+     <number>0</number>
     </property>
     <property name="leftMargin">
-     <number>12</number>
+     <number>0</number>
     </property>
     <property name="topMargin">
-     <number>12</number>
+     <number>0</number>
     </property>
     <property name="rightMargin">
-     <number>12</number>
+     <number>0</number>
     </property>
     <property name="bottomMargin">
-     <number>12</number>
+     <number>0</number>
     </property>
-    <!-- Path configuration row -->
     <item>
-     <layout class="QHBoxLayout" name="pathLayout">
-      <item>
-       <widget class="QLabel" name="label_path">
-        <property name="text">
-         <string>음악 경로:</string>
-        </property>
-        <property name="minimumWidth">
-         <number>70</number>
-        </property>
-        <property name="maximumWidth">
-         <number>70</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLineEdit" name="path_edit">
-        <property name="toolTip">
-         <string>스캔할 음악 디렉토리 경로</string>
-        </property>
-        <property name="placeholderText">
-         <string>스캔할 음악 디렉토리를 선택하세요...</string>
-        </property>
-        <property name="readOnly">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_browse">
-        <property name="toolTip">
-         <string>음악 파일이 있는 폴더를 선택합니다</string>
-        </property>
-        <property name="text">
-         <string>찾아보기</string>
-        </property>
-        <property name="minimumWidth">
-         <number>90</number>
-        </property>
-        <property name="maximumWidth">
-         <number>90</number>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <!-- Search row -->
-    <item>
-     <layout class="QHBoxLayout" name="searchLayout">
-      <item>
-       <widget class="QLabel" name="label_search">
-        <property name="text">
-         <string>검색:</string>
-        </property>
-        <property name="minimumWidth">
-         <number>40</number>
-        </property>
-        <property name="maximumWidth">
-         <number>40</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLineEdit" name="search_edit">
-        <property name="toolTip">
-         <string>검색어를 입력하면 실시간으로 목록이 필터링됩니다&#10;Enter 키로도 검색할 수 있습니다</string>
-        </property>
-        <property name="placeholderText">
-         <string>파일명 검색...</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="chk_search_tags">
-        <property name="toolTip">
-         <string>체크하면 제목·아티스트·앨범·장르·년도·코멘트 등 태그 전체에서 검색합니다&#10;기본값: 파일명만 검색</string>
-        </property>
-        <property name="text">
-         <string>태그 포함</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_search">
-        <property name="toolTip">
-         <string>입력한 검색어로 목록을 필터링합니다</string>
-        </property>
-        <property name="text">
-         <string>검색</string>
-        </property>
-        <property name="minimumWidth">
-         <number>70</number>
-        </property>
-        <property name="maximumWidth">
-         <number>70</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_search_clear">
-        <property name="toolTip">
-         <string>검색어를 지우고 전체 목록을 다시 표시합니다</string>
-        </property>
-        <property name="text">
-         <string>초기화</string>
-        </property>
-        <property name="minimumWidth">
-         <number>70</number>
-        </property>
-        <property name="maximumWidth">
-         <number>70</number>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <!-- Toolbar row -->
-    <item>
-     <layout class="QHBoxLayout" name="toolbarLayout">
-      <item>
-       <widget class="QPushButton" name="btn_scan">
-        <property name="toolTip">
-         <string>변경된 파일만 빠르게 스캔합니다&#10;이미 등록된 파일은 건너뜁니다</string>
-        </property>
-        <property name="text">
-         <string>빠른 스캔</string>
-        </property>
-        <property name="minimumWidth">
-         <number>110</number>
-        </property>
-        <property name="maximumWidth">
-         <number>110</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_force_scan">
-        <property name="toolTip">
-         <string>모든 파일을 처음부터 다시 스캔합니다&#10;태그 변경 사항을 강제로 반영할 때 사용합니다</string>
-        </property>
-        <property name="text">
-         <string>전체 스캔</string>
-        </property>
-        <property name="minimumWidth">
-         <number>110</number>
-        </property>
-        <property name="maximumWidth">
-         <number>110</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_delete">
-        <property name="toolTip">
-         <string>선택한 항목을 데이터베이스에서 삭제합니다&#10;실제 파일은 삭제되지 않습니다</string>
-        </property>
-        <property name="text">
-         <string>삭제</string>
-        </property>
-        <property name="minimumWidth">
-         <number>100</number>
-        </property>
-        <property name="maximumWidth">
-         <number>100</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_tag_fetch">
-        <property name="toolTip">
-         <string>선택한 항목(또는 태그 없는 전체 파일)의 태그를&#10;MusicBrainz에서 검색해 자동으로 채웁니다</string>
-        </property>
-        <property name="text">
-         <string>태그 찾기</string>
-        </property>
-        <property name="minimumWidth">
-         <number>90</number>
-        </property>
-        <property name="maximumWidth">
-         <number>90</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="toolbarSpacer">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QLabel" name="status_label">
-        <property name="text">
-         <string>준비</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <!-- Progress bar -->
-    <item>
-     <widget class="QProgressBar" name="progress_bar">
-      <property name="value">
+     <!-- Top-level tab widget: MP3 manager | Portfolio tracker -->
+     <widget class="QTabWidget" name="main_tabs">
+      <property name="currentIndex">
        <number>0</number>
       </property>
-      <property name="visible">
-       <bool>false</bool>
-      </property>
-     </widget>
-    </item>
-    <!-- MP3 table -->
-    <item>
-     <widget class="QTableWidget" name="table">
-      <property name="toolTip">
-       <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
-      </property>
-      <property name="selectionBehavior">
-       <enum>QAbstractItemView::SelectRows</enum>
-      </property>
-      <property name="editTriggers">
-       <set>QAbstractItemView::NoEditTriggers</set>
-      </property>
-      <column>
-       <property name="text"><string>파일명</string></property>
-      </column>
-      <column>
-       <property name="text"><string>경로</string></property>
-      </column>
-      <column>
-       <property name="text"><string>제목</string></property>
-      </column>
-      <column>
-       <property name="text"><string>아티스트</string></property>
-      </column>
-      <column>
-       <property name="text"><string>앨범</string></property>
-      </column>
-      <column>
-       <property name="text"><string>장르</string></property>
-      </column>
-      <column>
-       <property name="text"><string>년도</string></property>
-      </column>
-      <column>
-       <property name="text"><string>길이</string></property>
-      </column>
-      <column>
-       <property name="text"><string>크기(bytes)</string></property>
-      </column>
-      <column>
-       <property name="text"><string>생성일시</string></property>
-      </column>
-      <column>
-       <property name="text"><string>수정일시</string></property>
-      </column>
+      <!-- ── Tab 0: MP3 관리 ─────────────────────────────────────────── -->
+      <widget class="QWidget" name="tab_mp3">
+       <attribute name="title">
+        <string>MP3 관리</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="mp3Layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
+         <number>12</number>
+        </property>
+        <!-- Path configuration row -->
+        <item>
+         <layout class="QHBoxLayout" name="pathLayout">
+          <item>
+           <widget class="QLabel" name="label_path">
+            <property name="text">
+             <string>음악 경로:</string>
+            </property>
+            <property name="minimumWidth">
+             <number>70</number>
+            </property>
+            <property name="maximumWidth">
+             <number>70</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="path_edit">
+            <property name="toolTip">
+             <string>스캔할 음악 디렉토리 경로</string>
+            </property>
+            <property name="placeholderText">
+             <string>스캔할 음악 디렉토리를 선택하세요...</string>
+            </property>
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_browse">
+            <property name="toolTip">
+             <string>음악 파일이 있는 폴더를 선택합니다</string>
+            </property>
+            <property name="text">
+             <string>찾아보기</string>
+            </property>
+            <property name="minimumWidth">
+             <number>90</number>
+            </property>
+            <property name="maximumWidth">
+             <number>90</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Search row -->
+        <item>
+         <layout class="QHBoxLayout" name="searchLayout">
+          <item>
+           <widget class="QLabel" name="label_search">
+            <property name="text">
+             <string>검색:</string>
+            </property>
+            <property name="minimumWidth">
+             <number>40</number>
+            </property>
+            <property name="maximumWidth">
+             <number>40</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="search_edit">
+            <property name="toolTip">
+             <string>검색어를 입력하면 실시간으로 목록이 필터링됩니다&#10;Enter 키로도 검색할 수 있습니다</string>
+            </property>
+            <property name="placeholderText">
+             <string>파일명 검색...</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="chk_search_tags">
+            <property name="toolTip">
+             <string>체크하면 제목·아티스트·앨범·장르·년도·코멘트 등 태그 전체에서 검색합니다&#10;기본값: 파일명만 검색</string>
+            </property>
+            <property name="text">
+             <string>태그 포함</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_search">
+            <property name="toolTip">
+             <string>입력한 검색어로 목록을 필터링합니다</string>
+            </property>
+            <property name="text">
+             <string>검색</string>
+            </property>
+            <property name="minimumWidth">
+             <number>70</number>
+            </property>
+            <property name="maximumWidth">
+             <number>70</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_search_clear">
+            <property name="toolTip">
+             <string>검색어를 지우고 전체 목록을 다시 표시합니다</string>
+            </property>
+            <property name="text">
+             <string>초기화</string>
+            </property>
+            <property name="minimumWidth">
+             <number>70</number>
+            </property>
+            <property name="maximumWidth">
+             <number>70</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Toolbar row -->
+        <item>
+         <layout class="QHBoxLayout" name="toolbarLayout">
+          <item>
+           <widget class="QPushButton" name="btn_scan">
+            <property name="toolTip">
+             <string>변경된 파일만 빠르게 스캔합니다&#10;이미 등록된 파일은 건너뜁니다</string>
+            </property>
+            <property name="text">
+             <string>빠른 스캔</string>
+            </property>
+            <property name="minimumWidth">
+             <number>110</number>
+            </property>
+            <property name="maximumWidth">
+             <number>110</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_force_scan">
+            <property name="toolTip">
+             <string>모든 파일을 처음부터 다시 스캔합니다&#10;태그 변경 사항을 강제로 반영할 때 사용합니다</string>
+            </property>
+            <property name="text">
+             <string>전체 스캔</string>
+            </property>
+            <property name="minimumWidth">
+             <number>110</number>
+            </property>
+            <property name="maximumWidth">
+             <number>110</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_delete">
+            <property name="toolTip">
+             <string>선택한 항목을 데이터베이스에서 삭제합니다&#10;실제 파일은 삭제되지 않습니다</string>
+            </property>
+            <property name="text">
+             <string>삭제</string>
+            </property>
+            <property name="minimumWidth">
+             <number>100</number>
+            </property>
+            <property name="maximumWidth">
+             <number>100</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_tag_fetch">
+            <property name="toolTip">
+             <string>선택한 항목(또는 태그 없는 전체 파일)의 태그를&#10;MusicBrainz에서 검색해 자동으로 채웁니다</string>
+            </property>
+            <property name="text">
+             <string>태그 찾기</string>
+            </property>
+            <property name="minimumWidth">
+             <number>90</number>
+            </property>
+            <property name="maximumWidth">
+             <number>90</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="toolbarSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="status_label">
+            <property name="text">
+             <string>준비</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Progress bar -->
+        <item>
+         <widget class="QProgressBar" name="progress_bar">
+          <property name="value">
+           <number>0</number>
+          </property>
+          <property name="visible">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <!-- MP3 table -->
+        <item>
+         <widget class="QTableWidget" name="table">
+          <property name="toolTip">
+           <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="editTriggers">
+           <set>QAbstractItemView::NoEditTriggers</set>
+          </property>
+          <column>
+           <property name="text"><string>파일명</string></property>
+          </column>
+          <column>
+           <property name="text"><string>경로</string></property>
+          </column>
+          <column>
+           <property name="text"><string>제목</string></property>
+          </column>
+          <column>
+           <property name="text"><string>아티스트</string></property>
+          </column>
+          <column>
+           <property name="text"><string>앨범</string></property>
+          </column>
+          <column>
+           <property name="text"><string>장르</string></property>
+          </column>
+          <column>
+           <property name="text"><string>년도</string></property>
+          </column>
+          <column>
+           <property name="text"><string>길이</string></property>
+          </column>
+          <column>
+           <property name="text"><string>크기(bytes)</string></property>
+          </column>
+          <column>
+           <property name="text"><string>생성일시</string></property>
+          </column>
+          <column>
+           <property name="text"><string>수정일시</string></property>
+          </column>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <!-- ── Tab 1: 주식 포트폴리오 ──────────────────────────────────── -->
+      <widget class="QWidget" name="tab_portfolio">
+       <attribute name="title">
+        <string>주식 포트폴리오</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="portfolioLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>

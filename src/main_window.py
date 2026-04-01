@@ -1,13 +1,19 @@
 """
 main_window.py - PyQt6 UI for the MP3 archive manager.
 
-Provides a main window with:
-  - Directory path configurator (persisted via QSettings)
-  - Browse button to open a system file explorer and select a directory
-  - Scan button to recursively find all MP3 files under the configured path
-  - Progress bar updated during scan via QThread
-  - Table view listing all stored MP3 records
-  - Delete button to remove selected records from the database
+Provides a main window with two tabs:
+  MP3 관리 tab:
+    - Directory path configurator (persisted via QSettings)
+    - Browse button to open a system file explorer and select a directory
+    - Scan button to recursively find all MP3 files under the configured path
+    - Progress bar updated during scan via QThread
+    - Table view listing all stored MP3 records
+    - Delete button to remove selected records from the database
+  주식 포트폴리오 tab:
+    - Per-stock holdings view with P&L calculations
+    - Current-price entry and target-profit progress
+    - Price history log
+    - Persistent storage via QSettings
 
 The window layout is defined in main_window.ui and can be edited
 with Qt Designer without touching this file.
@@ -35,6 +41,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mp3_manager import Mp3Manager
+from portfolio_widget import PortfolioWidget
 
 
 def _fmt_duration(seconds) -> str:
@@ -170,6 +177,7 @@ class MainWindow(QMainWindow):
         self._setup_table()
         self._restore_path()
         self._load_table()
+        self._setup_portfolio_tab()
 
     # ------------------------------------------------------------------
     # Initialisation helpers
@@ -200,6 +208,11 @@ class MainWindow(QMainWindow):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self._restore_column_visibility()
+
+    def _setup_portfolio_tab(self) -> None:
+        """Instantiate PortfolioWidget and embed it in the portfolio tab."""
+        self._portfolio_widget = PortfolioWidget(parent=self)
+        self.tab_portfolio.layout().addWidget(self._portfolio_widget)
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
