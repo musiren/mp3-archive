@@ -322,9 +322,6 @@
        <property name="minimumWidth">
         <number>200</number>
        </property>
-       <property name="maximumWidth">
-        <number>320</number>
-       </property>
        <layout class="QVBoxLayout" name="playlistLayout">
         <property name="spacing">
          <number>6</number>
