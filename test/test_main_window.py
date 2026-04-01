@@ -378,6 +378,34 @@ class TestPlaylist(unittest.TestCase):
             self.assertTrue(hasattr(win, attr), f"Missing widget: {attr}")
         win.close()
 
+    def test_delete_key_removes_item_from_playlist(self):
+        """Verify that pressing Delete removes the selected playlist item."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win.playlist_widget.setCurrentRow(0)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "b.mp3")
+        win.close()
+
+    def test_delete_key_adjusts_playing_index(self):
+        """Verify that deleting a row above the playing track decrements _playing_index."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playing_index = 1
+        win.playlist_widget.setCurrentRow(0)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win._playing_index, 0)
+        win.close()
+
     def test_table_double_click_adds_to_playlist_and_sets_title(self):
         """Verify that double-clicking a table row adds it to playlist and sets the title label."""
         win = self._make_window()
@@ -572,7 +600,9 @@ class TestPrevNext(unittest.TestCase):
         self._win = win
         for path in ["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]:
             win._playlist_add(path)
-        win.playlist_widget.setCurrentRow(1)  # start on middle track
+        # Simulate playback starting on middle track via _playing_index
+        win._playing_index = 1
+        win.playlist_widget.setCurrentRow(1)
         return win
 
     def tearDown(self):
@@ -603,7 +633,7 @@ class TestPrevNext(unittest.TestCase):
         """sequential: next on last track stays on last track."""
         win = self._make_window_with_playlist()
         win._play_mode = "sequential"
-        win.playlist_widget.setCurrentRow(2)
+        win._playing_index = 2
         win._on_next_clicked()
         self.assertEqual(win.playlist_widget.currentRow(), 2)
         win.close()
@@ -612,7 +642,7 @@ class TestPrevNext(unittest.TestCase):
         """sequential: prev on first track stays on first track."""
         win = self._make_window_with_playlist()
         win._play_mode = "sequential"
-        win.playlist_widget.setCurrentRow(0)
+        win._playing_index = 0
         win._on_prev_clicked()
         self.assertEqual(win.playlist_widget.currentRow(), 0)
         win.close()
@@ -637,7 +667,7 @@ class TestPrevNext(unittest.TestCase):
         """repeat_all: next on last track wraps to first."""
         win = self._make_window_with_playlist()
         win._play_mode = "repeat_all"
-        win.playlist_widget.setCurrentRow(2)
+        win._playing_index = 2
         win._on_next_clicked()
         self.assertEqual(win.playlist_widget.currentRow(), 0)
         win.close()
@@ -646,7 +676,7 @@ class TestPrevNext(unittest.TestCase):
         """repeat_all: prev on first track wraps to last."""
         win = self._make_window_with_playlist()
         win._play_mode = "repeat_all"
-        win.playlist_widget.setCurrentRow(0)
+        win._playing_index = 0
         win._on_prev_clicked()
         self.assertEqual(win.playlist_widget.currentRow(), 2)
         win.close()

@@ -365,8 +365,8 @@ class MainWindow(QMainWindow):
         None and playback features are silently disabled.
         """
         self._seeking = False  # guard to prevent slider feedback loop
-        # Playback mode cycles: sequential → repeat_one → repeat_all → shuffle
         self._play_mode = "sequential"
+        self._playing_index = -1  # index of the currently playing track
         if not _MULTIMEDIA_AVAILABLE:
             self._player = None
             self._audio_output = None
@@ -463,6 +463,8 @@ class MainWindow(QMainWindow):
         self.playlist_widget.setDropIndicatorShown(True)
         # Override drop handling via event filter
         self.playlist_widget.viewport().installEventFilter(self)
+        # Delete key removes selected item
+        self.playlist_widget.installEventFilter(self)
 
     def _restore_path(self) -> None:
         """Load the last-used directory path from QSettings and display it."""
@@ -497,7 +499,7 @@ class MainWindow(QMainWindow):
         self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
         # Re-apply highlight so playing-row colour matches the new theme
-        self._highlight_playing_row(self.playlist_widget.currentRow())
+        self._highlight_playing_row(self._playing_index)
 
     def _on_theme_clicked(self) -> None:
         """Cycle through themes: system → light → dark → system …"""
@@ -524,6 +526,19 @@ class MainWindow(QMainWindow):
             True if the event was handled, False to pass it on.
         """
         from PyQt6.QtCore import QEvent
+        # Delete key removes the selected playlist item
+        if obj is self.playlist_widget and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Delete:
+                row = self.playlist_widget.currentRow()
+                if row >= 0:
+                    self.playlist_widget.takeItem(row)
+                    # Adjust _playing_index after removal
+                    if row == self._playing_index:
+                        self._playing_index = -1
+                    elif row < self._playing_index:
+                        self._playing_index -= 1
+                return True
+
         # Lazy album-art tooltip for the MP3 table
         if obj is self.table.viewport() and event.type() == QEvent.Type.ToolTip:
             pos = event.pos()
@@ -589,6 +604,7 @@ class MainWindow(QMainWindow):
         """
         if index < 0 or index >= self.playlist_widget.count():
             return
+        self._playing_index = index
         self.playlist_widget.setCurrentRow(index)
         self._highlight_playing_row(index)
         path = self.playlist_widget.item(index).data(Qt.ItemDataRole.UserRole)
@@ -663,6 +679,7 @@ class MainWindow(QMainWindow):
         """Stop playback, reset the seek slider, and clear the row highlight."""
         if self._player is not None:
             self._player.stop()
+        self._playing_index = -1
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
 
     def _on_prev_clicked(self) -> None:
@@ -677,9 +694,9 @@ class MainWindow(QMainWindow):
         count = self.playlist_widget.count()
         if count == 0:
             return
-        idx = self.playlist_widget.currentRow()
+        idx = self._playing_index
         if self._play_mode == "repeat_one":
-            self._playlist_play_index(idx)
+            self._playlist_play_index(max(0, idx))
         elif self._play_mode == "repeat_all":
             self._playlist_play_index((idx - 1) % count)
         elif self._play_mode == "shuffle":
@@ -701,9 +718,9 @@ class MainWindow(QMainWindow):
         count = self.playlist_widget.count()
         if count == 0:
             return
-        idx = self.playlist_widget.currentRow()
+        idx = self._playing_index
         if self._play_mode == "repeat_one":
-            self._playlist_play_index(idx)
+            self._playlist_play_index(max(0, idx))
         elif self._play_mode == "repeat_all":
             self._playlist_play_index((idx + 1) % count)
         elif self._play_mode == "shuffle":
@@ -786,6 +803,7 @@ class MainWindow(QMainWindow):
         """Stop playback and remove all items from the playlist."""
         if self._player is not None:
             self._player.stop()
+        self._playing_index = -1
         self.playlist_widget.clear()  # clears items and their highlights
         self.player_title_label.setText("-")
         self.time_current_label.setText("0:00")
@@ -876,7 +894,7 @@ class MainWindow(QMainWindow):
         if count == 0:
             return
 
-        idx = self.playlist_widget.currentRow()
+        idx = self._playing_index
 
         if self._play_mode == "repeat_one":
             self._playlist_play_index(idx)
