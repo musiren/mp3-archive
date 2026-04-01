@@ -127,6 +127,158 @@ _UI_FILE = os.path.join(_BASE_DIR, "main_window.ui")
 _SETTINGS_ORG  = "mp3-archive"
 _SETTINGS_APP  = "MP3ArchiveManager"
 _KEY_LAST_PATH = "scan/last_path"
+_KEY_THEME     = "ui/theme"
+
+# Stylesheet for light theme (explicit white-based palette)
+_QSS_LIGHT = """
+QWidget {
+    background-color: #f5f5f5;
+    color: #1a1a1a;
+}
+QMainWindow, QDialog {
+    background-color: #f5f5f5;
+}
+QTableWidget, QListWidget {
+    background-color: #ffffff;
+    alternate-background-color: #f0f0f0;
+    color: #1a1a1a;
+    gridline-color: #d0d0d0;
+}
+QHeaderView::section {
+    background-color: #e0e0e0;
+    color: #1a1a1a;
+    border: 1px solid #c0c0c0;
+    padding: 4px;
+}
+QPushButton {
+    background-color: #e0e0e0;
+    color: #1a1a1a;
+    border: 1px solid #b0b0b0;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+QPushButton:hover  { background-color: #d0d0d0; }
+QPushButton:pressed { background-color: #b8b8b8; }
+QLineEdit, QTextEdit {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #b0b0b0;
+    border-radius: 3px;
+    padding: 2px 4px;
+}
+QCheckBox { color: #1a1a1a; }
+QLabel    { color: #1a1a1a; }
+QProgressBar {
+    background-color: #e0e0e0;
+    border: 1px solid #b0b0b0;
+    border-radius: 3px;
+    text-align: center;
+    color: #1a1a1a;
+}
+QProgressBar::chunk { background-color: #4a90d9; }
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #d0d0d0;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #4a90d9;
+    width: 14px; height: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+QSlider::sub-page:horizontal { background: #4a90d9; border-radius: 3px; }
+QMenu {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #c0c0c0;
+}
+QMenu::item:selected { background-color: #cce0ff; }
+QToolTip {
+    background-color: #ffffcc;
+    color: #1a1a1a;
+    border: 1px solid #c0c0c0;
+}
+"""
+
+# Stylesheet for dark theme
+_QSS_DARK = """
+QWidget {
+    background-color: #2b2b2b;
+    color: #e8e8e8;
+}
+QMainWindow, QDialog {
+    background-color: #2b2b2b;
+}
+QTableWidget, QListWidget {
+    background-color: #1e1e1e;
+    alternate-background-color: #252525;
+    color: #e8e8e8;
+    gridline-color: #3d3d3d;
+}
+QHeaderView::section {
+    background-color: #3c3c3c;
+    color: #e8e8e8;
+    border: 1px solid #555555;
+    padding: 4px;
+}
+QPushButton {
+    background-color: #3c3c3c;
+    color: #e8e8e8;
+    border: 1px solid #555555;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+QPushButton:hover  { background-color: #4a4a4a; }
+QPushButton:pressed { background-color: #606060; }
+QLineEdit, QTextEdit {
+    background-color: #1e1e1e;
+    color: #e8e8e8;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 2px 4px;
+}
+QCheckBox { color: #e8e8e8; }
+QLabel    { color: #e8e8e8; }
+QProgressBar {
+    background-color: #3c3c3c;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    text-align: center;
+    color: #e8e8e8;
+}
+QProgressBar::chunk { background-color: #4a90d9; }
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #555555;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #4a90d9;
+    width: 14px; height: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+QSlider::sub-page:horizontal { background: #4a90d9; border-radius: 3px; }
+QMenu {
+    background-color: #2b2b2b;
+    color: #e8e8e8;
+    border: 1px solid #555555;
+}
+QMenu::item:selected { background-color: #3a5a8a; }
+QToolTip {
+    background-color: #3c3c3c;
+    color: #e8e8e8;
+    border: 1px solid #555555;
+}
+"""
+
+# Highlight colors per theme for the currently playing playlist row
+_PLAYING_HIGHLIGHT = {
+    "system": ("#1a6b3a", "#ffffff"),
+    "light":  ("#1a6b3a", "#ffffff"),
+    "dark":   ("#2e7d52", "#ffffff"),
+}
 
 
 class ScanWorker(QThread):
@@ -198,6 +350,7 @@ class MainWindow(QMainWindow):
         self._setup_table()
         self._setup_playlist()
         self._restore_path()
+        self._restore_theme()
         self._load_table()
 
     # ------------------------------------------------------------------
@@ -241,6 +394,7 @@ class MainWindow(QMainWindow):
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
+        self.btn_theme.clicked.connect(self._on_theme_clicked)
 
         # Playback controls
         self.btn_play_pause.clicked.connect(self._on_play_pause_clicked)
@@ -315,6 +469,39 @@ class MainWindow(QMainWindow):
         saved = self._settings.value(_KEY_LAST_PATH, "")
         if saved:
             self.path_edit.setText(saved)
+
+    def _restore_theme(self) -> None:
+        """Load the saved theme from QSettings and apply it."""
+        theme = self._settings.value(_KEY_THEME, "system")
+        self._apply_theme(theme)
+
+    def _apply_theme(self, theme: str) -> None:
+        """
+        Apply the given theme to the application stylesheet and update
+        the toggle button label.
+
+        Args:
+            theme: One of 'system', 'light', or 'dark'.
+        """
+        _labels = {
+            "system": "💻 시스템",
+            "light":  "☀ 라이트",
+            "dark":   "🌙 다크",
+        }
+        if theme == "dark":
+            QApplication.instance().setStyleSheet(_QSS_DARK)
+        elif theme == "light":
+            QApplication.instance().setStyleSheet(_QSS_LIGHT)
+        else:
+            QApplication.instance().setStyleSheet("")
+        self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
+        self._settings.setValue(_KEY_THEME, theme)
+
+    def _on_theme_clicked(self) -> None:
+        """Cycle through themes: system → light → dark → system …"""
+        _cycle = {"system": "light", "light": "dark", "dark": "system"}
+        current = self._settings.value(_KEY_THEME, "system")
+        self._apply_theme(_cycle.get(current, "system"))
 
     # ------------------------------------------------------------------
     # Qt event filter: handle drag-and-drop onto playlist
@@ -410,12 +597,17 @@ class MainWindow(QMainWindow):
         Apply a highlight background to the currently playing playlist row
         and reset all other rows to the default background.
 
+        The highlight color adapts to the current theme so it is always
+        clearly visible in both light and dark modes.
+
         Args:
             index: Row index of the track that is now playing.
         """
         from PyQt6.QtGui import QColor
-        playing_bg = QColor("#1a6b3a")   # dark green — clearly visible
-        playing_fg = QColor("#ffffff")
+        theme = self._settings.value(_KEY_THEME, "system")
+        bg_hex, fg_hex = _PLAYING_HIGHLIGHT.get(theme, ("#1a6b3a", "#ffffff"))
+        playing_bg = QColor(bg_hex)
+        playing_fg = QColor(fg_hex)
         default_bg = QColor(0, 0, 0, 0)  # transparent = use widget default
         default_fg = QColor(0, 0, 0, 0)
 

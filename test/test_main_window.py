@@ -494,6 +494,70 @@ class TestPlaylistSaveLoad(unittest.TestCase):
         win.close()
 
 
+class TestTheme(unittest.TestCase):
+    """Tests for theme toggle functionality."""
+
+    def _make_window(self) -> MainWindow:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        win._settings.clear()
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._settings.clear()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_default_theme_is_system(self):
+        """Verify that the default theme is 'system' with no stylesheet."""
+        win = self._make_window()
+        theme = win._settings.value("ui/theme", "system")
+        self.assertEqual(theme, "system")
+        win.close()
+
+    def test_theme_cycles_through_all(self):
+        """Verify that clicking btn_theme cycles system → light → dark → system."""
+        win = self._make_window()
+        win._apply_theme("system")
+        expected = ["light", "dark", "system"]
+        for mode in expected:
+            win.btn_theme.click()
+            saved = win._settings.value("ui/theme", "system")
+            self.assertEqual(saved, mode)
+        win.close()
+
+    def test_apply_dark_sets_stylesheet(self):
+        """Verify that applying dark theme sets a non-empty stylesheet."""
+        win = self._make_window()
+        win._apply_theme("dark")
+        self.assertNotEqual(_app.styleSheet(), "")
+        win.close()
+
+    def test_apply_system_clears_stylesheet(self):
+        """Verify that applying system theme clears the stylesheet."""
+        win = self._make_window()
+        win._apply_theme("dark")
+        win._apply_theme("system")
+        self.assertEqual(_app.styleSheet(), "")
+        win.close()
+
+    def test_btn_label_matches_active_theme(self):
+        """Verify that the theme button label matches the current theme."""
+        win = self._make_window()
+        labels = {"system": "💻 시스템", "light": "☀ 라이트", "dark": "🌙 다크"}
+        for theme, label in labels.items():
+            win._apply_theme(theme)
+            self.assertEqual(win.btn_theme.text(), label)
+        win.close()
+
+
 class TestPlayMode(unittest.TestCase):
     """Tests for playback mode toggle button."""
 
