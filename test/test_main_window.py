@@ -972,6 +972,44 @@ class TestTreeView(unittest.TestCase):
         self.assertEqual(win.tree_widget.topLevelItemCount(), 0)
         win.close()
 
+    def test_collect_tree_paths_file_node(self):
+        """Verify that _collect_tree_paths returns the path for a file node."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        item = QTreeWidgetItem(["song.mp3"])
+        item.setData(0, Qt.ItemDataRole.UserRole, "/music/song.mp3")
+        paths = win._collect_tree_paths([item])
+        self.assertEqual(paths, ["/music/song.mp3"])
+        win.close()
+
+    def test_collect_tree_paths_directory_node_recurses(self):
+        """Verify that _collect_tree_paths collects all files under a directory node."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        dir_item = QTreeWidgetItem(["pop"])
+        dir_item.setData(0, Qt.ItemDataRole.UserRole, None)
+        for name, path in [("a.mp3", "/music/pop/a.mp3"), ("b.mp3", "/music/pop/b.mp3")]:
+            child = QTreeWidgetItem(dir_item, [name])
+            child.setData(0, Qt.ItemDataRole.UserRole, path)
+        paths = win._collect_tree_paths([dir_item])
+        self.assertIn("/music/pop/a.mp3", paths)
+        self.assertIn("/music/pop/b.mp3", paths)
+        self.assertEqual(len(paths), 2)
+        win.close()
+
+    def test_collect_tree_paths_deduplicates(self):
+        """Verify that _collect_tree_paths does not return duplicate paths."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        item = QTreeWidgetItem(["song.mp3"])
+        item.setData(0, Qt.ItemDataRole.UserRole, "/music/song.mp3")
+        paths = win._collect_tree_paths([item, item])
+        self.assertEqual(len(paths), 1)
+        win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -656,11 +656,9 @@ class MainWindow(QMainWindow):
                         (event.pos() - self._tree_drag_start_pos).manhattanLength()
                         >= QApplication.startDragDistance()
                     ):
-                        paths = [
-                            item.data(0, Qt.ItemDataRole.UserRole)
-                            for item in self.tree_widget.selectedItems()
-                            if item.data(0, Qt.ItemDataRole.UserRole) is not None
-                        ]
+                        paths = self._collect_tree_paths(
+                            self.tree_widget.selectedItems()
+                        )
                         if paths:
                             mime = QMimeData()
                             mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
@@ -1421,8 +1419,6 @@ class MainWindow(QMainWindow):
             for key in sorted(k for k in subtree if k != "__files__"):
                 dir_item = QTreeWidgetItem(parent, [key])
                 dir_item.setData(0, Qt.ItemDataRole.UserRole, None)
-                # Directory nodes must not be dragged as if they were files
-                dir_item.setFlags(dir_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
                 _add_nodes(dir_item, subtree[key])
             for f in sorted(subtree.get("__files__", []),
                             key=lambda x: x["filename"].lower()):
@@ -1432,6 +1428,37 @@ class MainWindow(QMainWindow):
 
         _add_nodes(self.tree_widget, dir_tree)
         self.tree_widget.expandAll()
+
+    def _collect_tree_paths(self, items) -> list:
+        """
+        Collect all file paths from a list of tree items.
+
+        For file nodes the stored path is returned directly.
+        For directory nodes all descendant file paths are collected recursively,
+        so dragging or adding a folder adds every audio file it contains.
+
+        Args:
+            items: Iterable of QTreeWidgetItems (selected items).
+
+        Returns:
+            Deduplicated list of absolute file paths in tree order.
+        """
+        seen: set = set()
+        paths: list = []
+
+        def _collect(item) -> None:
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            if path is not None:
+                if path not in seen:
+                    seen.add(path)
+                    paths.append(path)
+            else:
+                for i in range(item.childCount()):
+                    _collect(item.child(i))
+
+        for item in items:
+            _collect(item)
+        return paths
 
     def _on_view_toggle_clicked(self) -> None:
         """Toggle between table view (page 0) and tree view (page 1)."""
@@ -1470,33 +1497,30 @@ class MainWindow(QMainWindow):
         item = self.tree_widget.itemAt(pos)
         if item is None:
             return
-        path = item.data(0, Qt.ItemDataRole.UserRole)
-        if path is None:
-            return  # directory node
 
-        selected_paths = [
-            it.data(0, Qt.ItemDataRole.UserRole)
-            for it in self.tree_widget.selectedItems()
-            if it.data(0, Qt.ItemDataRole.UserRole) is not None
-        ]
+        is_dir = item.data(0, Qt.ItemDataRole.UserRole) is None
+        selected_paths = self._collect_tree_paths(
+            self.tree_widget.selectedItems() or [item]
+        )
         if not selected_paths:
-            selected_paths = [path]
-
-        file_info = self._manager.get_by_path(path)
-        if file_info is None:
             return
 
-        n = len(selected_paths)
         menu = QMenu(self)
-        action_detail   = menu.addAction("자세히")
+        action_detail = None
+        if not is_dir:
+            action_detail = menu.addAction("자세히")
+        n = len(selected_paths)
         label = f"재생목록에 추가 ({n}곡)" if n > 1 else "재생목록에 추가"
         action_playlist = menu.addAction(label)
 
         action = menu.exec(self.tree_widget.viewport().mapToGlobal(pos))
 
-        if action == action_detail:
-            dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
-            dlg.exec()
+        if action_detail and action == action_detail:
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            file_info = self._manager.get_by_path(path)
+            if file_info:
+                dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
+                dlg.exec()
         elif action == action_playlist:
             for p in selected_paths:
                 self._playlist_add(p)
