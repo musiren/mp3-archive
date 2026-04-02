@@ -213,6 +213,29 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(win.table.rowCount(), 2)
         win.close()
 
+    def test_count_label_shows_total_when_not_searching(self):
+        """Verify that count_label shows total song count when no search is active."""
+        win = self._make_window()
+        self.assertEqual(win.count_label.text(), "전체 2곡")
+        win.close()
+
+    def test_count_label_shows_search_result_when_searching(self):
+        """Verify that count_label shows searched/total counts during search."""
+        win = self._make_window()
+        win.search_edit.setText("Queen")
+        self.assertIn("검색 결과:", win.count_label.text())
+        self.assertIn("1곡", win.count_label.text())
+        self.assertIn("전체 2곡", win.count_label.text())
+        win.close()
+
+    def test_count_label_resets_after_clear(self):
+        """Verify that count_label shows total count after search is cleared."""
+        win = self._make_window()
+        win.search_edit.setText("Queen")
+        win.btn_search_clear.click()
+        self.assertEqual(win.count_label.text(), "전체 2곡")
+        win.close()
+
 
 class TestContextMenu(unittest.TestCase):
 
