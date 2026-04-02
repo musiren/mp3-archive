@@ -1413,6 +1413,12 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
+        keyword = self.search_edit.text().strip()
+        if keyword:
+            total = len(self._manager.list_files())
+            self.count_label.setText(f"검색 결과: {len(files)}곡 / 전체 {total}곡")
+        else:
+            self.count_label.setText(f"전체 {len(files)}곡")
         self._fill_tree(files)
 
     def _fill_tree(self, files: list) -> None:
