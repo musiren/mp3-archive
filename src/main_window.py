@@ -302,7 +302,7 @@ class ScanWorker(QThread):
     """
 
     progress = pyqtSignal(int, int, str)        # current, total, file_path
-    finished = pyqtSignal(int, int)             # processed, skipped
+    finished = pyqtSignal(int, int, int)         # processed, skipped, removed
 
     def __init__(self, manager: Mp3Manager, directory: str, force: bool = False) -> None:
         """
@@ -320,12 +320,12 @@ class ScanWorker(QThread):
 
     def run(self) -> None:
         """Execute the scan and emit progress/finished signals."""
-        processed, skipped = self._manager.scan(
+        processed, skipped, removed = self._manager.scan(
             self._directory,
             progress_callback=lambda cur, tot, path: self.progress.emit(cur, tot, path),
             force=self._force,
         )
-        self.finished.emit(processed, skipped)
+        self.finished.emit(processed, skipped, removed)
 
 
 class MainWindow(QMainWindow):
@@ -1203,22 +1203,24 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(current)
         self.status_label.setText(os.path.basename(path))
 
-    def _on_scan_finished(self, processed: int, skipped: int) -> None:
+    def _on_scan_finished(self, processed: int, skipped: int, removed: int) -> None:
         """
         Refresh the table and re-enable controls after scan completes.
 
         Args:
             processed: Number of files that were read and saved.
             skipped:   Number of unchanged files that were skipped.
+            removed:   Number of stale DB records deleted (force scan only).
         """
         self.progress_bar.setVisible(False)
         self.btn_browse.setEnabled(True)
         self.btn_scan.setEnabled(True)
         self.btn_force_scan.setEnabled(True)
         self.btn_delete.setEnabled(True)
-        self.status_label.setText(
-            f"완료: {processed}개 업데이트, {skipped}개 변경 없음"
-        )
+        parts = [f"완료: {processed}개 업데이트, {skipped}개 변경 없음"]
+        if removed:
+            parts.append(f"{removed}개 삭제됨")
+        self.status_label.setText(", ".join(parts))
         self._load_table()
 
     def _on_table_context_menu(self, pos) -> None:

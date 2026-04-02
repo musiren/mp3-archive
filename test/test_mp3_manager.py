@@ -217,10 +217,10 @@ class TestDelete(unittest.TestCase):
 class TestScan(unittest.TestCase):
 
     def test_scan_empty_directory(self):
-        """Verify that scanning an empty directory returns (0, 0)."""
+        """Verify that scanning an empty directory returns (0, 0, 0)."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
+            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0, 0))
         mgr.close()
 
     def test_scan_ignores_non_audio_files(self):
@@ -229,7 +229,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "notes.txt"), "w").close()
             open(os.path.join(tmpdir, "cover.jpg"), "w").close()
-            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0))
+            self.assertEqual(mgr.scan(tmpdir, force=True), (0, 0, 0))
         mgr.close()
 
     def test_scan_counts_all_supported_formats(self):
@@ -238,7 +238,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             for ext in (".mp3", ".flac", ".ogg", ".wav", ".m4a"):
                 open(os.path.join(tmpdir, f"track{ext}"), "w").close()
-            processed, skipped = mgr.scan(tmpdir, force=True)
+            processed, skipped, removed = mgr.scan(tmpdir, force=True)
         self.assertEqual(processed, 5)
         mgr.close()
 
@@ -248,7 +248,7 @@ class TestScan(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "track1.mp3"), "w").close()
             open(os.path.join(tmpdir, "track2.mp3"), "w").close()
-            processed, skipped = mgr.scan(tmpdir, force=True)
+            processed, skipped, removed = mgr.scan(tmpdir, force=True)
         self.assertEqual(processed, 2)
         self.assertEqual(skipped, 0)
         mgr.close()
@@ -263,14 +263,15 @@ class TestScan(unittest.TestCase):
         mgr.close()
 
     def test_scan_returns_processed_and_skipped(self):
-        """Verify that scan() returns a (processed, skipped) tuple."""
+        """Verify that scan() returns a (processed, skipped, removed) tuple."""
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "a.mp3"), "w").close()
             open(os.path.join(tmpdir, "b.mp3"), "w").close()
-            processed, skipped = mgr.scan(tmpdir, force=True)
+            processed, skipped, removed = mgr.scan(tmpdir, force=True)
         self.assertEqual(processed, 2)
         self.assertEqual(skipped, 0)
+        self.assertEqual(removed, 0)
         mgr.close()
 
     def test_incremental_scan_skips_unchanged_files(self):
@@ -278,10 +279,44 @@ class TestScan(unittest.TestCase):
         mgr = make_manager()
         with tempfile.TemporaryDirectory() as tmpdir:
             open(os.path.join(tmpdir, "a.mp3"), "w").close()
-            mgr.scan(tmpdir, force=True)          # first: process all
-            processed, skipped = mgr.scan(tmpdir)  # second: skip unchanged
+            mgr.scan(tmpdir, force=True)                       # first: process all
+            processed, skipped, removed = mgr.scan(tmpdir)    # second: skip unchanged
         self.assertEqual(processed, 0)
         self.assertEqual(skipped, 1)
+        mgr.close()
+
+    def test_force_scan_removes_stale_records(self):
+        """Verify that force scan deletes DB records for files that no longer exist."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path_a = os.path.join(tmpdir, "a.mp3")
+            path_b = os.path.join(tmpdir, "b.mp3")
+            open(path_a, "w").close()
+            open(path_b, "w").close()
+            mgr.scan(tmpdir, force=True)
+            self.assertEqual(len(mgr.list_files()), 2)
+            # Remove one file and force-rescan
+            os.unlink(path_b)
+            processed, skipped, removed = mgr.scan(tmpdir, force=True)
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(mgr.list_files()), 1)
+        self.assertEqual(mgr.list_files()[0]["path"], path_a)
+        mgr.close()
+
+    def test_incremental_scan_does_not_remove_stale_records(self):
+        """Verify that incremental scan (force=False) does not delete stale records."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path_a = os.path.join(tmpdir, "a.mp3")
+            path_b = os.path.join(tmpdir, "b.mp3")
+            open(path_a, "w").close()
+            open(path_b, "w").close()
+            mgr.scan(tmpdir, force=True)
+            # Remove one file and do an incremental scan
+            os.unlink(path_b)
+            processed, skipped, removed = mgr.scan(tmpdir, force=False)
+        self.assertEqual(removed, 0)
+        self.assertEqual(len(mgr.list_files()), 2)
         mgr.close()
 
     def test_scan_progress_callback_called(self):
