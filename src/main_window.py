@@ -168,6 +168,18 @@ QLineEdit, QTextEdit {
     padding: 2px 4px;
 }
 QCheckBox { color: #1a1a1a; }
+QCheckBox::indicator {
+    width: 14px; height: 14px;
+    border: 1px solid #888888;
+    border-radius: 2px;
+    background-color: #ffffff;
+}
+QCheckBox::indicator:checked {
+    background-color: #4a90d9;
+    border-color: #2d72b8;
+    image: none;
+}
+QCheckBox::indicator:hover { border-color: #4a90d9; }
 QLabel    { color: #1a1a1a; }
 QProgressBar {
     background-color: #e0e0e0;
