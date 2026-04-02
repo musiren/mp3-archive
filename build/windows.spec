@@ -41,6 +41,7 @@ a = Analysis(
     # Data files (Qt translations, Qt plugins)
     datas=pyqt6_datas + mutagen_datas + [
         (os.path.join(ROOT, "src", "main_window.ui"), "."),
+        (os.path.join(ROOT, "assets", "icon.png"), "assets"),
     ],
 
     # Python-level hidden imports that PyInstaller may miss
@@ -104,5 +105,5 @@ exe = EXE(
     upx=True,          # Compress with UPX if available (reduces size)
     upx_exclude=[],
     runtime_tmpdir=None,
-    icon=None,         # Replace with "assets/icon.ico" if you have one
+    icon=os.path.join(ROOT, "assets", "icon.ico"),
 )

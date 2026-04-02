@@ -31,6 +31,7 @@ a = Analysis(
     binaries=collect_dynamic_libs("PyQt6"),
     datas=pyqt6_datas + mutagen_datas + [
         (os.path.join(ROOT, "src", "main_window.ui"), "."),
+        (os.path.join(ROOT, "assets", "icon.png"), "assets"),
     ],
     hiddenimports=[
         "PyQt6.QtCore",
@@ -81,5 +82,5 @@ exe = EXE(
     upx=True,              # Compress with UPX if available
     upx_exclude=[],
     runtime_tmpdir=None,
-    icon=None,             # Replace with "assets/icon.png" if you have one
+    icon=os.path.join(ROOT, "assets", "icon.png"),
 )

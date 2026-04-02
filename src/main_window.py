@@ -123,6 +123,7 @@ from lyrics_dialog import LyricsDialog
 # to the temp bundle directory; otherwise it lives next to this module.
 _BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 _UI_FILE = os.path.join(_BASE_DIR, "main_window.ui")
+_ICON_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icon.png")
 
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
@@ -349,6 +350,10 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         uic.loadUi(_UI_FILE, self)
+
+        from PyQt6.QtGui import QIcon
+        if os.path.exists(_ICON_FILE):
+            self.setWindowIcon(QIcon(_ICON_FILE))
 
         self._manager  = Mp3Manager(db_path)
         self._worker: ScanWorker | None = None
