@@ -392,6 +392,35 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(win.playlist_widget.item(0).text(), "b.mp3")
         win.close()
 
+    def test_delete_key_removes_multiple_selected_items(self):
+        """Verify that pressing Delete removes all selected playlist items at once."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            win._playlist_add(f"/music/{name}")
+        # Select rows 0 and 2
+        win.playlist_widget.item(0).setSelected(True)
+        win.playlist_widget.item(2).setSelected(True)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "b.mp3")
+        win.close()
+
+    def test_ctrl_a_selects_all_playlist_items(self):
+        """Verify that Ctrl+A selects every item in the playlist."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            win._playlist_add(f"/music/{name}")
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        win.eventFilter(win.playlist_widget, event)
+        selected = win.playlist_widget.selectedItems()
+        self.assertEqual(len(selected), 3)
+        win.close()
+
     def test_delete_key_adjusts_playing_index(self):
         """Verify that deleting a row above the playing track decrements _playing_index."""
         from PyQt6.QtCore import QEvent, Qt

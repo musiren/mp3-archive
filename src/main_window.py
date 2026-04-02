@@ -618,13 +618,22 @@ class MainWindow(QMainWindow):
                     self._drag_start_pos = None
                     self._drag_swallowed_press = False
 
-        # Delete key removes the selected playlist item
+        # Ctrl+A selects all playlist items; Del removes all selected items
         if obj is self.playlist_widget and event.type() == QEvent.Type.KeyPress:
+            if (
+                event.key() == Qt.Key.Key_A
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
+                self.playlist_widget.selectAll()
+                return True
             if event.key() == Qt.Key.Key_Delete:
-                row = self.playlist_widget.currentRow()
-                if row >= 0:
+                selected_rows = sorted(
+                    {self.playlist_widget.row(it)
+                     for it in self.playlist_widget.selectedItems()},
+                    reverse=True,  # remove from bottom up to keep indices stable
+                )
+                for row in selected_rows:
                     self.playlist_widget.takeItem(row)
-                    # Adjust _playing_index after removal
                     if row == self._playing_index:
                         self._playing_index = -1
                     elif row < self._playing_index:
