@@ -123,7 +123,12 @@ from lyrics_dialog import LyricsDialog
 # to the temp bundle directory; otherwise it lives next to this module.
 _BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 _UI_FILE = os.path.join(_BASE_DIR, "main_window.ui")
-_ICON_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icon.png")
+# When frozen by PyInstaller, assets/ is extracted alongside main_window.ui in _MEIPASS.
+# When running from source, assets/ lives one level above src/.
+if getattr(sys, "frozen", False):
+    _ICON_FILE = os.path.join(_BASE_DIR, "assets", "icon.png")
+else:
+    _ICON_FILE = os.path.join(os.path.dirname(_BASE_DIR), "assets", "icon.png")
 
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
