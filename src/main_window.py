@@ -116,6 +116,7 @@ def _album_art_tooltip(file_path: str) -> str:
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
 from tag_detail_dialog import TagDetailDialog
+from lyrics_dialog import LyricsDialog
 
 # Path to the Qt Designer UI file.
 # When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
@@ -948,12 +949,13 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(self)
         action_detail = menu.addAction("자세히")
+        action_lyrics = menu.addAction("가사보기")
         menu.addSeparator()
         action_remove = menu.addAction("재생목록에서 제거")
 
         action = menu.exec(self.playlist_widget.viewport().mapToGlobal(pos))
 
-        if action == action_detail:
+        if action in (action_detail, action_lyrics):
             file_info = self._manager.get_by_path(path)
             if file_info is None:
                 # File not in DB (e.g. loaded from .list) — build a minimal dict
@@ -968,8 +970,10 @@ class MainWindow(QMainWindow):
                     "duration": None, "filesize": None,
                     "file_created_at": None, "file_modified_at": None,
                 }
-            dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
-            dlg.exec()
+            if action == action_detail:
+                TagDetailDialog(file_info, manager=self._manager, parent=self).exec()
+            else:
+                LyricsDialog(file_info, parent=self).exec()
         elif action == action_remove:
             self.playlist_widget.takeItem(row)
             if row == self._playing_index:
@@ -1233,7 +1237,8 @@ class MainWindow(QMainWindow):
 
         n = len(selected_rows)
         menu = QMenu(self)
-        action_detail = menu.addAction("자세히")
+        action_detail  = menu.addAction("자세히")
+        action_lyrics  = menu.addAction("가사보기")
         label = f"재생 목록에 추가 ({n}곡)" if n > 1 else "재생 목록에 추가"
         action_playlist = menu.addAction(label)
         menu.addSeparator()
@@ -1246,6 +1251,8 @@ class MainWindow(QMainWindow):
             dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
             dlg.exec()
             self._load_table()
+        elif action == action_lyrics:
+            LyricsDialog(file_info, parent=self).exec()
         elif action == action_playlist:
             for r in selected_rows:
                 p = self.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
@@ -1516,20 +1523,24 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(self)
         action_detail = None
+        action_lyrics = None
         if not is_dir:
             action_detail = menu.addAction("자세히")
+            action_lyrics = menu.addAction("가사보기")
         n = len(selected_paths)
         label = f"재생목록에 추가 ({n}곡)" if n > 1 else "재생목록에 추가"
         action_playlist = menu.addAction(label)
 
         action = menu.exec(self.tree_widget.viewport().mapToGlobal(pos))
 
-        if action_detail and action == action_detail:
+        if action in (action_detail, action_lyrics) and action is not None:
             path = item.data(0, Qt.ItemDataRole.UserRole)
             file_info = self._manager.get_by_path(path)
             if file_info:
-                dlg = TagDetailDialog(file_info, manager=self._manager, parent=self)
-                dlg.exec()
+                if action == action_detail:
+                    TagDetailDialog(file_info, manager=self._manager, parent=self).exec()
+                else:
+                    LyricsDialog(file_info, parent=self).exec()
         elif action == action_playlist:
             for p in selected_paths:
                 self._playlist_add(p)
