@@ -1,6 +1,21 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260402 (2026-04-02) — second batch
+===========================================================================
+
+New features
+------------
+- App icon: window title bar and taskbar now show the mp3-archive icon;
+  icon is bundled correctly in PyInstaller frozen builds
+- Song count: total number of songs is displayed below the table
+
+Bug fixes
+---------
+- PyInstaller builds: icon path resolved relative to the executable using
+  sys._MEIPASS so the icon loads correctly in frozen (bundled) mode
+
+===========================================================================
 v20260402 (2026-04-02)
 ===========================================================================
 
