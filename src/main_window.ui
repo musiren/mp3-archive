@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>900</width>
-    <height>620</height>
+    <width>1100</width>
+    <height>680</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -215,6 +215,22 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="btn_view_toggle">
+        <property name="text">
+         <string>🌲 트리</string>
+        </property>
+        <property name="toolTip">
+         <string>테이블 보기와 경로 트리 보기를 전환합니다</string>
+        </property>
+        <property name="minimumWidth">
+         <number>80</number>
+        </property>
+        <property name="maximumWidth">
+         <number>80</number>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer name="toolbarSpacer">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -226,6 +242,22 @@
          </size>
         </property>
        </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_theme">
+        <property name="text">
+         <string>🌙 다크</string>
+        </property>
+        <property name="toolTip">
+         <string>테마 전환: 시스템 → 라이트 → 다크</string>
+        </property>
+        <property name="minimumWidth">
+         <number>90</number>
+        </property>
+        <property name="maximumWidth">
+         <number>90</number>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QLabel" name="status_label">
@@ -247,51 +279,343 @@
       </property>
      </widget>
     </item>
-    <!-- MP3 table -->
+    <!-- Splitter: MP3 table (left) + Playlist panel (right) -->
     <item>
-     <widget class="QTableWidget" name="table">
-      <property name="toolTip">
-       <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
+     <widget class="QSplitter" name="main_splitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
       </property>
-      <property name="selectionBehavior">
-       <enum>QAbstractItemView::SelectRows</enum>
-      </property>
-      <property name="editTriggers">
-       <set>QAbstractItemView::NoEditTriggers</set>
-      </property>
-      <column>
-       <property name="text"><string>파일명</string></property>
-      </column>
-      <column>
-       <property name="text"><string>경로</string></property>
-      </column>
-      <column>
-       <property name="text"><string>제목</string></property>
-      </column>
-      <column>
-       <property name="text"><string>아티스트</string></property>
-      </column>
-      <column>
-       <property name="text"><string>앨범</string></property>
-      </column>
-      <column>
-       <property name="text"><string>장르</string></property>
-      </column>
-      <column>
-       <property name="text"><string>년도</string></property>
-      </column>
-      <column>
-       <property name="text"><string>길이</string></property>
-      </column>
-      <column>
-       <property name="text"><string>크기(bytes)</string></property>
-      </column>
-      <column>
-       <property name="text"><string>생성일시</string></property>
-      </column>
-      <column>
-       <property name="text"><string>수정일시</string></property>
-      </column>
+      <!-- View stack: table (page 0) and path tree (page 1) -->
+      <widget class="QStackedWidget" name="view_stack">
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <!-- Page 0: MP3 table -->
+       <widget class="QWidget" name="page_table">
+        <layout class="QVBoxLayout" name="pageTableLayout">
+         <property name="spacing"><number>0</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QTableWidget" name="table">
+           <property name="toolTip">
+            <string>헤더를 오른쪽 클릭하면 표시할 컬럼을 선택할 수 있습니다</string>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectRows</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <column>
+            <property name="text"><string>파일명</string></property>
+           </column>
+           <column>
+            <property name="text"><string>경로</string></property>
+           </column>
+           <column>
+            <property name="text"><string>아티스트</string></property>
+           </column>
+           <column>
+            <property name="text"><string>제목</string></property>
+           </column>
+           <column>
+            <property name="text"><string>앨범</string></property>
+           </column>
+           <column>
+            <property name="text"><string>장르</string></property>
+           </column>
+           <column>
+            <property name="text"><string>년도</string></property>
+           </column>
+           <column>
+            <property name="text"><string>길이</string></property>
+           </column>
+           <column>
+            <property name="text"><string>크기(bytes)</string></property>
+           </column>
+           <column>
+            <property name="text"><string>생성일시</string></property>
+           </column>
+           <column>
+            <property name="text"><string>수정일시</string></property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <!-- Page 1: Path tree -->
+       <widget class="QWidget" name="page_tree">
+        <layout class="QVBoxLayout" name="pageTreeLayout">
+         <property name="spacing"><number>0</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QTreeWidget" name="tree_widget">
+           <property name="toolTip">
+            <string>파일을 더블클릭하면 재생목록에 추가됩니다&#10;드래그해서 재생목록에 넣을 수 있습니다</string>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <column>
+            <property name="text"><string>파일명 / 경로</string></property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+      <!-- Playlist panel -->
+      <widget class="QWidget" name="playlist_panel">
+       <property name="minimumWidth">
+        <number>200</number>
+       </property>
+       <layout class="QVBoxLayout" name="playlistLayout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="label_playlist">
+          <property name="text">
+           <string>재생 목록</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QListWidget" name="playlist_widget">
+          <property name="toolTip">
+           <string>MP3 목록에서 파일을 드래그해서 재생 목록에 추가하세요&#10;더블클릭하면 재생합니다</string>
+          </property>
+          <property name="dragDropMode">
+           <enum>QAbstractItemView::DropOnly</enum>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::ExtendedSelection</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="player_title_label">
+          <property name="text">
+           <string>-</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="seek_slider">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="minimum">
+           <number>0</number>
+          </property>
+          <property name="maximum">
+           <number>1000</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="timeLayout">
+          <item>
+           <widget class="QLabel" name="time_current_label">
+            <property name="text">
+             <string>0:00</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="timeSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="time_total_label">
+            <property name="text">
+             <string>0:00</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="playerButtonLayout">
+          <item>
+           <widget class="QPushButton" name="btn_prev">
+            <property name="text">
+             <string>⏮</string>
+            </property>
+            <property name="toolTip">
+             <string>이전 곡</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_play_pause">
+            <property name="text">
+             <string>▶</string>
+            </property>
+            <property name="toolTip">
+             <string>재생 / 일시정지</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_stop">
+            <property name="text">
+             <string>⏹</string>
+            </property>
+            <property name="toolTip">
+             <string>정지</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_next">
+            <property name="text">
+             <string>⏭</string>
+            </property>
+            <property name="toolTip">
+             <string>다음 곡</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_play_mode">
+          <property name="text">
+           <string>➡ 전체재생</string>
+          </property>
+          <property name="toolTip">
+           <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="volumeLayout">
+          <item>
+           <widget class="QLabel" name="label_volume">
+            <property name="text">
+             <string>🔊</string>
+            </property>
+            <property name="toolTip">
+             <string>볼륨</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="volume_slider">
+            <property name="toolTip">
+             <string>볼륨 조절 (0 ~ 100)</string>
+            </property>
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="minimum">
+             <number>0</number>
+            </property>
+            <property name="maximum">
+             <number>100</number>
+            </property>
+            <property name="value">
+             <number>100</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="volume_label">
+            <property name="text">
+             <string>100</string>
+            </property>
+            <property name="minimumWidth">
+             <number>28</number>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignVCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="playlistFileLayout">
+          <item>
+           <widget class="QPushButton" name="btn_playlist_save">
+            <property name="text">
+             <string>저장</string>
+            </property>
+            <property name="toolTip">
+             <string>현재 재생 목록을 .list 파일로 저장합니다</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_playlist_load">
+            <property name="text">
+             <string>불러오기</string>
+            </property>
+            <property name="toolTip">
+             <string>.list 파일에서 재생 목록을 불러옵니다</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_playlist_clear">
+          <property name="text">
+           <string>목록 비우기</string>
+          </property>
+          <property name="toolTip">
+           <string>재생 목록을 모두 지웁니다</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>

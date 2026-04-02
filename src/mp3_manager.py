@@ -95,7 +95,7 @@ class Mp3Manager:
         directory: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
         force: bool = False,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """
         Recursively scan a directory for audio files and update the database.
 
@@ -103,17 +103,19 @@ class Mp3Manager:
 
         By default runs an incremental scan: files already in the database
         whose file_modified_at timestamp has not changed are skipped.
-        Pass force=True to re-read every file regardless of timestamp.
+        Pass force=True to re-read every file regardless of timestamp and
+        to remove DB records for files that no longer exist on disk.
 
         All inserts are batched into a single transaction for performance.
 
         Args:
             directory:         Root directory path to scan.
             progress_callback: Optional callable(current, total, file_path).
-            force:             When True, ignore cached timestamps.
+            force:             When True, ignore cached timestamps and remove
+                               stale records for missing files.
 
         Returns:
-            A tuple (processed, skipped).
+            A tuple (processed, skipped, removed).
         """
         audio_paths = [
             os.path.join(root, f)
@@ -155,8 +157,26 @@ class Mp3Manager:
             if progress_callback:
                 progress_callback(idx, total, file_path)
 
+        # On a full scan, remove DB records whose files no longer exist
+        # under the scanned directory.
+        removed = 0
+        if force:
+            scanned_set = set(audio_paths)
+            dir_prefix = os.path.normpath(directory) + os.sep
+            cursor = self._conn.execute("SELECT path FROM audio_files")
+            stale = [
+                row[0] for row in cursor
+                if os.path.normpath(row[0]).startswith(dir_prefix)
+                and row[0] not in scanned_set
+            ]
+            for path in stale:
+                self._conn.execute(
+                    "DELETE FROM audio_files WHERE path = ?", (path,)
+                )
+                removed += 1
+
         self._conn.commit()
-        return processed, skipped
+        return processed, skipped, removed
 
     def list_files(self) -> list[dict]:
         """
@@ -183,6 +203,29 @@ class Mp3Manager:
             List of matching row dictionaries ordered by artist and title.
         """
         return _search_files(self._conn, keyword, filename_only=filename_only)
+
+    def get_by_path(self, path: str) -> dict | None:
+        """
+        Return the DB record for a single file path, or None if not found.
+
+        Args:
+            path: Absolute path of the audio file.
+
+        Returns:
+            Row dictionary with the same keys as list_files(), or None.
+        """
+        cursor = self._conn.execute(
+            """
+            SELECT id, path, filename, title, artist, album, genre, year, comment,
+                   duration, filesize, file_created_at, file_modified_at
+            FROM audio_files
+            WHERE path = ?
+            """,
+            (path,),
+        )
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        return dict(zip(columns, row)) if row else None
 
     def update_file_tags(
         self,

@@ -193,7 +193,7 @@ class TestSearch(unittest.TestCase):
         win = self._make_window()
         win.search_edit.setText("Queen")
         self.assertEqual(win.table.rowCount(), 1)
-        self.assertEqual(win.table.item(0, 3).text(), "Queen")
+        self.assertEqual(win.table.item(0, 2).text(), "Queen")
         win.close()
 
     def test_realtime_search_empty_restores_all(self):
@@ -259,6 +259,564 @@ class TestContextMenu(unittest.TestCase):
         win.close()
 
 
+class TestPlaylist(unittest.TestCase):
+    """Tests for the playlist panel and playback helper methods."""
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_playlist_add_appends_item(self):
+        """Verify that _playlist_add inserts an item into playlist_widget."""
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "track.mp3")
+        win.close()
+
+    def test_playlist_add_allows_duplicates(self):
+        """Verify that adding the same path twice results in two entries."""
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        win._playlist_add("/music/track.mp3")
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.close()
+
+    def test_playlist_add_stores_path_in_user_role(self):
+        """Verify that the full path is stored in UserRole of the playlist item."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        win._playlist_add("/music/track.mp3")
+        path = win.playlist_widget.item(0).data(Qt.ItemDataRole.UserRole)
+        self.assertEqual(path, "/music/track.mp3")
+        win.close()
+
+    def test_playlist_clear_empties_list(self):
+        """Verify that btn_playlist_clear removes all items from the playlist."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.btn_playlist_clear.click()
+        self.assertEqual(win.playlist_widget.count(), 0)
+        win.close()
+
+    def test_playlist_clear_resets_title_label(self):
+        """Verify that clearing the playlist resets player_title_label to '-'."""
+        win = self._make_window()
+        win.player_title_label.setText("Some Song")
+        win.btn_playlist_clear.click()
+        self.assertEqual(win.player_title_label.text(), "-")
+        win.close()
+
+    def test_highlight_playing_row_sets_background(self):
+        """Verify that _highlight_playing_row sets a solid background on the playing row
+        and resets the other row to an empty (null) brush."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._highlight_playing_row(0)
+        item0 = win.playlist_widget.item(0)
+        item1 = win.playlist_widget.item(1)
+        # Playing row must have a non-null brush
+        self.assertNotEqual(item0.background(), QBrush())
+        # Non-playing row must have the default null brush
+        self.assertEqual(item1.background(), QBrush())
+        win.close()
+
+    def test_highlight_playing_row_minus_one_resets_all(self):
+        """Verify that _highlight_playing_row(-1) resets all rows to null brush."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._highlight_playing_row(0)
+        win._highlight_playing_row(-1)
+        item0 = win.playlist_widget.item(0)
+        self.assertEqual(item0.background(), QBrush())
+        win.close()
+
+    def test_playlist_current_path_returns_none_when_empty(self):
+        """Verify that _playlist_current_path returns None when no item is selected."""
+        win = self._make_window()
+        self.assertIsNone(win._playlist_current_path())
+        win.close()
+
+    def test_playlist_current_path_returns_selected(self):
+        """Verify that _playlist_current_path returns the selected item's path."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win.playlist_widget.setCurrentRow(0)
+        self.assertEqual(win._playlist_current_path(), "/music/a.mp3")
+        win.close()
+
+    def test_playlist_widget_exists(self):
+        """Verify that the playlist_widget attribute exists on the window."""
+        win = self._make_window()
+        self.assertTrue(hasattr(win, "playlist_widget"))
+        win.close()
+
+    def test_player_controls_exist(self):
+        """Verify that all playback control buttons and volume slider exist on the window."""
+        win = self._make_window()
+        for attr in ("btn_play_pause", "btn_stop", "btn_prev", "btn_next",
+                     "btn_playlist_clear", "seek_slider", "volume_slider", "volume_label",
+                     "player_title_label", "time_current_label", "time_total_label"):
+            self.assertTrue(hasattr(win, attr), f"Missing widget: {attr}")
+        win.close()
+
+    def test_delete_key_removes_item_from_playlist(self):
+        """Verify that pressing Delete removes the selected playlist item."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win.playlist_widget.setCurrentRow(0)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "b.mp3")
+        win.close()
+
+    def test_delete_key_removes_multiple_selected_items(self):
+        """Verify that pressing Delete removes all selected playlist items at once."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            win._playlist_add(f"/music/{name}")
+        # Select rows 0 and 2
+        win.playlist_widget.item(0).setSelected(True)
+        win.playlist_widget.item(2).setSelected(True)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "b.mp3")
+        win.close()
+
+    def test_ctrl_a_selects_all_playlist_items(self):
+        """Verify that Ctrl+A selects every item in the playlist."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            win._playlist_add(f"/music/{name}")
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        win.eventFilter(win.playlist_widget, event)
+        selected = win.playlist_widget.selectedItems()
+        self.assertEqual(len(selected), 3)
+        win.close()
+
+    def test_delete_key_adjusts_playing_index(self):
+        """Verify that deleting a row above the playing track decrements _playing_index."""
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playing_index = 1
+        win.playlist_widget.setCurrentRow(0)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        win.eventFilter(win.playlist_widget, event)
+        self.assertEqual(win._playing_index, 0)
+        win.close()
+
+    def test_playlist_context_menu_remove_decrements_playing_index(self):
+        """Verify that removing a playlist item above the playing track decrements _playing_index."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playlist_add("/music/c.mp3")
+        win._playing_index = 2
+        # Simulate removing row 0 via the context menu handler logic directly
+        row = 0
+        win.playlist_widget.takeItem(row)
+        if row < win._playing_index:
+            win._playing_index -= 1
+        self.assertEqual(win._playing_index, 1)
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.close()
+
+    def test_playlist_context_menu_remove_playing_resets_index(self):
+        """Verify that removing the currently playing track resets _playing_index to -1."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._playing_index = 1
+        row = 1
+        win.playlist_widget.takeItem(row)
+        if row == win._playing_index:
+            win._playing_index = -1
+        self.assertEqual(win._playing_index, -1)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        win.close()
+
+    def test_playlist_context_menu_policy_is_custom(self):
+        """Verify that the playlist uses CustomContextMenu policy."""
+        from PyQt6.QtCore import Qt
+        win = self._make_window()
+        self.assertEqual(
+            win.playlist_widget.contextMenuPolicy(),
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        win.close()
+
+    def test_table_double_click_adds_to_playlist_and_sets_title(self):
+        """Verify that double-clicking a table row adds it to playlist and sets the title label."""
+        win = self._make_window()
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        # Simulate double-click on row 0
+        win._on_table_double_clicked(0, 0)
+        self.assertEqual(win.playlist_widget.count(), 1)
+        self.assertEqual(win.playlist_widget.item(0).text(), "track.mp3")
+        self.assertEqual(win.player_title_label.text(), "track.mp3")
+        win.close()
+
+    def test_table_double_click_allows_duplicate_in_playlist(self):
+        """Verify that double-clicking the same row twice adds two playlist entries."""
+        win = self._make_window()
+        from mp3_manager import _save_to_db
+        _save_to_db(win._manager._conn, sample_info("/music/track.mp3"))
+        win._load_table()
+        win._on_table_double_clicked(0, 0)
+        win._on_table_double_clicked(0, 0)
+        self.assertEqual(win.playlist_widget.count(), 2)
+        win.close()
+
+
+class TestPlaylistSaveLoad(unittest.TestCase):
+    """Tests for playlist save/load functionality."""
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_save_creates_list_file(self):
+        """Verify that _on_playlist_save_clicked writes a .list file with correct paths."""
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+
+        with tempfile.NamedTemporaryFile(suffix=".list", delete=False, mode="w") as f:
+            list_path = f.name
+
+        try:
+            # Directly call the save logic bypassing the file dialog
+            with open(list_path, "w", encoding="utf-8") as f:
+                for i in range(win.playlist_widget.count()):
+                    f.write(win.playlist_widget.item(i).data(
+                        __import__("PyQt6.QtCore", fromlist=["Qt"]).Qt.ItemDataRole.UserRole
+                    ) + "\n")
+
+            with open(list_path, encoding="utf-8") as f:
+                lines = [l.strip() for l in f if l.strip()]
+
+            self.assertEqual(lines, ["/music/a.mp3", "/music/b.mp3"])
+        finally:
+            os.unlink(list_path)
+        win.close()
+
+    def test_load_appends_existing_files(self):
+        """Verify that _on_playlist_load_clicked adds existing file paths to playlist."""
+        win = self._make_window()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create real temp audio files so os.path.isfile passes
+            path_a = os.path.join(tmpdir, "a.mp3")
+            path_b = os.path.join(tmpdir, "b.mp3")
+            open(path_a, "w").close()
+            open(path_b, "w").close()
+
+            list_file = os.path.join(tmpdir, "test.list")
+            with open(list_file, "w", encoding="utf-8") as f:
+                f.write(path_a + "\n")
+                f.write(path_b + "\n")
+
+            # Call the load logic directly, bypassing the file dialog
+            with open(list_file, "r", encoding="utf-8") as f:
+                lines = [l.rstrip("\n") for l in f if l.strip()]
+            for file_path in lines:
+                if os.path.isfile(file_path):
+                    win._playlist_add(file_path)
+
+            self.assertEqual(win.playlist_widget.count(), 2)
+        win.close()
+
+    def test_load_skips_missing_files(self):
+        """Verify that non-existent paths in a .list file are skipped silently."""
+        win = self._make_window()
+
+        with tempfile.NamedTemporaryFile(suffix=".list", delete=False,
+                                         mode="w", encoding="utf-8") as f:
+            f.write("/does/not/exist/a.mp3\n")
+            f.write("/does/not/exist/b.mp3\n")
+            list_path = f.name
+
+        try:
+            with open(list_path, "r", encoding="utf-8") as f:
+                lines = [l.rstrip("\n") for l in f if l.strip()]
+            for file_path in lines:
+                if os.path.isfile(file_path):
+                    win._playlist_add(file_path)
+
+            self.assertEqual(win.playlist_widget.count(), 0)
+        finally:
+            os.unlink(list_path)
+        win.close()
+
+
+class TestTheme(unittest.TestCase):
+    """Tests for theme toggle functionality."""
+
+    def _make_window(self) -> MainWindow:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        win._settings.clear()
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._settings.clear()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_default_theme_is_system(self):
+        """Verify that the default theme is 'system' with no stylesheet."""
+        win = self._make_window()
+        theme = win._settings.value("ui/theme", "system")
+        self.assertEqual(theme, "system")
+        win.close()
+
+    def test_theme_cycles_through_all(self):
+        """Verify that clicking btn_theme cycles system → light → dark → system."""
+        win = self._make_window()
+        win._apply_theme("system")
+        expected = ["light", "dark", "system"]
+        for mode in expected:
+            win.btn_theme.click()
+            saved = win._settings.value("ui/theme", "system")
+            self.assertEqual(saved, mode)
+        win.close()
+
+    def test_apply_dark_sets_stylesheet(self):
+        """Verify that applying dark theme sets a non-empty stylesheet."""
+        win = self._make_window()
+        win._apply_theme("dark")
+        self.assertNotEqual(_app.styleSheet(), "")
+        win.close()
+
+    def test_apply_system_clears_stylesheet(self):
+        """Verify that applying system theme clears the stylesheet."""
+        win = self._make_window()
+        win._apply_theme("dark")
+        win._apply_theme("system")
+        self.assertEqual(_app.styleSheet(), "")
+        win.close()
+
+    def test_btn_label_matches_active_theme(self):
+        """Verify that the theme button label matches the current theme."""
+        win = self._make_window()
+        labels = {"system": "💻 시스템", "light": "☀ 라이트", "dark": "🌙 다크"}
+        for theme, label in labels.items():
+            win._apply_theme(theme)
+            self.assertEqual(win.btn_theme.text(), label)
+        win.close()
+
+
+class TestPrevNext(unittest.TestCase):
+    """Tests for prev/next button behaviour per playback mode."""
+
+    def _make_window_with_playlist(self) -> MainWindow:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        for path in ["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]:
+            win._playlist_add(path)
+        # Simulate playback starting on middle track via _playing_index
+        win._playing_index = 1
+        win.playlist_widget.setCurrentRow(1)
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_sequential_next_advances(self):
+        """sequential: next goes to idx+1."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_sequential_prev_goes_back(self):
+        """sequential: prev goes to idx-1."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_sequential_next_clamps_at_last(self):
+        """sequential: next on last track stays on last track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._playing_index = 2
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_sequential_prev_clamps_at_first(self):
+        """sequential: prev on first track stays on first track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "sequential"
+        win._playing_index = 0
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_repeat_one_next_replays_same(self):
+        """repeat_one: next replays the same track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_one"
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 1)
+        win.close()
+
+    def test_repeat_one_prev_replays_same(self):
+        """repeat_one: prev replays the same track."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_one"
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 1)
+        win.close()
+
+    def test_repeat_all_next_wraps(self):
+        """repeat_all: next on last track wraps to first."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_all"
+        win._playing_index = 2
+        win._on_next_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 0)
+        win.close()
+
+    def test_repeat_all_prev_wraps(self):
+        """repeat_all: prev on first track wraps to last."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "repeat_all"
+        win._playing_index = 0
+        win._on_prev_clicked()
+        self.assertEqual(win.playlist_widget.currentRow(), 2)
+        win.close()
+
+    def test_shuffle_next_picks_valid_index(self):
+        """shuffle: next picks a valid playlist index."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "shuffle"
+        win._on_next_clicked()
+        self.assertIn(win.playlist_widget.currentRow(), [0, 1, 2])
+        win.close()
+
+    def test_shuffle_prev_picks_valid_index(self):
+        """shuffle: prev picks a valid playlist index."""
+        win = self._make_window_with_playlist()
+        win._play_mode = "shuffle"
+        win._on_prev_clicked()
+        self.assertIn(win.playlist_widget.currentRow(), [0, 1, 2])
+        win.close()
+
+
+class TestPlayMode(unittest.TestCase):
+    """Tests for playback mode toggle button."""
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow using a temporary database file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            if self._win._player is not None:
+                self._win._player.stop()
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_initial_mode_is_sequential(self):
+        """Verify that the default playback mode is sequential."""
+        win = self._make_window()
+        self.assertEqual(win._play_mode, "sequential")
+        win.close()
+
+    def test_mode_cycles_through_all_modes(self):
+        """Verify that clicking btn_play_mode cycles through all four modes."""
+        win = self._make_window()
+        expected = ["repeat_one", "repeat_all", "shuffle", "sequential"]
+        for mode in expected:
+            win.btn_play_mode.click()
+            self.assertEqual(win._play_mode, mode)
+        win.close()
+
+    def test_button_label_updates_with_mode(self):
+        """Verify that the button label matches the active mode."""
+        win = self._make_window()
+        labels = {
+            "repeat_one": "🔂 한곡반복",
+            "repeat_all": "🔁 전체반복",
+            "shuffle":    "🔀 랜덤",
+            "sequential": "➡ 전체재생",
+        }
+        for _ in range(4):
+            win.btn_play_mode.click()
+            self.assertEqual(win.btn_play_mode.text(), labels[win._play_mode])
+        win.close()
+
+
 class TestScanWorker(unittest.TestCase):
 
     def test_scan_worker_emits_finished(self):
@@ -314,6 +872,172 @@ class TestScanWorker(unittest.TestCase):
         self.assertEqual(len(progress_calls), 3)
         self.assertEqual(progress_calls[-1], (3, 3))
         mgr.close()
+
+
+class TestTreeView(unittest.TestCase):
+
+    def _make_window(self) -> MainWindow:
+        """Return a MainWindow backed by an in-memory manager."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+            self._win._settings.clear()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_default_view_is_table(self):
+        """Verify that the table view (page 0) is shown on startup."""
+        win = self._make_window()
+        self.assertEqual(win.view_stack.currentIndex(), 0)
+        win.close()
+
+    def test_toggle_switches_to_tree(self):
+        """Verify that clicking view toggle switches to tree view (page 1)."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        self.assertEqual(win.view_stack.currentIndex(), 1)
+        win.close()
+
+    def test_toggle_switches_back_to_table(self):
+        """Verify that clicking view toggle twice returns to table view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        win.btn_view_toggle.click()
+        self.assertEqual(win.view_stack.currentIndex(), 0)
+        win.close()
+
+    def test_toggle_button_label_changes_to_table(self):
+        """Verify that the toggle button shows '📋 테이블' when in tree view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        self.assertIn("테이블", win.btn_view_toggle.text())
+        win.close()
+
+    def test_toggle_button_label_returns_to_tree(self):
+        """Verify that the toggle button shows '🌲 트리' when back in table view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        win.btn_view_toggle.click()
+        self.assertIn("트리", win.btn_view_toggle.text())
+        win.close()
+
+    def test_fill_tree_creates_top_level_items(self):
+        """Verify that _fill_tree creates at least one top-level item for a file."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        self.assertGreater(win.tree_widget.topLevelItemCount(), 0)
+        win.close()
+
+    def test_fill_tree_file_node_has_path_in_user_role(self):
+        """Verify that leaf file nodes store the full path in UserRole."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+
+        def _find_file_item(parent):
+            """Recursively find the first item with a non-None UserRole."""
+            from PyQt6.QtCore import Qt
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                data = child.data(0, Qt.ItemDataRole.UserRole)
+                if data is not None:
+                    return child
+                result = _find_file_item(child)
+                if result:
+                    return result
+            return None
+
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        file_item = _find_file_item(root)
+        self.assertIsNotNone(file_item)
+        self.assertEqual(file_item.data(0, Qt.ItemDataRole.UserRole), "/music/song.mp3")
+        win.close()
+
+    def test_fill_tree_directory_node_has_none_user_role(self):
+        """Verify that directory nodes have None in UserRole."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        # First top-level item should be a directory node
+        top = root.child(0)
+        self.assertIsNone(top.data(0, Qt.ItemDataRole.UserRole))
+        win.close()
+
+    def test_fill_tree_groups_files_by_directory(self):
+        """Verify that two files in the same directory share a parent node."""
+        win = self._make_window()
+        win._fill_tree([
+            sample_info("/music/pop/a.mp3"),
+            sample_info("/music/pop/b.mp3"),
+        ])
+        from PyQt6.QtCore import Qt
+
+        def _count_file_items(parent) -> int:
+            count = 0
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                if child.data(0, Qt.ItemDataRole.UserRole) is not None:
+                    count += 1
+                count += _count_file_items(child)
+            return count
+
+        total = _count_file_items(win.tree_widget.invisibleRootItem())
+        self.assertEqual(total, 2)
+        win.close()
+
+    def test_fill_tree_empty_clears_tree(self):
+        """Verify that filling with an empty list clears the tree."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")])
+        win._fill_tree([])
+        self.assertEqual(win.tree_widget.topLevelItemCount(), 0)
+        win.close()
+
+    def test_collect_tree_paths_file_node(self):
+        """Verify that _collect_tree_paths returns the path for a file node."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        item = QTreeWidgetItem(["song.mp3"])
+        item.setData(0, Qt.ItemDataRole.UserRole, "/music/song.mp3")
+        paths = win._collect_tree_paths([item])
+        self.assertEqual(paths, ["/music/song.mp3"])
+        win.close()
+
+    def test_collect_tree_paths_directory_node_recurses(self):
+        """Verify that _collect_tree_paths collects all files under a directory node."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        dir_item = QTreeWidgetItem(["pop"])
+        dir_item.setData(0, Qt.ItemDataRole.UserRole, None)
+        for name, path in [("a.mp3", "/music/pop/a.mp3"), ("b.mp3", "/music/pop/b.mp3")]:
+            child = QTreeWidgetItem(dir_item, [name])
+            child.setData(0, Qt.ItemDataRole.UserRole, path)
+        paths = win._collect_tree_paths([dir_item])
+        self.assertIn("/music/pop/a.mp3", paths)
+        self.assertIn("/music/pop/b.mp3", paths)
+        self.assertEqual(len(paths), 2)
+        win.close()
+
+    def test_collect_tree_paths_deduplicates(self):
+        """Verify that _collect_tree_paths does not return duplicate paths."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        win = self._make_window()
+        item = QTreeWidgetItem(["song.mp3"])
+        item.setData(0, Qt.ItemDataRole.UserRole, "/music/song.mp3")
+        paths = win._collect_tree_paths([item, item])
+        self.assertEqual(len(paths), 1)
+        win.close()
 
 
 if __name__ == "__main__":

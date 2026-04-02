@@ -13,6 +13,7 @@ Usage:
 import os
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -232,16 +233,13 @@ class TagDetailDialog(QDialog):
                 self._tag_keys[r] = tag_key
                 key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             else:
-                # Read-only summary / stream info row
+                # Read-only summary / stream info row — use an explicit mid-gray
+                # so the text stays readable regardless of light or dark theme.
                 key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 val_item.setFlags(val_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                val_item.setForeground(
-                    self._table.palette().color(
-                        self._table.foregroundRole()
-                    )
-                )
-                key_item.setForeground(self._table.palette().placeholderText())
-                val_item.setForeground(self._table.palette().placeholderText())
+                dim = QBrush(QColor(130, 130, 130))
+                key_item.setForeground(dim)
+                val_item.setForeground(dim)
 
             self._table.setItem(r, 0, key_item)
             self._table.setItem(r, 1, val_item)
