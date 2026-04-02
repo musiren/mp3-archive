@@ -1,6 +1,33 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260402 (2026-04-02)
+===========================================================================
+
+New features
+------------
+- Path tree view: toggle between flat table and explorer-style directory
+  tree using the new "트리 보기 / 목록 보기" button
+- Tree view directory drag-and-drop: drag a folder node onto the playlist
+  to add all songs inside it at once
+- Lyrics viewer (가사보기): right-click any song in the table, tree, or
+  playlist to view embedded lyrics (ID3 USLT, Vorbis LYRICS, MP4 ©lyr)
+- Playlist multi-select: Ctrl+A selects all items; Del removes all
+  selected items at once
+- Full scan DB cleanup: 전체 스캔 now compares scanned files against the
+  database and removes records for files that no longer exist on disk;
+  the status bar reports how many stale records were deleted
+
+Bug fixes
+---------
+- Light theme: read-only rows in 자세히 dialog were invisible (text colour
+  matched background); fixed with explicit mid-gray (rgb 130,130,130)
+- Light theme: QCheckBox indicator border was nearly invisible; explicit
+  border/background/checked styles added to QSS
+- Tree view and playlist now share the same QSS background/selection
+  styles as the main table
+
+===========================================================================
 v20260329 (2026-03-29)
 ===========================================================================
 
