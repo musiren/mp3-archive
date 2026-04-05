@@ -105,5 +105,5 @@ exe = EXE(
     upx=True,          # Compress with UPX if available (reduces size)
     upx_exclude=[],
     runtime_tmpdir=None,
-    icon=os.path.join(ROOT, "assets", "icon.ico"),
+    icon=os.path.join(ROOT, "assets", "icon.png"),
 )
