@@ -35,6 +35,7 @@ try:
 except ImportError:
     _MULTIMEDIA_AVAILABLE = False
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -356,9 +357,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         uic.loadUi(_UI_FILE, self)
 
-        from PyQt6.QtGui import QIcon
-        if os.path.exists(_ICON_FILE):
-            self.setWindowIcon(QIcon(_ICON_FILE))
+        self.setWindowIcon(QIcon(_ICON_FILE))
 
         self._manager  = Mp3Manager(db_path)
         self._worker: ScanWorker | None = None
@@ -1321,12 +1320,14 @@ class MainWindow(QMainWindow):
         keyword = self.search_edit.text().strip()
         if keyword:
             filename_only = not self.chk_search_tags.isChecked()
+            all_files = self._manager.list_files()
             files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
+            self._fill_table(files, total=len(all_files))
         else:
             files = self._manager.list_files()
             self.status_label.setText("준비")
-        self._fill_table(files)
+            self._fill_table(files)
 
     def _on_search_clicked(self) -> None:
         """
@@ -1337,12 +1338,14 @@ class MainWindow(QMainWindow):
         keyword = self.search_edit.text().strip()
         if keyword:
             filename_only = not self.chk_search_tags.isChecked()
+            all_files = self._manager.list_files()
             files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
+            self._fill_table(files, total=len(all_files))
         else:
             files = self._manager.list_files()
             self.status_label.setText("준비")
-        self._fill_table(files)
+            self._fill_table(files)
 
     def _on_search_clear_clicked(self) -> None:
         """Clear the search field and restore the full table."""
@@ -1380,7 +1383,7 @@ class MainWindow(QMainWindow):
         """Fetch all records from the database and populate the table."""
         self._fill_table(self._manager.list_files())
 
-    def _fill_table(self, files: list) -> None:
+    def _fill_table(self, files: list, total: int | None = None) -> None:
         """
         Populate the table widget with the given list of MP3 records.
 
@@ -1390,6 +1393,8 @@ class MainWindow(QMainWindow):
         Args:
             files: List of row dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
+            total: Total number of records in the DB (used for search count
+                   label).  When None, defaults to len(files).
         """
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(files))
@@ -1423,12 +1428,11 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
-        keyword = self.search_edit.text().strip()
-        if keyword:
-            total = len(self._manager.list_files())
-            self.count_label.setText(f"검색 결과: {len(files)}곡 / 전체 {total}곡")
+        n = len(files)
+        if total is not None and total != n:
+            self.count_label.setText(f"검색 결과: {n}곡 / 전체 {total}곡")
         else:
-            self.count_label.setText(f"전체 {len(files)}곡")
+            self.count_label.setText(f"전체 {n}곡")
         self._fill_tree(files)
 
     def _fill_tree(self, files: list) -> None:
