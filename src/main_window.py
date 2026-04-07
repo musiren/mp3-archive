@@ -39,6 +39,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QAbstractItemView,
     QHeaderView,
     QListWidgetItem,
     QMainWindow,
@@ -490,11 +491,19 @@ class MainWindow(QMainWindow):
         self._restore_column_visibility()
 
     def _setup_playlist(self) -> None:
-        """Configure the playlist widget to accept drops from the MP3 table."""
+        """Configure the playlist widget to accept drops from the table and
+        allow internal drag-and-drop reordering."""
         self.playlist_widget.setAcceptDrops(True)
         self.playlist_widget.setDropIndicatorShown(True)
+        # InternalMove lets Qt handle row reordering natively; the event
+        # filter intercepts external URL drops before Qt sees them.
+        self.playlist_widget.setDragDropMode(
+            QAbstractItemView.DragDropMode.InternalMove
+        )
         self.playlist_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.playlist_widget.customContextMenuRequested.connect(self._on_playlist_context_menu)
+        # Keep _playing_index in sync when rows are reordered
+        self.playlist_widget.model().rowsMoved.connect(self._on_playlist_rows_moved)
         # Override drop handling via event filter
         self.playlist_widget.viewport().installEventFilter(self)
         # Delete key removes selected item
@@ -1001,6 +1010,38 @@ class MainWindow(QMainWindow):
                 self._playing_index = -1
             elif row < self._playing_index:
                 self._playing_index -= 1
+
+    def _on_playlist_rows_moved(
+        self, src_parent, src_first: int, src_last: int, dst_parent, dst_row: int
+    ) -> None:
+        """Update _playing_index after an internal drag-and-drop reorder.
+
+        Qt emits rowsMoved after the move is complete.  We adjust the stored
+        playing index so playback controls (prev/next, highlight) remain
+        consistent with the new row order.
+
+        Args:
+            src_first: First row of the moved range (original position).
+            src_last:  Last row of the moved range (original position).
+            dst_row:   Destination row (insert-before index, original numbering).
+        """
+        p = self._playing_index
+        if p < 0:
+            return
+        count = src_last - src_first + 1
+        if src_first <= p <= src_last:
+            # The playing item itself was moved.
+            if dst_row <= src_first:
+                self._playing_index = dst_row + (p - src_first)
+            else:
+                self._playing_index = dst_row - count + (p - src_first)
+        elif dst_row <= p < src_first:
+            # Items from a lower row were moved above the playing item.
+            self._playing_index = p + count
+        elif src_last < p < dst_row:
+            # Items from a higher row were moved below the playing item.
+            self._playing_index = p - count
+        self._highlight_playing_row(self._playing_index)
 
     def _on_playlist_clear_clicked(self) -> None:
         """Stop playback and remove all items from the playlist."""

@@ -787,6 +787,46 @@ class TestPrevNext(unittest.TestCase):
         win._play_mode = "shuffle"
         win._on_prev_clicked()
         self.assertIn(win.playlist_widget.currentRow(), [0, 1, 2])
+
+    def test_rows_moved_playing_item_moved_up(self):
+        """Drag playing item (index 1) to index 0: _playing_index becomes 0."""
+        win = self._make_window_with_playlist()
+        # Simulate model rowsMoved: row 1 → before row 0
+        win._on_playlist_rows_moved(None, 1, 1, None, 0)
+        self.assertEqual(win._playing_index, 0)
+        win.close()
+
+    def test_rows_moved_playing_item_moved_down(self):
+        """Drag playing item (index 1) to index 2: _playing_index becomes 2."""
+        win = self._make_window_with_playlist()
+        # row 1 → before row 3 (after removal, lands at 2)
+        win._on_playlist_rows_moved(None, 1, 1, None, 3)
+        self.assertEqual(win._playing_index, 2)
+        win.close()
+
+    def test_rows_moved_non_playing_item_moves_above(self):
+        """Drag row 2 above playing item (index 1): _playing_index shifts to 2."""
+        win = self._make_window_with_playlist()
+        # row 2 → before row 0 (inserts above playing item)
+        win._on_playlist_rows_moved(None, 2, 2, None, 0)
+        self.assertEqual(win._playing_index, 2)
+        win.close()
+
+    def test_rows_moved_non_playing_item_moves_below(self):
+        """Drag row 0 below playing item (index 1): _playing_index shifts to 0."""
+        win = self._make_window_with_playlist()
+        # row 0 → before row 2 (inserts below playing item, dst=2 > src_last=0)
+        win._on_playlist_rows_moved(None, 0, 0, None, 2)
+        self.assertEqual(win._playing_index, 0)
+        win.close()
+
+    def test_rows_moved_unrelated_rows_no_change(self):
+        """Moving two items that don't affect playing index leaves it unchanged."""
+        win = self._make_window_with_playlist()
+        # playing index = 1; move row 0 to before row 0 (no-op range)
+        win._on_playlist_rows_moved(None, 2, 2, None, 3)
+        self.assertEqual(win._playing_index, 1)
+        win.close()
         win.close()
 
 
