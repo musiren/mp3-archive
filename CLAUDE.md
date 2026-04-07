@@ -6,21 +6,93 @@
 - Naming convention: `skills/<topic>-plan.md`
 - Plans must be written in English.
 
+---
+
 ## Coding Rules
 
-See `skills/coding-guide.md` for full coding conventions. Key rules:
+### Directory Structure
 
-- All source code must be placed in `src/`.
-- Every method/function must have a docstring or comment explaining its purpose.
-- All test code must be placed in `test/`.
-- **[MANDATORY]** Run all tests before every commit to `src/`. Do not commit if any test fails.
-- **[MANDATORY]** When `src/main_window.ui` or `src/main_window.py` changes, regenerate `docs/ui-preview.jpg` and include it in the same commit. Never commit UI changes without updating the preview image.
-- **[MANDATORY]** When any method/function in `src/` is added, removed, or modified, update the corresponding tests in `test/` in the same commit and confirm all tests pass. Never commit implementation changes without matching test updates.
+| Directory | Purpose |
+|-----------|---------|
+| `src/`    | All source code (modules, classes, utilities) |
+| `test/`   | All test code |
+| `skills/` | Project documentation and guides |
+
+### Source Code (`src/`)
+
+- All implementation files go under `src/`.
+- File naming: `snake_case.py` (e.g., `mp3_parser.py`, `file_manager.py`)
+
+### Method-Level Comments
+
+Every method and function must have a docstring describing what it does, its parameters, and return value.
+
+```python
+def load_mp3(file_path: str) -> dict:
+    """
+    Load an MP3 file and return its metadata.
+
+    Args:
+        file_path: Absolute or relative path to the MP3 file.
+
+    Returns:
+        A dictionary containing metadata fields such as title,
+        artist, album, and duration.
+    """
+    ...
+```
+
+### Test Code (`test/`)
+
+- All test files go under `test/`.
+- File naming: `test_<module>.py` (e.g., `test_mp3_parser.py`)
+- Each test function must have a docstring describing what it verifies.
+
+### **[MANDATORY] Coding Rules**
+
+1. **Run all tests before every commit to `src/`.** Do not commit if any test fails.
+   ```bash
+   python -m unittest discover -s test -v
+   ```
+
+2. **When `src/main_window.ui` or `src/main_window.py` changes, regenerate `docs/ui-preview.jpg` and include it in the same commit.** Never commit UI changes without updating the preview image.
+
+3. **When any method/function in `src/` is added, removed, or modified, update the corresponding tests in `test/` in the same commit.** Never commit implementation changes without matching test updates.
+   - Method **added** → add tests verifying the new behaviour
+   - Method **removed** → remove or update the related tests
+   - Signature/behaviour **changed** → update affected tests
+
+---
 
 ## Git Rules
 
-See `skills/git-guide.md` for full git conventions. Key rules:
+### **[MANDATORY] Git Rules**
 
-- **[MANDATORY]** Always ask the user before pushing. Never push without explicit user approval.
-- Commit messages must follow Linux kernel style.
+1. **Always ask the user before pushing. Never push without explicit user approval.** Only push when the user directly says so (e.g. "푸시해줘"). Never push automatically or implicitly as part of the workflow.
+
+2. **When `src/main_window.ui` or `src/main_window.py` changes, regenerate `docs/ui-preview.jpg` before committing.** Do not push UI changes without updating the preview image.
+
+### Commit Message Style
+
+- Follow Linux kernel style.
+- Subject line: 50 chars or fewer, imperative mood (e.g. `Fix bug`, `Add feature`)
+- Blank line between subject and body.
+- Body: wrap at 72 chars, explain *why* not *what*.
 - All commit messages and documentation must be written in English.
+
+```
+subsystem: short summary of the change
+
+More detailed explanation of why this change is needed,
+what problem it solves, and any side effects.
+```
+
+### PR and Merge Rules
+
+- **Before opening a PR to main:** update `NEWS` file with the list of changes on the branch.
+- **Before opening a PR to main:** update `README.md` to reflect any usage changes.
+- **After merging to main:** create a tag in `v년월일` format (e.g. `v20260407`).
+  ```bash
+  git tag v$(date +%Y%m%d)
+  git push origin v$(date +%Y%m%d)
+  ```
