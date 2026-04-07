@@ -286,5 +286,66 @@ class TestApplySkip(unittest.TestCase):
         self.assertEqual(dlg._index, 1)
 
 
+# ---------------------------------------------------------------------------
+# TagFetchDialog — keyword input pre-fill and _on_search_clicked()
+# ---------------------------------------------------------------------------
+
+class TestKeywordSearch(unittest.TestCase):
+
+    def test_keyword_prefilled_from_tags(self):
+        """_load_current pre-fills the keyword input with available tag."""
+        files = [_file(filename="track.mp3", title="Dynamite", artist=None)]
+        dlg = _make_dialog(files)
+        dlg._index = 0
+
+        with patch("tag_fetch_dialog._FetchWorker") as mock_worker_cls:
+            mock_worker_cls.return_value.isRunning.return_value = False
+            dlg._load_current()
+
+        self.assertIn("Dynamite", dlg._keyword_edit.text())
+
+    def test_keyword_prefilled_from_filename_when_no_tags(self):
+        """_load_current pre-fills the keyword input with filename when tags absent."""
+        files = [_file(filename="아이유 - 좋은날.mp3", title=None, artist=None)]
+        dlg = _make_dialog(files)
+        dlg._index = 0
+
+        with patch("tag_fetch_dialog._FetchWorker") as mock_worker_cls:
+            mock_worker_cls.return_value.isRunning.return_value = False
+            dlg._load_current()
+
+        self.assertEqual(dlg._keyword_edit.text(), "아이유 - 좋은날")
+
+    def test_search_clicked_uses_keyword_input(self):
+        """_on_search_clicked passes keyword input text as title to worker."""
+        dlg = _make_dialog([_file(title=None)])
+        dlg._keyword_edit.setText("검색할 곡 이름")
+
+        started_with = {}
+
+        def capture_worker(artist, title, source):
+            started_with["artist"] = artist
+            started_with["title"]  = title
+            w = MagicMock()
+            w.isRunning.return_value = False
+            return w
+
+        with patch("tag_fetch_dialog._FetchWorker", side_effect=capture_worker):
+            dlg._on_search_clicked()
+
+        self.assertIsNone(started_with["artist"])
+        self.assertEqual(started_with["title"], "검색할 곡 이름")
+
+    def test_search_clicked_ignores_empty_input(self):
+        """_on_search_clicked does nothing when keyword input is blank."""
+        dlg = _make_dialog([_file(title=None)])
+        dlg._keyword_edit.setText("   ")
+
+        with patch("tag_fetch_dialog._FetchWorker") as mock_worker_cls:
+            dlg._on_search_clicked()
+
+        mock_worker_cls.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

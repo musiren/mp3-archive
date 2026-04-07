@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -146,23 +147,28 @@ class TagFetchDialog(QDialog):
 
         self._counter_label = QLabel("")
         self._file_label    = QLabel("파일: -")
-        self._query_label   = QLabel("검색어: -")
         layout.addWidget(self._counter_label)
         layout.addWidget(self._file_label)
-        layout.addWidget(self._query_label)
 
-        # Source selector
-        src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("검색 소스:"))
+        # Search keyword input + source selector + search button
+        search_row = QHBoxLayout()
+        search_row.addWidget(QLabel("검색어:"))
+        self._keyword_edit = QLineEdit()
+        self._keyword_edit.setPlaceholderText("검색어를 입력하세요")
+        self._keyword_edit.returnPressed.connect(self._on_search_clicked)
+        search_row.addWidget(self._keyword_edit, stretch=1)
+        search_row.addWidget(QLabel("소스:"))
         self._source_combo = QComboBox()
         for label, _ in _SOURCE_LABELS:
             self._source_combo.addItem(label)
         # Default to iTunes for better Korean coverage
         self._source_combo.setCurrentIndex(1)
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
-        src_row.addWidget(self._source_combo)
-        src_row.addStretch()
-        layout.addLayout(src_row)
+        search_row.addWidget(self._source_combo)
+        self._btn_search = QPushButton("검색")
+        self._btn_search.clicked.connect(self._on_search_clicked)
+        search_row.addWidget(self._btn_search)
+        layout.addLayout(search_row)
 
         # Results table — 6 columns: 점수, 제목, 아티스트, 앨범, 연도, 출처
         self._table = QTableWidget(0, 6)
@@ -230,8 +236,23 @@ class TagFetchDialog(QDialog):
         total = len(self._files)
         self._counter_label.setText(f"({self._index + 1} / {total})")
         self._file_label.setText(f"파일: {f['filename']}")
-        self._query_label.setText(f"검색어: {artist or '?'} / {title or '?'}")
 
+        # Pre-fill the keyword input with auto-detected terms.
+        parts = [p for p in (artist, title) if p]
+        self._keyword_edit.setText(" ".join(parts))
+
+        self._start_search(artist, title)
+
+    def _start_search(self, artist: str | None, title: str | None) -> None:
+        """
+        Start a background search with the given artist and title.
+
+        Stops any running worker before launching a new one.
+
+        Args:
+            artist: Artist name to search (may be None).
+            title:  Track title to search (may be None).
+        """
         self._table.setRowCount(0)
         self._status_label.setText("검색 중...")
         self._progress.setVisible(True)
@@ -239,7 +260,6 @@ class TagFetchDialog(QDialog):
         self._btn_apply.setEnabled(False)
         self._btn_skip.setEnabled(True)
 
-        # Stop any previous worker before starting a new one.
         if self._worker and self._worker.isRunning():
             self._worker.finished.disconnect()
             self._worker.quit()
@@ -259,16 +279,24 @@ class TagFetchDialog(QDialog):
         self._btn_skip.setEnabled(False)
         self._counter_label.setText("")
         self._file_label.setText("")
-        self._query_label.setText("")
+        self._keyword_edit.clear()
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_search_clicked(self) -> None:
+        """Re-run the search using the current keyword input text."""
+        keyword = self._keyword_edit.text().strip()
+        if not keyword:
+            return
+        self._start_search(artist=None, title=keyword)
+
     def _on_source_changed(self, _index: int) -> None:
         """Re-run the search when the user changes the source selection."""
         if self._files and self._index < len(self._files):
-            self._load_current()
+            keyword = self._keyword_edit.text().strip()
+            self._start_search(artist=None, title=keyword) if keyword else self._load_current()
 
     def _on_fetch_done(self, candidates: list) -> None:
         """
