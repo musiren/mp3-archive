@@ -12,6 +12,8 @@ Usage (from MainWindow):
     self._load_table()  # refresh after dialog closes
 """
 
+import os
+
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -221,6 +223,10 @@ class TagFetchDialog(QDialog):
         f = self._files[self._index]
         artist = f.get("artist") if f.get("artist") not in (None, "-") else None
         title  = f.get("title")  if f.get("title")  not in (None, "-") else None
+
+        # Fall back to filename (without extension) when no tags are available.
+        if not artist and not title:
+            title = os.path.splitext(f["filename"])[0]
 
         total = len(self._files)
         self._counter_label.setText(f"({self._index + 1} / {total})")
