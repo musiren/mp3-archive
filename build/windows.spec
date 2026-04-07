@@ -41,7 +41,7 @@ a = Analysis(
     # Data files (Qt translations, Qt plugins)
     datas=pyqt6_datas + mutagen_datas + [
         (os.path.join(ROOT, "src", "main_window.ui"), "."),
-        (os.path.join(ROOT, "assets", "icon.png"), "assets"),
+        (os.path.join(ROOT, "assets"), "assets"),
     ],
 
     # Python-level hidden imports that PyInstaller may miss

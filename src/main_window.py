@@ -35,9 +35,11 @@ try:
 except ImportError:
     _MULTIMEDIA_AVAILABLE = False
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QAbstractItemView,
     QHeaderView,
     QListWidgetItem,
     QMainWindow,
@@ -356,9 +358,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         uic.loadUi(_UI_FILE, self)
 
-        from PyQt6.QtGui import QIcon
-        if os.path.exists(_ICON_FILE):
-            self.setWindowIcon(QIcon(_ICON_FILE))
+        self.setWindowIcon(QIcon(_ICON_FILE))
 
         self._manager  = Mp3Manager(db_path)
         self._worker: ScanWorker | None = None
@@ -491,11 +491,19 @@ class MainWindow(QMainWindow):
         self._restore_column_visibility()
 
     def _setup_playlist(self) -> None:
-        """Configure the playlist widget to accept drops from the MP3 table."""
+        """Configure the playlist widget to accept drops from the table and
+        allow internal drag-and-drop reordering."""
         self.playlist_widget.setAcceptDrops(True)
         self.playlist_widget.setDropIndicatorShown(True)
+        # InternalMove lets Qt handle row reordering natively; the event
+        # filter intercepts external URL drops before Qt sees them.
+        self.playlist_widget.setDragDropMode(
+            QAbstractItemView.DragDropMode.InternalMove
+        )
         self.playlist_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.playlist_widget.customContextMenuRequested.connect(self._on_playlist_context_menu)
+        # Keep _playing_index in sync when rows are reordered
+        self.playlist_widget.model().rowsMoved.connect(self._on_playlist_rows_moved)
         # Override drop handling via event filter
         self.playlist_widget.viewport().installEventFilter(self)
         # Delete key removes selected item
@@ -704,6 +712,13 @@ class MainWindow(QMainWindow):
                     self._tree_drag_start_pos = None
 
         if obj is self.playlist_widget.viewport():
+            # Internal reorder uses Qt's own MIME type — let it pass through
+            # so InternalMove handling works correctly.
+            _INTERNAL_MIME = "application/x-qabstractitemmodeldatalist"
+            if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove,
+                                 QEvent.Type.Drop):
+                if event.mimeData().hasFormat(_INTERNAL_MIME):
+                    return False
             if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
                 if event.mimeData().hasUrls() or event.mimeData().hasText():
                     event.acceptProposedAction()
@@ -802,10 +817,37 @@ class MainWindow(QMainWindow):
         """
         name = os.path.basename(path)
         self.player_title_label.setText(name)
+        self._update_album_art(path)
         if self._player is None:
             return
         self._player.setSource(QUrl.fromLocalFile(path))
         self._player.play()
+
+    def _update_album_art(self, path: str) -> None:
+        """
+        Load and display the embedded album art for the given file.
+
+        Scales the image to fit within the album_art_label while keeping
+        the aspect ratio.  Clears the label when no art is found.
+
+        Args:
+            path: Absolute path to the audio file.
+        """
+        from PyQt6.QtGui import QPixmap
+        art_bytes = _get_album_art(path)
+        if art_bytes:
+            pixmap = QPixmap()
+            pixmap.loadFromData(art_bytes)
+            size = self.album_art_label.size()
+            scaled = pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.album_art_label.setPixmap(scaled)
+        else:
+            self.album_art_label.clear()
+            self.album_art_label.setText("♪")
 
     # ------------------------------------------------------------------
     # Playback slots
@@ -834,6 +876,8 @@ class MainWindow(QMainWindow):
             self._player.stop()
         self._playing_index = -1
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
+        self.album_art_label.clear()
+        self.album_art_label.setText("♪")
 
     def _on_prev_clicked(self) -> None:
         """
@@ -1002,6 +1046,38 @@ class MainWindow(QMainWindow):
                 self._playing_index = -1
             elif row < self._playing_index:
                 self._playing_index -= 1
+
+    def _on_playlist_rows_moved(
+        self, src_parent, src_first: int, src_last: int, dst_parent, dst_row: int
+    ) -> None:
+        """Update _playing_index after an internal drag-and-drop reorder.
+
+        Qt emits rowsMoved after the move is complete.  We adjust the stored
+        playing index so playback controls (prev/next, highlight) remain
+        consistent with the new row order.
+
+        Args:
+            src_first: First row of the moved range (original position).
+            src_last:  Last row of the moved range (original position).
+            dst_row:   Destination row (insert-before index, original numbering).
+        """
+        p = self._playing_index
+        if p < 0:
+            return
+        count = src_last - src_first + 1
+        if src_first <= p <= src_last:
+            # The playing item itself was moved.
+            if dst_row <= src_first:
+                self._playing_index = dst_row + (p - src_first)
+            else:
+                self._playing_index = dst_row - count + (p - src_first)
+        elif dst_row <= p < src_first:
+            # Items from a lower row were moved above the playing item.
+            self._playing_index = p + count
+        elif src_last < p < dst_row:
+            # Items from a higher row were moved below the playing item.
+            self._playing_index = p - count
+        self._highlight_playing_row(self._playing_index)
 
     def _on_playlist_clear_clicked(self) -> None:
         """Stop playback and remove all items from the playlist."""
@@ -1321,12 +1397,14 @@ class MainWindow(QMainWindow):
         keyword = self.search_edit.text().strip()
         if keyword:
             filename_only = not self.chk_search_tags.isChecked()
+            all_files = self._manager.list_files()
             files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
+            self._fill_table(files, total=len(all_files))
         else:
             files = self._manager.list_files()
             self.status_label.setText("준비")
-        self._fill_table(files)
+            self._fill_table(files)
 
     def _on_search_clicked(self) -> None:
         """
@@ -1337,12 +1415,14 @@ class MainWindow(QMainWindow):
         keyword = self.search_edit.text().strip()
         if keyword:
             filename_only = not self.chk_search_tags.isChecked()
+            all_files = self._manager.list_files()
             files = self._manager.search(keyword, filename_only=filename_only)
             self.status_label.setText(f"검색 결과: {len(files)}개")
+            self._fill_table(files, total=len(all_files))
         else:
             files = self._manager.list_files()
             self.status_label.setText("준비")
-        self._fill_table(files)
+            self._fill_table(files)
 
     def _on_search_clear_clicked(self) -> None:
         """Clear the search field and restore the full table."""
@@ -1380,7 +1460,7 @@ class MainWindow(QMainWindow):
         """Fetch all records from the database and populate the table."""
         self._fill_table(self._manager.list_files())
 
-    def _fill_table(self, files: list) -> None:
+    def _fill_table(self, files: list, total: int | None = None) -> None:
         """
         Populate the table widget with the given list of MP3 records.
 
@@ -1390,6 +1470,8 @@ class MainWindow(QMainWindow):
         Args:
             files: List of row dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
+            total: Total number of records in the DB (used for search count
+                   label).  When None, defaults to len(files).
         """
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(files))
@@ -1423,12 +1505,11 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 10, _item(f["file_modified_at"] or "-"))
 
         self.table.setSortingEnabled(True)
-        keyword = self.search_edit.text().strip()
-        if keyword:
-            total = len(self._manager.list_files())
-            self.count_label.setText(f"검색 결과: {len(files)}곡 / 전체 {total}곡")
+        n = len(files)
+        if total is not None and total != n:
+            self.count_label.setText(f"검색 결과: {n}곡 / 전체 {total}곡")
         else:
-            self.count_label.setText(f"전체 {len(files)}곡")
+            self.count_label.setText(f"전체 {n}곡")
         self._fill_tree(files)
 
     def _fill_tree(self, files: list) -> None:

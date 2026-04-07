@@ -444,6 +444,34 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="album_art_label">
+          <property name="toolTip">
+           <string>현재 재생 중인 곡의 앨범 아트</string>
+          </property>
+          <property name="text">
+           <string></string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>180</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>220</height>
+           </size>
+          </property>
+          <property name="scaledContents">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QSlider" name="seek_slider">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
