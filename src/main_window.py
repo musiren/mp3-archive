@@ -817,10 +817,37 @@ class MainWindow(QMainWindow):
         """
         name = os.path.basename(path)
         self.player_title_label.setText(name)
+        self._update_album_art(path)
         if self._player is None:
             return
         self._player.setSource(QUrl.fromLocalFile(path))
         self._player.play()
+
+    def _update_album_art(self, path: str) -> None:
+        """
+        Load and display the embedded album art for the given file.
+
+        Scales the image to fit within the album_art_label while keeping
+        the aspect ratio.  Clears the label when no art is found.
+
+        Args:
+            path: Absolute path to the audio file.
+        """
+        from PyQt6.QtGui import QPixmap
+        art_bytes = _get_album_art(path)
+        if art_bytes:
+            pixmap = QPixmap()
+            pixmap.loadFromData(art_bytes)
+            size = self.album_art_label.size()
+            scaled = pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.album_art_label.setPixmap(scaled)
+        else:
+            self.album_art_label.clear()
+            self.album_art_label.setText("♪")
 
     # ------------------------------------------------------------------
     # Playback slots
@@ -849,6 +876,8 @@ class MainWindow(QMainWindow):
             self._player.stop()
         self._playing_index = -1
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
+        self.album_art_label.clear()
+        self.album_art_label.setText("♪")
 
     def _on_prev_clicked(self) -> None:
         """

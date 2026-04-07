@@ -523,6 +523,45 @@ class TestPlaylist(unittest.TestCase):
         win.close()
 
 
+class TestAlbumArtPanel(unittest.TestCase):
+    """Tests for the album art label in the player panel."""
+
+    def _make_window(self) -> MainWindow:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        self._db_path = db_path
+        win = MainWindow(db_path)
+        self._win = win
+        return win
+
+    def tearDown(self):
+        if hasattr(self, "_win"):
+            self._win._manager.close()
+        if hasattr(self, "_db_path") and os.path.exists(self._db_path):
+            os.unlink(self._db_path)
+
+    def test_album_art_label_exists(self):
+        """album_art_label widget is present in the main window."""
+        win = self._make_window()
+        self.assertTrue(hasattr(win, "album_art_label"))
+        win.close()
+
+    def test_update_album_art_no_art_shows_placeholder(self):
+        """_update_album_art clears pixmap and shows placeholder for missing art."""
+        win = self._make_window()
+        win._update_album_art("/nonexistent/track.mp3")
+        self.assertTrue(win.album_art_label.pixmap().isNull())
+        self.assertEqual(win.album_art_label.text(), "♪")
+        win.close()
+
+    def test_stop_clears_album_art(self):
+        """Stopping playback clears the album art label."""
+        win = self._make_window()
+        win._on_stop_clicked()
+        self.assertEqual(win.album_art_label.text(), "♪")
+        win.close()
+
+
 class TestPlaylistSaveLoad(unittest.TestCase):
     """Tests for playlist save/load functionality."""
 
