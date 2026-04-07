@@ -55,7 +55,9 @@ def load_mp3(file_path: str) -> dict:
    python -m unittest discover -s test -v
    ```
 
-2. **When `src/main_window.ui` or `src/main_window.py` changes, regenerate `docs/ui-preview.jpg` and include it in the same commit.** Never commit UI changes without updating the preview image.
+2. **When any UI file in `src/` changes (including `main_window.ui`, `main_window.py`, or any `*_dialog.py`), regenerate the corresponding preview image under `docs/` and include it in the same commit.** Never commit UI changes without updating the preview image.
+   - `src/main_window.ui` / `src/main_window.py` → `docs/ui-preview.jpg`
+   - `src/<name>_dialog.py` → `docs/<name>-dialog-preview.jpg`
 
 3. **When any method/function in `src/` is added, removed, or modified, update the corresponding tests in `test/` in the same commit.** Never commit implementation changes without matching test updates.
    - Method **added** → add tests verifying the new behaviour
@@ -70,7 +72,7 @@ def load_mp3(file_path: str) -> dict:
 
 1. **Always ask the user before pushing. Never push without explicit user approval.** Only push when the user directly says so (e.g. "푸시해줘"). Never push automatically or implicitly as part of the workflow.
 
-2. **When `src/main_window.ui` or `src/main_window.py` changes, regenerate `docs/ui-preview.jpg` before committing.** Do not push UI changes without updating the preview image.
+2. **When any UI file in `src/` changes, regenerate the corresponding preview image under `docs/` before committing.** Do not push UI changes without updating the preview image.
 
 ### Commit Message Style
 
