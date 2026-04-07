@@ -346,6 +346,27 @@ class TestKeywordSearch(unittest.TestCase):
 
         mock_worker_cls.assert_not_called()
 
+    def test_search_clicked_ignores_exhausted_queue(self):
+        """_on_search_clicked does nothing when all files have been processed."""
+        dlg = _make_dialog([_file(title=None)])
+        dlg._index = 1  # past the end of _files
+        dlg._keyword_edit.setText("some keyword")
+
+        with patch("tag_fetch_dialog._FetchWorker") as mock_worker_cls:
+            dlg._on_search_clicked()
+
+        mock_worker_cls.assert_not_called()
+
+    def test_fetch_done_does_not_enable_apply_after_queue_exhausted(self):
+        """_on_fetch_done does not enable apply button when _index is past _files."""
+        dlg = _make_dialog([_file(title=None)])
+        dlg._index = 1  # past the end
+        dlg._on_fetch_done([{
+            "title": "T", "artist": "A", "album": "Al",
+            "year": "2020", "score": 90, "source": "iTunes",
+        }])
+        self.assertFalse(dlg._btn_apply.isEnabled())
+
 
 if __name__ == "__main__":
     unittest.main()

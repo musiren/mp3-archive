@@ -287,6 +287,8 @@ class TagFetchDialog(QDialog):
 
     def _on_search_clicked(self) -> None:
         """Re-run the search using the current keyword input text."""
+        if not self._files or self._index >= len(self._files):
+            return
         keyword = self._keyword_edit.text().strip()
         if not keyword:
             return
@@ -324,7 +326,9 @@ class TagFetchDialog(QDialog):
             self._table.setItem(row, 5, QTableWidgetItem(c.get("source", "")))
 
         self._table.selectRow(0)
-        self._btn_apply.setEnabled(True)
+        # Only enable apply if there is still a file to process.
+        if self._index < len(self._files):
+            self._btn_apply.setEnabled(True)
 
     def _on_apply(self) -> None:
         """Write the selected candidate's tags to the file and DB, then advance."""
