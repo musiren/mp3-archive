@@ -712,6 +712,13 @@ class MainWindow(QMainWindow):
                     self._tree_drag_start_pos = None
 
         if obj is self.playlist_widget.viewport():
+            # Internal reorder uses Qt's own MIME type — let it pass through
+            # so InternalMove handling works correctly.
+            _INTERNAL_MIME = "application/x-qabstractitemmodeldatalist"
+            if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove,
+                                 QEvent.Type.Drop):
+                if event.mimeData().hasFormat(_INTERNAL_MIME):
+                    return False
             if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
                 if event.mimeData().hasUrls() or event.mimeData().hasText():
                     event.acceptProposedAction()
