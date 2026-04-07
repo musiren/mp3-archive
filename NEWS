@@ -1,6 +1,25 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260407 (2026-04-07)
+===========================================================================
+
+New features
+------------
+- Album art panel: dedicated panel in the player area shows the embedded
+  album art of the currently playing track; displays a '♪' placeholder
+  when no art is embedded
+- Playlist drag-and-drop reorder: items in the playlist can now be
+  dragged to a new position; the playing index stays in sync after reorder
+
+Bug fixes
+---------
+- Playlist reorder: items no longer disappear when dragged (Qt internal
+  MIME type is now passed through the event filter correctly)
+- Code: QIcon import moved to module level; removed redundant list_files()
+  call in _fill_table when search count label is updated
+
+===========================================================================
 v20260405 (2026-04-05)
 ===========================================================================
 
