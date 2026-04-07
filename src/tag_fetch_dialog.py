@@ -119,8 +119,7 @@ class TagFetchDialog(QDialog):
         self._manager = manager
         self._files = [
             f for f in files
-            if not f.get("title") or f.get("title") == "-"
-            or not f.get("artist") or f.get("artist") == "-"
+            if not f.get("title") or not f.get("artist")
         ]
         self._index = 0
         self._worker: _FetchWorker | None = None
@@ -221,8 +220,8 @@ class TagFetchDialog(QDialog):
             return
 
         f = self._files[self._index]
-        artist = f.get("artist") if f.get("artist") not in (None, "-") else None
-        title  = f.get("title")  if f.get("title")  not in (None, "-") else None
+        artist = f.get("artist") or None
+        title  = f.get("title")  or None
 
         # Fall back to filename (without extension) when no tags are available.
         if not artist and not title:
