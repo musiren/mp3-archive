@@ -6,6 +6,10 @@ v20260407 (2026-04-07)
 
 New features
 ------------
+- iTunes Search: tag-fetch dialog now supports iTunes Search API as an
+  alternative source; source selector lets users choose MusicBrainz,
+  iTunes, or both simultaneously; iTunes results show a "출처" (source)
+  column; default source switched to iTunes for better Korean music coverage
 - Album art panel: dedicated panel in the player area shows the embedded
   album art of the currently playing track; displays a '♪' placeholder
   when no art is embedded

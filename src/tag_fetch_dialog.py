@@ -1,9 +1,9 @@
 """
-tag_fetch_dialog.py - Dialog for reviewing and applying MusicBrainz tag suggestions.
+tag_fetch_dialog.py - Dialog for reviewing and applying tag suggestions.
 
-Steps through a list of MP3 files that are missing title or artist tags,
-fetches candidates from MusicBrainz in a background thread, and lets the
-user apply or skip each suggestion.
+Steps through a list of audio files that are missing title or artist tags,
+fetches candidates from MusicBrainz and/or iTunes in a background thread,
+and lets the user apply or skip each suggestion.
 
 Usage (from MainWindow):
     files = self._manager.list_files()  # or selected rows
@@ -14,6 +14,7 @@ Usage (from MainWindow):
 
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -26,40 +27,75 @@ from PyQt6.QtWidgets import (
 )
 
 import tag_fetcher
+import itunes_fetcher
+
+# Source identifiers used internally
+_SRC_MB     = "musicbrainz"
+_SRC_ITUNES = "itunes"
+_SRC_BOTH   = "both"
+
+# Human-readable labels for the source combo box
+_SOURCE_LABELS = [
+    ("MusicBrainz",         _SRC_MB),
+    ("iTunes",              _SRC_ITUNES),
+    ("둘 다 (Both)",         _SRC_BOTH),
+]
 
 
 class _FetchWorker(QThread):
     """
-    Background thread that queries MusicBrainz for a single file.
+    Background thread that queries one or both tag sources for a single file.
 
     Emits finished(candidates) when the search completes.
+    Each candidate dict includes a 'source' key ("MusicBrainz" or "iTunes").
     """
 
     finished = pyqtSignal(list)
 
-    def __init__(self, artist: str | None, title: str | None) -> None:
+    def __init__(
+        self,
+        artist: str | None,
+        title: str | None,
+        source: str = _SRC_MB,
+    ) -> None:
         """
         Args:
             artist: Artist name to search (may be None).
             title:  Recording title to search (may be None).
+            source: One of _SRC_MB, _SRC_ITUNES, or _SRC_BOTH.
         """
         super().__init__()
         self._artist = artist
-        self._title = title
+        self._title  = title
+        self._source = source
 
     def run(self) -> None:
-        """Execute the MusicBrainz search and emit results."""
-        results = tag_fetcher.search(self._artist, self._title)
+        """Execute the search(es) and emit combined results."""
+        results: list[dict] = []
+
+        if self._source in (_SRC_MB, _SRC_BOTH):
+            for c in tag_fetcher.search(self._artist, self._title):
+                c["source"] = "MusicBrainz"
+                results.append(c)
+
+        if self._source in (_SRC_ITUNES, _SRC_BOTH):
+            for c in itunes_fetcher.search(self._artist, self._title):
+                c["source"] = "iTunes"
+                results.append(c)
+
+        # Sort combined results by score descending.
+        results.sort(key=lambda c: c.get("score", 0), reverse=True)
         self.finished.emit(results)
 
 
 class TagFetchDialog(QDialog):
     """
-    Step-through dialog for completing missing MP3 tags via MusicBrainz.
+    Step-through dialog for completing missing audio tags.
 
+    Supports searching MusicBrainz, iTunes, or both sources simultaneously.
     Only files whose title or artist field is absent (None or '-') are
     included in the processing queue.  For each file the dialog:
-      1. Searches MusicBrainz in the background.
+      1. Searches the selected source(s) in the background.
       2. Shows up to 7 candidates in a table.
       3. Lets the user select one row and click 적용, or click 건너뛰기.
       4. On 적용, writes the chosen tags to both the file and the DB.
@@ -76,7 +112,7 @@ class TagFetchDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("태그 자동 완성")
-        self.resize(720, 440)
+        self.resize(780, 480)
 
         self._manager = manager
         self._files = [
@@ -114,9 +150,24 @@ class TagFetchDialog(QDialog):
         layout.addWidget(self._file_label)
         layout.addWidget(self._query_label)
 
-        # Results table
-        self._table = QTableWidget(0, 5)
-        self._table.setHorizontalHeaderLabels(["점수", "제목", "아티스트", "앨범", "연도"])
+        # Source selector
+        src_row = QHBoxLayout()
+        src_row.addWidget(QLabel("검색 소스:"))
+        self._source_combo = QComboBox()
+        for label, _ in _SOURCE_LABELS:
+            self._source_combo.addItem(label)
+        # Default to iTunes for better Korean coverage
+        self._source_combo.setCurrentIndex(1)
+        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        src_row.addWidget(self._source_combo)
+        src_row.addStretch()
+        layout.addLayout(src_row)
+
+        # Results table — 6 columns: 점수, 제목, 아티스트, 앨범, 연도, 출처
+        self._table = QTableWidget(0, 6)
+        self._table.setHorizontalHeaderLabels(
+            ["점수", "제목", "아티스트", "앨범", "연도", "출처"]
+        )
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         hdr = self._table.horizontalHeader()
@@ -125,6 +176,7 @@ class TagFetchDialog(QDialog):
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._table)
 
         # Status / indeterminate progress bar
@@ -155,6 +207,11 @@ class TagFetchDialog(QDialog):
     # Navigation
     # ------------------------------------------------------------------
 
+    def _current_source(self) -> str:
+        """Return the internal source identifier for the current combo selection."""
+        idx = self._source_combo.currentIndex()
+        return _SOURCE_LABELS[idx][1]
+
     def _load_current(self) -> None:
         """Populate labels and start a background search for the current file."""
         if self._index >= len(self._files):
@@ -177,7 +234,13 @@ class TagFetchDialog(QDialog):
         self._btn_apply.setEnabled(False)
         self._btn_skip.setEnabled(True)
 
-        self._worker = _FetchWorker(artist, title)
+        # Stop any previous worker before starting a new one.
+        if self._worker and self._worker.isRunning():
+            self._worker.finished.disconnect()
+            self._worker.quit()
+            self._worker.wait()
+
+        self._worker = _FetchWorker(artist, title, self._current_source())
         self._worker.finished.connect(self._on_fetch_done)
         self._worker.start()
 
@@ -197,12 +260,18 @@ class TagFetchDialog(QDialog):
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_source_changed(self, _index: int) -> None:
+        """Re-run the search when the user changes the source selection."""
+        if self._files and self._index < len(self._files):
+            self._load_current()
+
     def _on_fetch_done(self, candidates: list) -> None:
         """
-        Populate the candidate table with MusicBrainz results.
+        Populate the candidate table with search results.
 
         Args:
-            candidates: List of dicts from tag_fetcher.search().
+            candidates: List of dicts from tag_fetcher or itunes_fetcher,
+                        each containing a 'source' key.
         """
         self._progress.setVisible(False)
         self._progress.setRange(0, 1)
@@ -219,6 +288,7 @@ class TagFetchDialog(QDialog):
             self._table.setItem(row, 2, QTableWidgetItem(c.get("artist", "")))
             self._table.setItem(row, 3, QTableWidgetItem(c.get("album",  "")))
             self._table.setItem(row, 4, QTableWidgetItem(c.get("year",   "")))
+            self._table.setItem(row, 5, QTableWidgetItem(c.get("source", "")))
 
         self._table.selectRow(0)
         self._btn_apply.setEnabled(True)
