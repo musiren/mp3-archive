@@ -233,8 +233,18 @@ class TestOnFetchDone(unittest.TestCase):
     def test_empty_results_keeps_table_empty(self):
         """_on_fetch_done with no candidates leaves the table at 0 rows."""
         dlg = _make_dialog([_file(title=None)])
-        dlg._on_fetch_done([])
+        with patch("tag_fetch_dialog.QMessageBox.information"):
+            dlg._on_fetch_done([])
         self.assertEqual(dlg._table.rowCount(), 0)
+
+    def test_empty_results_shows_popup(self):
+        """_on_fetch_done shows a QMessageBox when no candidates are returned."""
+        dlg = _make_dialog([_file(title=None)])
+        with patch("tag_fetch_dialog.QMessageBox.information") as mock_info:
+            dlg._on_fetch_done([])
+        mock_info.assert_called_once()
+        args = mock_info.call_args[0]
+        self.assertEqual(args[1], "검색 결과 없음")
 
     def test_apply_enabled_after_results(self):
         """Apply button becomes enabled once candidates are loaded."""

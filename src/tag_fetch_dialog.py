@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -313,6 +314,13 @@ class TagFetchDialog(QDialog):
 
         if not candidates:
             self._status_label.setText("검색 결과 없음")
+            source_name = _SOURCE_LABELS[self._source_combo.currentIndex()][0]
+            QMessageBox.information(
+                self,
+                "검색 결과 없음",
+                f"{source_name}에서 결과를 찾지 못했습니다.\n"
+                "검색어를 바꿔서 다시 시도해 보세요.",
+            )
             return
 
         self._status_label.setText(f"{len(candidates)}개 후보 검색됨")
