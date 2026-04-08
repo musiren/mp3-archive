@@ -13,7 +13,7 @@ Usage:
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtGui import QBrush, QColor, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -55,6 +56,35 @@ _TAG_LABELS: dict[str, str] = {
 }
 
 
+def _get_album_art(path: str) -> bytes | None:
+    """
+    Extract embedded album art from an audio file.
+
+    Supports ID3 (APIC), FLAC/Ogg (pictures), and MP4/M4A (covr).
+
+    Args:
+        path: Absolute path to the audio file.
+
+    Returns:
+        Raw image bytes, or None if no art is found.
+    """
+    try:
+        audio = MutagenFile(path)
+        if audio is None:
+            return None
+        if audio.tags:
+            for key in audio.tags.keys():
+                if key.startswith("APIC"):
+                    return audio.tags[key].data
+        if hasattr(audio, "pictures") and audio.pictures:
+            return audio.pictures[0].data
+        if audio.tags and "covr" in audio.tags:
+            return bytes(audio.tags["covr"][0])
+    except Exception:
+        pass
+    return None
+
+
 class TagDetailDialog(QDialog):
     """
     Read-only dialog that shows every tag embedded in an audio file.
@@ -74,7 +104,7 @@ class TagDetailDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("자세히 — 태그 정보")
-        self.resize(640, 500)
+        self.resize(680, 560)
 
         self._file_info = file_info
         self._manager   = manager
@@ -94,9 +124,34 @@ class TagDetailDialog(QDialog):
         info = self._file_info
         path = info.get("path", "")
 
-        # Summary header
-        layout.addWidget(QLabel(f"<b>파일:</b> {info.get('filename', '-')}"))
-        layout.addWidget(QLabel(f"<b>경로:</b> {path}"))
+        # Header: file info on the left, album art on the right
+        header_row = QHBoxLayout()
+        header_row.setSpacing(12)
+
+        info_col = QVBoxLayout()
+        info_col.setSpacing(4)
+        info_col.addWidget(QLabel(f"<b>파일:</b> {info.get('filename', '-')}"))
+        info_col.addWidget(QLabel(f"<b>경로:</b> {path}"))
+        info_col.addStretch()
+        header_row.addLayout(info_col, stretch=1)
+
+        self._art_label = QLabel("♪")
+        self._art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._art_label.setFixedSize(140, 140)
+        self._art_label.setStyleSheet(
+            "QLabel { background: #e8e8e8; border: 1px solid #ccc; font-size: 32px; }"
+        )
+        art_bytes = _get_album_art(path)
+        if art_bytes:
+            pix = QPixmap()
+            pix.loadFromData(art_bytes)
+            self._art_label.setPixmap(
+                pix.scaled(140, 140,
+                           Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.SmoothTransformation)
+            )
+        header_row.addWidget(self._art_label)
+        layout.addLayout(header_row)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
