@@ -22,10 +22,14 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
+  <!--
+    Version is passed in by build_msi.ps1 via: candle -dVersion=YYYY.M.D.0
+    Converted from NEWS vYYYYMMDD format, e.g. v20260407 -> 2026.4.7.0
+  -->
   <Product Id="*"
            Name="mp3-archive"
            Language="1042"
-           Version="1.0.0"
+           Version="$(var.Version)"
            Manufacturer="musiren"
            UpgradeCode="{C8CCDD28-5FA2-443B-9744-2CE67FEAA1A5}">
 

@@ -122,21 +122,19 @@ pyinstaller build/windows.spec
 ### Windows — MSI (설치 패키지)
 
 [WiX Toolset v3](https://github.com/wixtoolset/wix3/releases)가 필요합니다.
+버전은 `NEWS` 파일의 최신 항목(`vYYYYMMDD`)에서 자동 추출됩니다.
 
-```bat
-:: 1. 먼저 EXE 빌드
-pyinstaller build\windows.spec
+```powershell
+# LICENSE.rtf 파일이 없으면 생성 (라이선스 화면에 필요)
+New-Item -Force LICENSE.rtf
 
-:: 2. LICENSE.rtf 파일이 없으면 생성 (라이선스 화면 건너뜀)
-echo. > LICENSE.rtf
-
-:: 3. MSI 빌드 (프로젝트 루트에서 실행)
-candle build\installer.wxs -o build\installer.wixobj
-light  build\installer.wixobj -ext WixUIExtension -o dist\mp3-archive.msi
+# EXE 빌드 + MSI 패키징 (프로젝트 루트에서 실행)
+powershell -ExecutionPolicy Bypass -File build\build_msi.ps1
 ```
 
 결과물: `dist/mp3-archive.msi`
 
+- NEWS의 최신 버전(`vYYYYMMDD` → `YYYY.M.D.0`)이 MSI에 반영됨
 - `C:\Program Files\mp3-archive\` 에 설치
 - 시작 메뉴 및 바탕화면 바로가기 생성
 - 프로그램 추가/제거에 등록, 언인스톨러 포함
@@ -153,12 +151,12 @@ pyinstaller build/linux.spec
 `dpkg-deb`(Debian/Ubuntu 기본 포함)가 필요합니다.
 
 ```bash
-# 버전 기본값 1.0.0
+# 버전을 NEWS에서 자동 추출 (e.g. v20260407 → 20260407)
 bash build/package_deb.sh
 
-# 버전 지정
-bash build/package_deb.sh 1.2.0
-# 결과물: dist/mp3-archive_1.2.0_amd64.deb
+# 버전 직접 지정
+bash build/package_deb.sh 20260407
+# 결과물: dist/mp3-archive_20260407_amd64.deb
 ```
 
 ```bash

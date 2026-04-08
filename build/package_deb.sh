@@ -7,8 +7,8 @@
 #   bash build/package_deb.sh [version]
 #
 # Examples:
-#   bash build/package_deb.sh          # version defaults to 1.0.0
-#   bash build/package_deb.sh 1.2.0
+#   bash build/package_deb.sh          # version read from NEWS (e.g. 20260407)
+#   bash build/package_deb.sh 1.2.0    # override version
 #
 # Requirements:
 #   pip install pyinstaller pyqt6 mutagen
@@ -19,9 +19,23 @@
 
 set -euo pipefail
 
-VERSION="${1:-1.0.0}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(dirname "$SCRIPT_DIR")"
+SCRIPT_DIR_TMP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_TMP="$(dirname "$SCRIPT_DIR_TMP")"
+
+# Read version from NEWS if not supplied as an argument.
+# NEWS lines look like: "v20260407 (2026-04-07)" → extract "20260407"
+if [ -n "${1:-}" ]; then
+    VERSION="$1"
+else
+    VERSION=$(grep -m1 '^v[0-9]' "$ROOT_TMP/NEWS" | sed 's/^v//' | awk '{print $1}')
+    if [ -z "$VERSION" ]; then
+        echo "ERROR: could not parse version from NEWS" >&2
+        exit 1
+    fi
+    echo "==> Version from NEWS: $VERSION"
+fi
+SCRIPT_DIR="$SCRIPT_DIR_TMP"
+ROOT="$ROOT_TMP"
 STAGING="$ROOT/build/_deb_staging"
 DEB_OUT="$ROOT/dist/mp3-archive_${VERSION}_amd64.deb"
 
