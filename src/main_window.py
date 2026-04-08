@@ -716,15 +716,16 @@ class MainWindow(QMainWindow):
                         self._playing_index -= 1
                 return True
 
-        # Lazy album-art tooltip for the MP3 table
+        # Lazy album-art tooltip for the MP3 table (filename col 0 and album col 4)
         if obj is self.table.viewport() and event.type() == QEvent.Type.ToolTip:
             pos = event.pos()
             index = self.table.indexAt(pos)
-            if index.isValid() and index.column() == 0:
-                item = self.table.item(index.row(), 0)
+            if index.isValid() and index.column() in (0, 4):
+                item = self.table.item(index.row(), index.column())
                 if item and not item.toolTip():
                     path = item.data(Qt.ItemDataRole.UserRole)
-                    item.setToolTip(_album_art_tooltip(path))
+                    if path:
+                        item.setToolTip(_album_art_tooltip(path))
             return False  # let Qt show the tooltip normally
 
         # --- Tree viewport: drag file items to playlist ---
@@ -1551,7 +1552,9 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 1, path_item)
             self.table.setItem(row, 2, _item(f["artist"] or "-"))
             self.table.setItem(row, 3, _item(f["title"] or "-"))
-            self.table.setItem(row, 4, _item(f["album"] or "-"))
+            album_item = QTableWidgetItem(f["album"] or "-")
+            album_item.setData(Qt.ItemDataRole.UserRole, f["path"])
+            self.table.setItem(row, 4, album_item)
             self.table.setItem(row, 5, _item(f.get("genre") or "-"))
             self.table.setItem(row, 6, _item(f.get("year") or "-"))
             self.table.setItem(row, 7, _item(duration))
