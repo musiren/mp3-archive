@@ -246,13 +246,29 @@ class TestOnFetchDone(unittest.TestCase):
         self.assertEqual(dlg._table.rowCount(), 0)
 
     def test_empty_results_shows_popup(self):
-        """_on_fetch_done shows a QMessageBox when no candidates are returned."""
+        """_on_fetch_done shows a QMessageBox when no candidates are returned
+        and the filename keyword has already been tried."""
         dlg = _make_dialog([_file(title=None)])
+        # _filename_keyword is "" (load_current was patched), so no retry occurs.
         with patch("tag_fetch_dialog.QMessageBox.information") as mock_info:
             dlg._on_fetch_done([])
         mock_info.assert_called_once()
         args = mock_info.call_args[0]
         self.assertEqual(args[1], "검색 결과 없음")
+
+    def test_empty_results_retries_with_filename(self):
+        """_on_fetch_done retries with the filename keyword before showing popup."""
+        dlg = _make_dialog([_file(filename="아이유 - 좋은날.mp3", title=None)])
+        dlg._filename_keyword = "아이유 - 좋은날"
+        dlg._keyword_edit.setText("아이유")   # different from filename keyword
+
+        with patch.object(dlg, "_start_search") as mock_search, \
+             patch("tag_fetch_dialog.QMessageBox.information") as mock_popup:
+            dlg._on_fetch_done([])
+
+        mock_search.assert_called_once_with(artist=None, title="아이유 - 좋은날")
+        mock_popup.assert_not_called()
+        self.assertEqual(dlg._keyword_edit.text(), "아이유 - 좋은날")
 
     def test_apply_enabled_after_results(self):
         """Apply button becomes enabled once candidates are loaded."""

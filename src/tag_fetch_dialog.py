@@ -130,6 +130,7 @@ class TagFetchDialog(QDialog):
         self._index = 0
         self._worker: _FetchWorker | None = None
         self._applied_count = 0
+        self._filename_keyword: str = ""   # fallback keyword for current file
 
         self._build_ui()
 
@@ -234,9 +235,12 @@ class TagFetchDialog(QDialog):
         artist = f.get("artist") or None
         title  = f.get("title")  or None
 
+        # Store filename-based keyword for use as auto-retry fallback.
+        self._filename_keyword = os.path.splitext(f["filename"])[0]
+
         # Fall back to filename (without extension) when no tags are available.
         if not artist and not title:
-            title = os.path.splitext(f["filename"])[0]
+            title = self._filename_keyword
 
         total = len(self._files)
         self._counter_label.setText(f"({self._index + 1} / {total})")
@@ -317,6 +321,16 @@ class TagFetchDialog(QDialog):
         self._progress.setRange(0, 1)
 
         if not candidates:
+            # Auto-retry with the filename keyword if we haven't tried it yet.
+            current_keyword = self._keyword_edit.text().strip()
+            if self._filename_keyword and current_keyword != self._filename_keyword:
+                self._status_label.setText(
+                    f"결과 없음 — 파일명으로 재검색 중: {self._filename_keyword}"
+                )
+                self._keyword_edit.setText(self._filename_keyword)
+                self._start_search(artist=None, title=self._filename_keyword)
+                return
+
             self._status_label.setText("검색 결과 없음")
             source_name = _SOURCE_LABELS[self._source_combo.currentIndex()][0]
             QMessageBox.information(
