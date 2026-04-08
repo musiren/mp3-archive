@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  build/installer.wxs
+  WiX Toolset v3 installer definition for mp3-archive.
+
+  Prerequisites (Windows only):
+    1. Build the exe first:
+         pyinstaller build/windows.spec
+    2. Install WiX Toolset v3:
+         https://github.com/wixtoolset/wix3/releases
+    3. Build the MSI (run from project root):
+         candle build\installer.wxs -o build\installer.wixobj
+         light  build\installer.wixobj -ext WixUIExtension -o dist\mp3-archive.msi
+
+  Output:
+    dist\mp3-archive.msi
+
+  Notes:
+    - UpgradeCode must NEVER change across versions (identifies this product family).
+    - Product Id="*" generates a new GUID per build, enabling MajorUpgrade.
+    - Component GUIDs must stay stable; only change them if the install path changes.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="mp3-archive"
+           Language="1042"
+           Version="1.0.0"
+           Manufacturer="musiren"
+           UpgradeCode="{C8CCDD28-5FA2-443B-9744-2CE67FEAA1A5}">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="MP3 Archive Manager"
+             Comments="Audio file metadata manager — scan, tag, and play your music library." />
+
+    <!-- Prevent downgrades; silently replace older versions -->
+    <MajorUpgrade DowngradeErrorMessage="더 최신 버전이 이미 설치되어 있습니다." />
+
+    <!-- Embed the cab file inside the MSI -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- App icon shown in Add/Remove Programs -->
+    <Icon Id="AppIcon" SourceFile="..\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK"    Value="https://github.com/musiren/mp3-archive" />
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Directory layout                                                     -->
+    <!-- ------------------------------------------------------------------ -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+
+      <!-- C:\Program Files\mp3-archive\ -->
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLDIR" Name="mp3-archive">
+
+          <!-- Main executable -->
+          <Component Id="MainExecutable"
+                     Guid="{5F622568-EBAA-4B82-8428-CE1B65E9A7D6}">
+            <File Id="MainExe"
+                  Source="..\dist\mp3-archive.exe"
+                  KeyPath="yes" />
+
+            <!-- Desktop shortcut (created in user's desktop) -->
+            <Shortcut Id="DesktopShortcut"
+                      Directory="DesktopFolder"
+                      Name="mp3-archive"
+                      WorkingDirectory="INSTALLDIR"
+                      Icon="AppIcon"
+                      Advertise="yes" />
+          </Component>
+
+        </Directory>
+      </Directory>
+
+      <!-- Start Menu: Programs\mp3-archive\ -->
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppStartMenuFolder" Name="mp3-archive">
+          <Component Id="StartMenuShortcuts"
+                     Guid="{212C5660-B289-461C-AADC-BD869101C064}">
+
+            <Shortcut Id="StartMenuShortcut"
+                      Name="mp3-archive"
+                      Target="[INSTALLDIR]mp3-archive.exe"
+                      WorkingDirectory="INSTALLDIR"
+                      Icon="AppIcon" />
+
+            <Shortcut Id="UninstallShortcut"
+                      Name="mp3-archive 제거"
+                      Target="[SystemFolder]msiexec.exe"
+                      Arguments="/x [ProductCode]" />
+
+            <!-- Remove the Start Menu folder on uninstall -->
+            <RemoveFolder Id="RemoveAppStartMenuFolder"
+                          On="uninstall" />
+
+            <!-- Registry key required as KeyPath for this component -->
+            <RegistryValue Root="HKCU"
+                           Key="Software\musiren\mp3-archive"
+                           Name="StartMenuInstalled"
+                           Type="integer"
+                           Value="1"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+
+      <Directory Id="DesktopFolder" />
+
+    </Directory>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Features                                                             -->
+    <!-- ------------------------------------------------------------------ -->
+    <Feature Id="ProductFeature" Title="mp3-archive" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Installer UI (directory selection + progress)                       -->
+    <!-- ------------------------------------------------------------------ -->
+    <UIRef Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+    <!-- Skip the license agreement page (remove this line to re-enable) -->
+    <WixVariable Id="WixUILicenseRtf" Value="..\LICENSE.rtf" />
+
+  </Product>
+</Wix>

@@ -112,12 +112,34 @@ python src/main_window.py
 
 ## 빌드
 
-### Windows
+### Windows — EXE
 
 ```bash
 pyinstaller build/windows.spec
 # 결과물: dist/mp3-archive.exe
 ```
+
+### Windows — MSI (설치 패키지)
+
+[WiX Toolset v3](https://github.com/wixtoolset/wix3/releases)가 필요합니다.
+
+```bat
+:: 1. 먼저 EXE 빌드
+pyinstaller build\windows.spec
+
+:: 2. LICENSE.rtf 파일이 없으면 생성 (라이선스 화면 건너뜀)
+echo. > LICENSE.rtf
+
+:: 3. MSI 빌드 (프로젝트 루트에서 실행)
+candle build\installer.wxs -o build\installer.wixobj
+light  build\installer.wixobj -ext WixUIExtension -o dist\mp3-archive.msi
+```
+
+결과물: `dist/mp3-archive.msi`
+
+- `C:\Program Files\mp3-archive\` 에 설치
+- 시작 메뉴 및 바탕화면 바로가기 생성
+- 프로그램 추가/제거에 등록, 언인스톨러 포함
 
 ### Linux
 
