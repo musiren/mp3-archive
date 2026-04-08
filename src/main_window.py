@@ -298,7 +298,7 @@ QToolTip {
 _PLAYING_HIGHLIGHT = {
     "system": ("#1a6b3a", "#ffffff"),
     "light":  ("#1a6b3a", "#ffffff"),
-    "dark":   ("#2e7d52", "#ffffff"),
+    "dark":   ("#1976d2", "#ffffff"),   # bright blue — high contrast on dark bg
 }
 
 
@@ -840,7 +840,7 @@ class MainWindow(QMainWindow):
         Args:
             index: Row index of the track that is now playing.
         """
-        from PyQt6.QtGui import QBrush, QColor
+        from PyQt6.QtGui import QBrush, QColor, QFont
         theme = self._settings.value(_KEY_THEME, "system")
         bg_hex, fg_hex = _PLAYING_HIGHLIGHT.get(theme, ("#1a6b3a", "#ffffff"))
         playing_bg = QBrush(QColor(bg_hex))
@@ -848,14 +848,20 @@ class MainWindow(QMainWindow):
         # Empty QBrush lets the item inherit colour from the QSS stylesheet
         default_brush = QBrush()
 
+        bold_font = QFont()
+        bold_font.setBold(True)
+        default_font = QFont()
+
         for i in range(self.playlist_widget.count()):
             item = self.playlist_widget.item(i)
             if i == index:
                 item.setBackground(playing_bg)
                 item.setForeground(playing_fg)
+                item.setFont(bold_font)
             else:
                 item.setBackground(default_brush)
                 item.setForeground(default_brush)
+                item.setFont(default_font)
 
     def _play_path(self, path: str) -> None:
         """
