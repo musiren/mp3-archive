@@ -141,12 +141,37 @@ light  build\installer.wixobj -ext WixUIExtension -o dist\mp3-archive.msi
 - 시작 메뉴 및 바탕화면 바로가기 생성
 - 프로그램 추가/제거에 등록, 언인스톨러 포함
 
-### Linux
+### Linux — 단일 실행 파일
 
 ```bash
 pyinstaller build/linux.spec
 # 결과물: dist/mp3-archive
 ```
+
+### Linux — DEB 패키지
+
+`dpkg-deb`(Debian/Ubuntu 기본 포함)가 필요합니다.
+
+```bash
+# 버전 기본값 1.0.0
+bash build/package_deb.sh
+
+# 버전 지정
+bash build/package_deb.sh 1.2.0
+# 결과물: dist/mp3-archive_1.2.0_amd64.deb
+```
+
+```bash
+# 설치
+sudo dpkg -i dist/mp3-archive_1.0.0_amd64.deb
+
+# 제거
+sudo dpkg -r mp3-archive
+```
+
+- `/usr/lib/mp3-archive/mp3-archive` 에 설치
+- `/usr/bin/mp3-archive` 심볼릭 링크 생성 (PATH에서 바로 실행 가능)
+- 앱 런처(`.desktop`) 및 아이콘 등록
 
 ## 테스트
 
