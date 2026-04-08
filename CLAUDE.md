@@ -72,7 +72,9 @@ def load_mp3(file_path: str) -> dict:
 
 1. **Always ask the user before pushing. Never push without explicit user approval.** Only push when the user directly says so (e.g. "푸시해줘"). Never push automatically or implicitly as part of the workflow.
    - After committing, ask **once**: "푸시할까요?"
-   - When the stop hook fires about unpushed commits, do **not** ask again — just wait for the user's response.
+   - Only push when the user's message **explicitly** contains an approval word such as "ㅇㅇ", "푸시해줘", "push", or "yes".
+   - The stop hook firing (even with no user text) is **never** approval to push — do not push in response to it.
+   - If the stop hook fires without explicit user approval, simply wait for the user to respond.
 
 2. **When any UI file in `src/` changes, regenerate the corresponding preview image under `docs/` before committing.** Do not push UI changes without updating the preview image.
 
