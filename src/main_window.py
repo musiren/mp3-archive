@@ -27,7 +27,7 @@ import sys
 
 from mutagen import File as MutagenFile
 from PyQt6 import uic
-from PyQt6.QtCore import Qt, QSettings, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QSettings, QThread, QUrl, pyqtSignal
 
 try:
     from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -373,6 +373,7 @@ class MainWindow(QMainWindow):
         self._setup_table()
         self._setup_tree()
         self._setup_playlist()
+        self._setup_art_splitter()
         self._restore_path()
         self._restore_theme()
         self._load_table()
@@ -391,6 +392,7 @@ class MainWindow(QMainWindow):
         self._seeking = False  # guard to prevent slider feedback loop
         self._play_mode = "sequential"
         self._playing_index = -1  # index of the currently playing track
+        self._art_pixmap = None   # original (unscaled) album art pixmap
         if not _MULTIMEDIA_AVAILABLE:
             self._player = None
             self._audio_output = None
@@ -508,6 +510,49 @@ class MainWindow(QMainWindow):
         self.playlist_widget.viewport().installEventFilter(self)
         # Delete key removes selected item
         self.playlist_widget.installEventFilter(self)
+
+    def _setup_art_splitter(self) -> None:
+        """Restore saved art_splitter position and install resize event filter.
+
+        Saves and restores the splitter state via QSettings so the user's
+        chosen album-art height persists across sessions.  An event filter
+        on album_art_label re-renders the pixmap whenever the label is resized
+        by dragging the splitter handle.
+        """
+        state = self._settings.value("art_splitter/state")
+        if state:
+            self.art_splitter.restoreState(state)
+        else:
+            # Default: give roughly equal space to art panel and controls
+            self.art_splitter.setSizes([200, 200])
+        self.art_splitter.splitterMoved.connect(self._on_art_splitter_moved)
+        self.album_art_label.installEventFilter(self)
+
+    def _on_art_splitter_moved(self, _pos: int, _index: int) -> None:
+        """Persist the splitter position and re-render the album art.
+
+        Args:
+            _pos:   New position of the moved handle (unused).
+            _index: Index of the moved handle (unused).
+        """
+        self._settings.setValue("art_splitter/state", self.art_splitter.saveState())
+        self._rescale_album_art()
+
+    def _rescale_album_art(self) -> None:
+        """Re-render the current album art pixmap to fit the label's new size.
+
+        Always scales from self._art_pixmap (the full-resolution original) so
+        repeated resizes do not degrade image quality.  Does nothing when no
+        art is loaded.
+        """
+        if self._art_pixmap and not self._art_pixmap.isNull():
+            size = self.album_art_label.size()
+            scaled = self._art_pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.album_art_label.setPixmap(scaled)
 
     def _setup_tree(self) -> None:
         """Configure the tree widget for path-based file browsing.
@@ -734,6 +779,11 @@ class MainWindow(QMainWindow):
                     self._playlist_add(path)
                 event.acceptProposedAction()
                 return True
+
+        # Re-render album art when the label is resized by the splitter
+        if obj is self.album_art_label and event.type() == QEvent.Type.Resize:
+            self._rescale_album_art()
+
         return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
@@ -827,8 +877,10 @@ class MainWindow(QMainWindow):
         """
         Load and display the embedded album art for the given file.
 
-        Scales the image to fit within the album_art_label while keeping
-        the aspect ratio.  Clears the label when no art is found.
+        Stores the original pixmap in self._art_pixmap so that subsequent
+        splitter resize events can re-scale from the full-resolution source
+        without accumulating quality loss.  Clears the label when no art
+        is found.
 
         Args:
             path: Absolute path to the audio file.
@@ -838,6 +890,7 @@ class MainWindow(QMainWindow):
         if art_bytes:
             pixmap = QPixmap()
             pixmap.loadFromData(art_bytes)
+            self._art_pixmap = pixmap
             size = self.album_art_label.size()
             scaled = pixmap.scaled(
                 size,
@@ -846,6 +899,7 @@ class MainWindow(QMainWindow):
             )
             self.album_art_label.setPixmap(scaled)
         else:
+            self._art_pixmap = None
             self.album_art_label.clear()
             self.album_art_label.setText("♪")
 
@@ -876,6 +930,7 @@ class MainWindow(QMainWindow):
             self._player.stop()
         self._playing_index = -1
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
+        self._art_pixmap = None
         self.album_art_label.clear()
         self.album_art_label.setText("♪")
 
