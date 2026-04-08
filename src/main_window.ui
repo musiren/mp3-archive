@@ -418,19 +418,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QListWidget" name="playlist_widget">
-          <property name="toolTip">
-           <string>MP3 목록에서 파일을 드래그해서 재생 목록에 추가하세요&#10;더블클릭하면 재생합니다</string>
-          </property>
-          <property name="dragDropMode">
-           <enum>QAbstractItemView::DropOnly</enum>
-          </property>
-          <property name="selectionMode">
-           <enum>QAbstractItemView::ExtendedSelection</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
+         <!-- Splitter: playlist (top, resizable) | player area (bottom, fixed controls) -->
          <widget class="QSplitter" name="art_splitter">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
@@ -438,9 +426,21 @@
           <property name="childrenCollapsible">
            <bool>false</bool>
           </property>
-          <!-- Top pane: title + album art -->
-          <widget class="QWidget" name="art_panel">
-           <layout class="QVBoxLayout" name="artPanelLayout">
+          <!-- Top pane: playlist list -->
+          <widget class="QListWidget" name="playlist_widget">
+           <property name="toolTip">
+            <string>MP3 목록에서 파일을 드래그해서 재생 목록에 추가하세요&#10;더블클릭하면 재생합니다</string>
+           </property>
+           <property name="dragDropMode">
+            <enum>QAbstractItemView::DropOnly</enum>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+          </widget>
+          <!-- Bottom pane: title + album art (expands) + fixed controls -->
+          <widget class="QWidget" name="player_area">
+           <layout class="QVBoxLayout" name="playerAreaLayout">
             <property name="spacing"><number>4</number></property>
             <property name="leftMargin"><number>0</number></property>
             <property name="topMargin"><number>2</number></property>
@@ -448,15 +448,9 @@
             <property name="bottomMargin"><number>2</number></property>
             <item>
              <widget class="QLabel" name="player_title_label">
-              <property name="text">
-               <string>-</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
+              <property name="text"><string>-</string></property>
+              <property name="alignment"><set>Qt::AlignCenter</set></property>
+              <property name="wordWrap"><bool>true</bool></property>
              </widget>
             </item>
             <item>
@@ -464,76 +458,47 @@
               <property name="toolTip">
                <string>현재 재생 중인 곡의 앨범 아트 (스플리터 핸들로 크기 조절)</string>
               </property>
-              <property name="text">
-               <string>♪</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
+              <property name="text"><string>♪</string></property>
+              <property name="alignment"><set>Qt::AlignCenter</set></property>
               <property name="minimumSize">
-               <size>
-                <width>0</width>
-                <height>40</height>
-               </size>
+               <size><width>0</width><height>40</height></size>
               </property>
-              <property name="scaledContents">
-               <bool>false</bool>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+                <horstretch>0</horstretch>
+                <verstretch>1</verstretch>
+               </sizepolicy>
               </property>
+              <property name="scaledContents"><bool>false</bool></property>
              </widget>
             </item>
-           </layout>
-          </widget>
-          <!-- Bottom pane: player controls -->
-          <widget class="QWidget" name="controls_panel">
-           <layout class="QVBoxLayout" name="controlsPanelLayout">
-            <property name="spacing"><number>4</number></property>
-            <property name="leftMargin"><number>0</number></property>
-            <property name="topMargin"><number>2</number></property>
-            <property name="rightMargin"><number>0</number></property>
-            <property name="bottomMargin"><number>2</number></property>
+            <!-- Fixed-height player controls below album art -->
             <item>
              <widget class="QSlider" name="seek_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-              <property name="minimum">
-               <number>0</number>
-              </property>
-              <property name="maximum">
-               <number>1000</number>
-              </property>
-              <property name="value">
-               <number>0</number>
-              </property>
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+              <property name="minimum"><number>0</number></property>
+              <property name="maximum"><number>1000</number></property>
+              <property name="value"><number>0</number></property>
              </widget>
             </item>
             <item>
              <layout class="QHBoxLayout" name="timeLayout">
               <item>
                <widget class="QLabel" name="time_current_label">
-                <property name="text">
-                 <string>0:00</string>
-                </property>
+                <property name="text"><string>0:00</string></property>
                </widget>
               </item>
               <item>
                <spacer name="timeSpacer">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
                 <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
+                 <size><width>40</width><height>20</height></size>
                 </property>
                </spacer>
               </item>
               <item>
                <widget class="QLabel" name="time_total_label">
-                <property name="text">
-                 <string>0:00</string>
-                </property>
+                <property name="text"><string>0:00</string></property>
                </widget>
               </item>
              </layout>
