@@ -720,7 +720,7 @@ class MainWindow(QMainWindow):
         if obj is self.table.viewport() and event.type() == QEvent.Type.ToolTip:
             pos = event.pos()
             index = self.table.indexAt(pos)
-            if index.isValid() and index.column() in (0, 4):
+            if index.isValid() and index.column() == 4:
                 item = self.table.item(index.row(), index.column())
                 if item and not item.toolTip():
                     path = item.data(Qt.ItemDataRole.UserRole)
@@ -1534,7 +1534,7 @@ class MainWindow(QMainWindow):
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
-            # Tooltip is populated lazily on hover via _on_table_tooltip
+            filename_item.setToolTip(f["path"])
 
             path_item = QTableWidgetItem(f["path"])
             path_item.setToolTip(f["path"])
