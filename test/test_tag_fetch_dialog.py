@@ -133,6 +133,14 @@ class TestTagFetchDialogFiltering(unittest.TestCase):
         dlg = _make_dialog(files)
         self.assertEqual(len(dlg._files), 0)
 
+    def test_force_includes_files_with_both_tags(self):
+        """force=True bypasses the filter and includes all files."""
+        files = [_file(title="T", artist="A")]
+        manager = MagicMock()
+        with patch.object(TagFetchDialog, "_load_current"):
+            dlg = TagFetchDialog(manager, files, force=True)
+        self.assertEqual(len(dlg._files), 1)
+
     def test_empty_queue_disables_buttons(self):
         """When no files need tagging, apply and skip buttons are disabled."""
         manager = MagicMock()

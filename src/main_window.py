@@ -1417,7 +1417,7 @@ class MainWindow(QMainWindow):
             dlg.exec()
             self._load_table()
         elif action == action_tag:
-            dlg = TagFetchDialog(self._manager, [file_info], parent=self)
+            dlg = TagFetchDialog(self._manager, [file_info], parent=self, force=True)
             dlg.exec()
             self._load_table()
 

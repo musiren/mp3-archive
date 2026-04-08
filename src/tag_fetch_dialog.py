@@ -105,21 +105,25 @@ class TagFetchDialog(QDialog):
       4. On 적용, writes the chosen tags to both the file and the DB.
     """
 
-    def __init__(self, manager, files: list[dict], parent=None) -> None:
+    def __init__(self, manager, files: list[dict], parent=None,
+                 force: bool = False) -> None:
         """
         Args:
             manager: Mp3Manager instance used to write tag updates.
             files:   List of row dicts as returned by Mp3Manager.list_files()
-                     or Mp3Manager.search().  Only files missing title or
-                     artist are queued.
+                     or Mp3Manager.search().
             parent:  Optional parent widget.
+            force:   When True, include all files regardless of whether they
+                     already have title and artist tags.  Use this when the
+                     user explicitly requests a tag search for a specific file
+                     from the context menu.
         """
         super().__init__(parent)
         self.setWindowTitle("태그 자동 완성")
         self.resize(780, 480)
 
         self._manager = manager
-        self._files = [
+        self._files = list(files) if force else [
             f for f in files
             if not f.get("title") or not f.get("artist")
         ]
