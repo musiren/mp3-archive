@@ -1096,10 +1096,10 @@ class MainWindow(QMainWindow):
         Updates the button label to reflect the active mode.
         """
         _modes = [
-            ("sequential",  "➡ 전체재생"),
-            ("repeat_one",  "🔂 한곡반복"),
-            ("repeat_all",  "🔁 전체반복"),
-            ("shuffle",     "🔀 랜덤"),
+            ("sequential",  "➡"),
+            ("repeat_one",  "🔂"),
+            ("repeat_all",  "🔁"),
+            ("shuffle",     "🔀"),
         ]
         keys = [m[0] for m in _modes]
         idx = (keys.index(self._play_mode) + 1) % len(_modes)

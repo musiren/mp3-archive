@@ -939,10 +939,10 @@ class TestPlayMode(unittest.TestCase):
         """Verify that the button label matches the active mode."""
         win = self._make_window()
         labels = {
-            "repeat_one": "🔂 한곡반복",
-            "repeat_all": "🔁 전체반복",
-            "shuffle":    "🔀 랜덤",
-            "sequential": "➡ 전체재생",
+            "repeat_one": "🔂",
+            "repeat_all": "🔁",
+            "shuffle":    "🔀",
+            "sequential": "➡",
         }
         for _ in range(4):
             win.btn_play_mode.click()
