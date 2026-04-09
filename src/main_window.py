@@ -20,7 +20,6 @@ Usage:
     python src/main_window.py [--db <db_path>]
 """
 
-import argparse
 import base64
 import os
 import sys
@@ -137,6 +136,8 @@ _SETTINGS_ORG  = "mp3-archive"
 _SETTINGS_APP  = "MP3ArchiveManager"
 _KEY_LAST_PATH = "scan/last_path"
 _KEY_THEME     = "ui/theme"
+# DB file created inside the chosen music directory.
+_DB_FILENAME   = ".mp3-archive.db"
 
 # Stylesheet for light theme (explicit white-based palette)
 _QSS_LIGHT = """
@@ -348,12 +349,15 @@ class MainWindow(QMainWindow):
     from the MP3 table and double-click to play them via QMediaPlayer.
     """
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str = ":memory:") -> None:
         """
         Load the UI file, restore saved path, connect signals, and open the database.
 
         Args:
-            db_path: Path to the SQLite database file.
+            db_path: SQLite database path.  Defaults to an in-memory DB;
+                     _restore_path() will switch to the real DB found in the
+                     last-used music directory.  Pass an explicit path only
+                     in tests.
         """
         super().__init__()
         uic.loadUi(_UI_FILE, self)
@@ -565,10 +569,40 @@ class MainWindow(QMainWindow):
         self.tree_widget.setDragEnabled(False)
         self.tree_widget.viewport().installEventFilter(self)
 
+    def _switch_directory(self, directory: str) -> None:
+        """
+        Switch the application to a new music directory.
+
+        Closes the current database, opens (or creates) a new one at
+        <directory>/.mp3-archive.db, refreshes the file table, and starts
+        an incremental scan so newly added or changed files are picked up.
+
+        Args:
+            directory: Absolute path to the music directory to switch to.
+        """
+        self._manager.close()
+        db_path = os.path.join(directory, _DB_FILENAME)
+        self._manager = Mp3Manager(db_path)
+        self.path_edit.setText(directory)
+        self._settings.setValue(_KEY_LAST_PATH, directory)
+        self._load_table()
+        self._start_scan(force=False)
+
     def _restore_path(self) -> None:
-        """Load the last-used directory path from QSettings and display it."""
+        """
+        Load the last-used directory from QSettings.
+
+        If the directory still exists on disk, switch to it (opens its DB
+        and starts a scan).  If it has been deleted or moved, just display
+        the stale path without attempting to open the DB.
+        """
         saved = self._settings.value(_KEY_LAST_PATH, "")
-        if saved:
+        if not saved:
+            return
+        if os.path.isdir(saved):
+            self._switch_directory(saved)
+        else:
+            # Directory gone; show the path but don't crash or scan.
             self.path_edit.setText(saved)
 
     def _restore_theme(self) -> None:
@@ -1288,9 +1322,11 @@ class MainWindow(QMainWindow):
 
     def _on_browse_clicked(self) -> None:
         """
-        Open the system file explorer to select a directory.
+        Open the system file explorer to select a music directory.
 
-        The chosen path is saved to QSettings and shown in path_edit.
+        Switches the application to the chosen directory: opens or creates
+        .mp3-archive.db inside it, refreshes the file table, and runs a
+        quick incremental scan.
         """
         start_dir = self.path_edit.text() or os.path.expanduser("~")
         directory = QFileDialog.getExistingDirectory(
@@ -1298,8 +1334,7 @@ class MainWindow(QMainWindow):
         )
         if not directory:
             return
-        self.path_edit.setText(directory)
-        self._settings.setValue(_KEY_LAST_PATH, directory)
+        self._switch_directory(directory)
 
     def _on_scan_clicked(self) -> None:
         """Start an incremental scan: only new or modified files are processed."""
@@ -1792,13 +1827,9 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
-    """Parse CLI arguments, create the application, and start the event loop."""
-    parser = argparse.ArgumentParser(description="MP3 Archive Manager UI")
-    parser.add_argument("--db", default="mp3_archive.db", help="SQLite database file path")
-    args = parser.parse_args()
-
+    """Create the application and start the event loop."""
     app = QApplication(sys.argv)
-    window = MainWindow(args.db)
+    window = MainWindow()
     window.show()
     sys.exit(app.exec())
 
