@@ -423,6 +423,7 @@ class MainWindow(QMainWindow):
         """
         _player_btns = [
             self.btn_prev, self.btn_play_pause, self.btn_stop, self.btn_next,
+            self.btn_play_mode,
         ]
         _max_h = max(b.sizeHint().height() for b in _player_btns)
         for _b in _player_btns:
