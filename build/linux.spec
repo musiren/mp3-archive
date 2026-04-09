@@ -79,7 +79,7 @@ exe = EXE(
 
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,            # Strip debug symbols to reduce binary size
+    strip=False,           # Do NOT strip: stripping can corrupt PyInstaller's embedded archive
     upx=True,              # Compress with UPX if available
     upx_exclude=[],
     runtime_tmpdir=None,

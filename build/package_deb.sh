@@ -50,10 +50,16 @@ rm -rf "$STAGING"
 install -Dm755 "$ROOT/dist/mp3-archive" \
                "$STAGING/usr/lib/mp3-archive/mp3-archive"
 
-# /usr/bin/mp3-archive    — symlink so users can run it from PATH
+# /usr/bin/mp3-archive    — wrapper script (NOT a symlink)
+# PyInstaller onefile binaries can misbehave when launched via symlink
+# because the bootloader uses argv[0] to locate its embedded archive.
+# A wrapper script that exec's the real binary avoids this problem.
 install -d "$STAGING/usr/bin"
-ln -sf /usr/lib/mp3-archive/mp3-archive \
-       "$STAGING/usr/bin/mp3-archive"
+cat > "$STAGING/usr/bin/mp3-archive" << 'WRAPPER'
+#!/bin/sh
+exec /usr/lib/mp3-archive/mp3-archive "$@"
+WRAPPER
+chmod 755 "$STAGING/usr/bin/mp3-archive"
 
 # /usr/share/applications/ — .desktop entry for the app launcher
 install -Dm644 "$SCRIPT_DIR/deb/mp3-archive.desktop" \
