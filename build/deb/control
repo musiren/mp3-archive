@@ -1,0 +1,15 @@
+Package: mp3-archive
+Version: 1.0.0
+Section: sound
+Priority: optional
+Architecture: amd64
+Depends: libc6 (>= 2.17)
+Maintainer: musiren
+Homepage: https://github.com/musiren/mp3-archive
+Description: MP3 Archive Manager
+ Audio file metadata manager that recursively scans directories,
+ stores metadata in a SQLite database, and provides a PyQt6 GUI
+ for searching, tagging, and playing your music library.
+ .
+ Supports MP3, FLAC, OGG, WAV, M4A, WMA, and Opus formats.
+ Tag lookup via MusicBrainz and iTunes Search API.

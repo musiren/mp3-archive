@@ -1,11 +1,49 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260409 (2026-04-09)
+===========================================================================
+
+New features
+------------
+- DB per directory: SQLite database is now stored inside the selected music
+  directory as `.mp3-archive.db`; switching directories automatically opens
+  (or creates) the corresponding DB and runs an incremental scan
+- Album art tooltip: hovering over the album column shows the embedded album
+  art of that track as a tooltip image
+- Tag fetch — force mode: right-clicking a row and choosing "태그 찾기" now
+  opens the tag-fetch dialog even for files that already have both title and
+  artist tags
+- Tag fetch — auto-retry: when a search returns no results the dialog
+  automatically retries using the bare filename as the keyword before giving up
+- Tag fetch — no-results popup: if both the initial search and the filename
+  retry return no results a notification popup is shown to the user
+- Playing-row highlight (dark theme): current track is now highlighted with a
+  bright blue background and bold text so it is clearly visible in dark mode
+- Windows MSI installer: `build/build_msi.ps1` + `build/installer.wxs` produce
+  a signed-ready MSI via WiX Toolset v3; version is read from NEWS automatically
+- Linux DEB package: `build/package_deb.sh` produces a dpkg-installable
+  `.deb` file; version is read from NEWS automatically
+
+Bug fixes / improvements
+------------------------
+- DEB runtime crash: switched PyInstaller Linux build to onedir mode with
+  `noarchive=True` and `upx=False` to prevent `pyimod02_importers` /
+  `ipaddress` import errors in the installed package
+- Removed album art tooltip from the filename column (was confusing)
+- requirements.txt: removed unused Pillow dependency; marked pyinstaller as
+  build-only comment
+
+===========================================================================
 v20260407 (2026-04-07)
 ===========================================================================
 
 New features
 ------------
+- iTunes Search: tag-fetch dialog now supports iTunes Search API as an
+  alternative source; source selector lets users choose MusicBrainz,
+  iTunes, or both simultaneously; iTunes results show a "출처" (source)
+  column; default source switched to iTunes for better Korean music coverage
 - Album art panel: dedicated panel in the player area shows the embedded
   album art of the currently playing track; displays a '♪' placeholder
   when no art is embedded

@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -78,13 +79,43 @@ class TestMainWindowPath(unittest.TestCase):
         win.close()
 
     def test_browse_saves_path_to_settings(self):
-        """Verify that selecting a directory via browse saves it to QSettings."""
+        """Verify that _switch_directory saves the chosen path to QSettings."""
         win = self._make_window()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            win.path_edit.setText(tmpdir)
-            win._settings.setValue("scan/last_path", tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch.object(win, "_start_scan"):
+            win._switch_directory(tmpdir)
             saved = win._settings.value("scan/last_path", "")
         self.assertEqual(saved, tmpdir)
+        win.close()
+
+    def test_switch_directory_opens_db_in_directory(self):
+        """_switch_directory creates .mp3-archive.db inside the target directory."""
+        win = self._make_window()
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch.object(win, "_start_scan"):
+            win._switch_directory(tmpdir)
+            db_path = os.path.join(tmpdir, ".mp3-archive.db")
+            self.assertTrue(os.path.exists(db_path))
+        win.close()
+
+    def test_switch_directory_sets_path_edit(self):
+        """_switch_directory updates path_edit to the new directory."""
+        win = self._make_window()
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch.object(win, "_start_scan"):
+            win._switch_directory(tmpdir)
+            self.assertEqual(win.path_edit.text(), tmpdir)
+        win.close()
+
+    def test_restore_path_calls_switch_when_dir_exists(self):
+        """_restore_path calls _switch_directory when the saved path is a real directory."""
+        win = self._make_window()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win._settings.setValue("scan/last_path", tmpdir)
+            with patch.object(win, "_switch_directory") as mock_switch, \
+                 patch.object(win, "_start_scan"):
+                win._restore_path()
+            mock_switch.assert_called_once_with(tmpdir)
         win.close()
 
     def test_scan_warns_when_no_path_set(self):

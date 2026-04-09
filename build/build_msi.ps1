@@ -1,0 +1,64 @@
+# build/build_msi.ps1
+#
+# Build the Windows MSI installer for mp3-archive.
+# Reads the version from NEWS and converts vYYYYMMDD -> YYYY.M.D.0 for WiX.
+#
+# Usage (run from project root):
+#   powershell -ExecutionPolicy Bypass -File build\build_msi.ps1
+#
+# Requirements:
+#   - pyinstaller  (pip install pyinstaller)
+#   - WiX Toolset v3  https://github.com/wixtoolset/wix3/releases
+#     candle.exe and light.exe must be on PATH (or in C:\Program Files (x86)\WiX Toolset v3.x\bin\)
+#
+# Output:
+#   dist\mp3-archive.msi
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$Root = Split-Path -Parent $PSScriptRoot
+
+# ---------------------------------------------------------------------------
+# Parse version from NEWS
+# ---------------------------------------------------------------------------
+$newsPath = Join-Path $Root "NEWS"
+$match = Select-String -Path $newsPath -Pattern "^v(\d{8})" | Select-Object -First 1
+if (-not $match) {
+    Write-Error "Could not parse version from NEWS"
+    exit 1
+}
+$raw = $match.Matches[0].Groups[1].Value   # e.g. "20260407"
+$year  = $raw.Substring(0, 4)              # "2026"
+$month = [int]$raw.Substring(4, 2)        # 4
+$day   = [int]$raw.Substring(6, 2)        # 7
+$WixVersion = "$year.$month.$day.0"        # "2026.4.7.0"
+
+Write-Host "==> Version from NEWS: $raw  ->  WiX: $WixVersion"
+
+# ---------------------------------------------------------------------------
+# Step 1: Build EXE with PyInstaller
+# ---------------------------------------------------------------------------
+Write-Host "==> Building EXE with PyInstaller..."
+Push-Location $Root
+python.exe -m PyInstaller build\windows.spec
+Pop-Location
+
+# ---------------------------------------------------------------------------
+# Step 2: Compile WiX source
+# ---------------------------------------------------------------------------
+Write-Host "==> Running candle..."
+$wxsFile  = Join-Path $Root "build\installer.wxs"
+$wixObj   = Join-Path $Root "build\installer.wixobj"
+candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
+
+# ---------------------------------------------------------------------------
+# Step 3: Link into MSI
+# ---------------------------------------------------------------------------
+Write-Host "==> Running light..."
+$msiOut = Join-Path $Root "dist\mp3-archive.msi"
+New-Item -ItemType Directory -Force -Path (Join-Path $Root "dist") | Out-Null
+light $wixObj -ext WixUIExtension -o $msiOut
+
+Write-Host ""
+Write-Host "Done: $msiOut"

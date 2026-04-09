@@ -20,14 +20,13 @@ Usage:
     python src/main_window.py [--db <db_path>]
 """
 
-import argparse
 import base64
 import os
 import sys
 
 from mutagen import File as MutagenFile
 from PyQt6 import uic
-from PyQt6.QtCore import Qt, QSettings, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QSettings, QThread, QUrl, pyqtSignal
 
 try:
     from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -137,6 +136,8 @@ _SETTINGS_ORG  = "mp3-archive"
 _SETTINGS_APP  = "MP3ArchiveManager"
 _KEY_LAST_PATH = "scan/last_path"
 _KEY_THEME     = "ui/theme"
+# DB file created inside the chosen music directory.
+_DB_FILENAME   = ".mp3-archive.db"
 
 # Stylesheet for light theme (explicit white-based palette)
 _QSS_LIGHT = """
@@ -298,7 +299,7 @@ QToolTip {
 _PLAYING_HIGHLIGHT = {
     "system": ("#1a6b3a", "#ffffff"),
     "light":  ("#1a6b3a", "#ffffff"),
-    "dark":   ("#2e7d52", "#ffffff"),
+    "dark":   ("#1976d2", "#ffffff"),   # bright blue — high contrast on dark bg
 }
 
 
@@ -348,12 +349,15 @@ class MainWindow(QMainWindow):
     from the MP3 table and double-click to play them via QMediaPlayer.
     """
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str = ":memory:") -> None:
         """
         Load the UI file, restore saved path, connect signals, and open the database.
 
         Args:
-            db_path: Path to the SQLite database file.
+            db_path: SQLite database path.  Defaults to an in-memory DB;
+                     _restore_path() will switch to the real DB found in the
+                     last-used music directory.  Pass an explicit path only
+                     in tests.
         """
         super().__init__()
         uic.loadUi(_UI_FILE, self)
@@ -373,6 +377,7 @@ class MainWindow(QMainWindow):
         self._setup_table()
         self._setup_tree()
         self._setup_playlist()
+        self._setup_art_splitter()
         self._restore_path()
         self._restore_theme()
         self._load_table()
@@ -391,6 +396,7 @@ class MainWindow(QMainWindow):
         self._seeking = False  # guard to prevent slider feedback loop
         self._play_mode = "sequential"
         self._playing_index = -1  # index of the currently playing track
+        self._art_pixmap = None   # original (unscaled) album art pixmap
         if not _MULTIMEDIA_AVAILABLE:
             self._player = None
             self._audio_output = None
@@ -509,6 +515,49 @@ class MainWindow(QMainWindow):
         # Delete key removes selected item
         self.playlist_widget.installEventFilter(self)
 
+    def _setup_art_splitter(self) -> None:
+        """Restore saved art_splitter position and install resize event filter.
+
+        Saves and restores the splitter state via QSettings so the user's
+        chosen album-art height persists across sessions.  An event filter
+        on album_art_label re-renders the pixmap whenever the label is resized
+        by dragging the splitter handle.
+        """
+        state = self._settings.value("art_splitter/state")
+        if state:
+            self.art_splitter.restoreState(state)
+        else:
+            # Default: give roughly equal space to art panel and controls
+            self.art_splitter.setSizes([200, 200])
+        self.art_splitter.splitterMoved.connect(self._on_art_splitter_moved)
+        self.album_art_label.installEventFilter(self)
+
+    def _on_art_splitter_moved(self, _pos: int, _index: int) -> None:
+        """Persist the splitter position and re-render the album art.
+
+        Args:
+            _pos:   New position of the moved handle (unused).
+            _index: Index of the moved handle (unused).
+        """
+        self._settings.setValue("art_splitter/state", self.art_splitter.saveState())
+        self._rescale_album_art()
+
+    def _rescale_album_art(self) -> None:
+        """Re-render the current album art pixmap to fit the label's new size.
+
+        Always scales from self._art_pixmap (the full-resolution original) so
+        repeated resizes do not degrade image quality.  Does nothing when no
+        art is loaded.
+        """
+        if self._art_pixmap and not self._art_pixmap.isNull():
+            size = self.album_art_label.size()
+            scaled = self._art_pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.album_art_label.setPixmap(scaled)
+
     def _setup_tree(self) -> None:
         """Configure the tree widget for path-based file browsing.
 
@@ -520,10 +569,40 @@ class MainWindow(QMainWindow):
         self.tree_widget.setDragEnabled(False)
         self.tree_widget.viewport().installEventFilter(self)
 
+    def _switch_directory(self, directory: str) -> None:
+        """
+        Switch the application to a new music directory.
+
+        Closes the current database, opens (or creates) a new one at
+        <directory>/.mp3-archive.db, refreshes the file table, and starts
+        an incremental scan so newly added or changed files are picked up.
+
+        Args:
+            directory: Absolute path to the music directory to switch to.
+        """
+        self._manager.close()
+        db_path = os.path.join(directory, _DB_FILENAME)
+        self._manager = Mp3Manager(db_path)
+        self.path_edit.setText(directory)
+        self._settings.setValue(_KEY_LAST_PATH, directory)
+        self._load_table()
+        self._start_scan(force=False)
+
     def _restore_path(self) -> None:
-        """Load the last-used directory path from QSettings and display it."""
+        """
+        Load the last-used directory from QSettings.
+
+        If the directory still exists on disk, switch to it (opens its DB
+        and starts a scan).  If it has been deleted or moved, just display
+        the stale path without attempting to open the DB.
+        """
         saved = self._settings.value(_KEY_LAST_PATH, "")
-        if saved:
+        if not saved:
+            return
+        if os.path.isdir(saved):
+            self._switch_directory(saved)
+        else:
+            # Directory gone; show the path but don't crash or scan.
             self.path_edit.setText(saved)
 
     def _restore_theme(self) -> None:
@@ -671,15 +750,16 @@ class MainWindow(QMainWindow):
                         self._playing_index -= 1
                 return True
 
-        # Lazy album-art tooltip for the MP3 table
+        # Lazy album-art tooltip for the MP3 table (filename col 0 and album col 4)
         if obj is self.table.viewport() and event.type() == QEvent.Type.ToolTip:
             pos = event.pos()
             index = self.table.indexAt(pos)
-            if index.isValid() and index.column() == 0:
-                item = self.table.item(index.row(), 0)
+            if index.isValid() and index.column() == 4:
+                item = self.table.item(index.row(), index.column())
                 if item and not item.toolTip():
                     path = item.data(Qt.ItemDataRole.UserRole)
-                    item.setToolTip(_album_art_tooltip(path))
+                    if path:
+                        item.setToolTip(_album_art_tooltip(path))
             return False  # let Qt show the tooltip normally
 
         # --- Tree viewport: drag file items to playlist ---
@@ -734,6 +814,11 @@ class MainWindow(QMainWindow):
                     self._playlist_add(path)
                 event.acceptProposedAction()
                 return True
+
+        # Re-render album art when the label is resized by the splitter
+        if obj is self.album_art_label and event.type() == QEvent.Type.Resize:
+            self._rescale_album_art()
+
         return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
@@ -789,7 +874,7 @@ class MainWindow(QMainWindow):
         Args:
             index: Row index of the track that is now playing.
         """
-        from PyQt6.QtGui import QBrush, QColor
+        from PyQt6.QtGui import QBrush, QColor, QFont
         theme = self._settings.value(_KEY_THEME, "system")
         bg_hex, fg_hex = _PLAYING_HIGHLIGHT.get(theme, ("#1a6b3a", "#ffffff"))
         playing_bg = QBrush(QColor(bg_hex))
@@ -797,14 +882,20 @@ class MainWindow(QMainWindow):
         # Empty QBrush lets the item inherit colour from the QSS stylesheet
         default_brush = QBrush()
 
+        bold_font = QFont()
+        bold_font.setBold(True)
+        default_font = QFont()
+
         for i in range(self.playlist_widget.count()):
             item = self.playlist_widget.item(i)
             if i == index:
                 item.setBackground(playing_bg)
                 item.setForeground(playing_fg)
+                item.setFont(bold_font)
             else:
                 item.setBackground(default_brush)
                 item.setForeground(default_brush)
+                item.setFont(default_font)
 
     def _play_path(self, path: str) -> None:
         """
@@ -827,8 +918,10 @@ class MainWindow(QMainWindow):
         """
         Load and display the embedded album art for the given file.
 
-        Scales the image to fit within the album_art_label while keeping
-        the aspect ratio.  Clears the label when no art is found.
+        Stores the original pixmap in self._art_pixmap so that subsequent
+        splitter resize events can re-scale from the full-resolution source
+        without accumulating quality loss.  Clears the label when no art
+        is found.
 
         Args:
             path: Absolute path to the audio file.
@@ -838,6 +931,7 @@ class MainWindow(QMainWindow):
         if art_bytes:
             pixmap = QPixmap()
             pixmap.loadFromData(art_bytes)
+            self._art_pixmap = pixmap
             size = self.album_art_label.size()
             scaled = pixmap.scaled(
                 size,
@@ -846,6 +940,7 @@ class MainWindow(QMainWindow):
             )
             self.album_art_label.setPixmap(scaled)
         else:
+            self._art_pixmap = None
             self.album_art_label.clear()
             self.album_art_label.setText("♪")
 
@@ -876,6 +971,7 @@ class MainWindow(QMainWindow):
             self._player.stop()
         self._playing_index = -1
         self._highlight_playing_row(-1)  # -1 → no row matches, all reset
+        self._art_pixmap = None
         self.album_art_label.clear()
         self.album_art_label.setText("♪")
 
@@ -1226,9 +1322,11 @@ class MainWindow(QMainWindow):
 
     def _on_browse_clicked(self) -> None:
         """
-        Open the system file explorer to select a directory.
+        Open the system file explorer to select a music directory.
 
-        The chosen path is saved to QSettings and shown in path_edit.
+        Switches the application to the chosen directory: opens or creates
+        .mp3-archive.db inside it, refreshes the file table, and runs a
+        quick incremental scan.
         """
         start_dir = self.path_edit.text() or os.path.expanduser("~")
         directory = QFileDialog.getExistingDirectory(
@@ -1236,8 +1334,7 @@ class MainWindow(QMainWindow):
         )
         if not directory:
             return
-        self.path_edit.setText(directory)
-        self._settings.setValue(_KEY_LAST_PATH, directory)
+        self._switch_directory(directory)
 
     def _on_scan_clicked(self) -> None:
         """Start an incremental scan: only new or modified files are processed."""
@@ -1362,7 +1459,7 @@ class MainWindow(QMainWindow):
             dlg.exec()
             self._load_table()
         elif action == action_tag:
-            dlg = TagFetchDialog(self._manager, [file_info], parent=self)
+            dlg = TagFetchDialog(self._manager, [file_info], parent=self, force=True)
             dlg.exec()
             self._load_table()
 
@@ -1478,7 +1575,7 @@ class MainWindow(QMainWindow):
         for row, f in enumerate(files):
             filename_item = QTableWidgetItem(f["filename"])
             filename_item.setData(Qt.ItemDataRole.UserRole, f["path"])
-            # Tooltip is populated lazily on hover via _on_table_tooltip
+            filename_item.setToolTip(f["path"])
 
             path_item = QTableWidgetItem(f["path"])
             path_item.setToolTip(f["path"])
@@ -1496,7 +1593,9 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 1, path_item)
             self.table.setItem(row, 2, _item(f["artist"] or "-"))
             self.table.setItem(row, 3, _item(f["title"] or "-"))
-            self.table.setItem(row, 4, _item(f["album"] or "-"))
+            album_item = QTableWidgetItem(f["album"] or "-")
+            album_item.setData(Qt.ItemDataRole.UserRole, f["path"])
+            self.table.setItem(row, 4, album_item)
             self.table.setItem(row, 5, _item(f.get("genre") or "-"))
             self.table.setItem(row, 6, _item(f.get("year") or "-"))
             self.table.setItem(row, 7, _item(duration))
@@ -1728,13 +1827,9 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
-    """Parse CLI arguments, create the application, and start the event loop."""
-    parser = argparse.ArgumentParser(description="MP3 Archive Manager UI")
-    parser.add_argument("--db", default="mp3_archive.db", help="SQLite database file path")
-    args = parser.parse_args()
-
+    """Create the application and start the event loop."""
     app = QApplication(sys.argv)
-    window = MainWindow(args.db)
+    window = MainWindow()
     window.show()
     sys.exit(app.exec())
 
