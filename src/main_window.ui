@@ -529,15 +529,15 @@
                 <property name="toolTip"><string>다음 곡</string></property>
                </widget>
               </item>
+              <item>
+               <widget class="QPushButton" name="btn_play_mode">
+                <property name="text"><string>➡ 전체재생</string></property>
+                <property name="toolTip">
+                 <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
+                </property>
+               </widget>
+              </item>
              </layout>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btn_play_mode">
-              <property name="text"><string>➡ 전체재생</string></property>
-              <property name="toolTip">
-               <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
-              </property>
-             </widget>
             </item>
             <item>
              <layout class="QHBoxLayout" name="volumeLayout">
@@ -571,6 +571,12 @@
              <layout class="QHBoxLayout" name="playlistFileLayout">
               <item>
                <widget class="QPushButton" name="btn_playlist_save">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>저장</string></property>
                 <property name="toolTip">
                  <string>현재 재생 목록을 .list 파일로 저장합니다</string>
@@ -579,19 +585,31 @@
               </item>
               <item>
                <widget class="QPushButton" name="btn_playlist_load">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>불러오기</string></property>
                 <property name="toolTip">
                  <string>.list 파일에서 재생 목록을 불러옵니다</string>
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QPushButton" name="btn_playlist_clear">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>2</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="text"><string>목록 비우기</string></property>
+                <property name="toolTip"><string>재생 목록을 모두 지웁니다</string></property>
+               </widget>
+              </item>
              </layout>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btn_playlist_clear">
-              <property name="text"><string>목록 비우기</string></property>
-              <property name="toolTip"><string>재생 목록을 모두 지웁니다</string></property>
-             </widget>
             </item>
            </layout>
           </widget>
