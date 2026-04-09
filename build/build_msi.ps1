@@ -41,7 +41,7 @@ Write-Host "==> Version from NEWS: $raw  ->  WiX: $WixVersion"
 # ---------------------------------------------------------------------------
 Write-Host "==> Building EXE with PyInstaller..."
 Push-Location $Root
-pyinstaller build\windows.spec
+python.exe -m PyInstaller build\windows.spec
 Pop-Location
 
 # ---------------------------------------------------------------------------
