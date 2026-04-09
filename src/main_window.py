@@ -413,7 +413,21 @@ class MainWindow(QMainWindow):
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
 
     def _connect_signals(self) -> None:
-        """Connect all button click signals to their handler slots."""
+        """Connect all button click signals to their handler slots.
+
+        Also enforces uniform height across the four player transport
+        buttons so that the ▶ glyph (Geometric Shapes block) is not
+        rendered shorter than ⏮ / ⏹ / ⏭ (Miscellaneous Technical block)
+        on Linux font configurations where the two blocks have different
+        ascender heights.
+        """
+        _player_btns = [
+            self.btn_prev, self.btn_play_pause, self.btn_stop, self.btn_next,
+        ]
+        _max_h = max(b.sizeHint().height() for b in _player_btns)
+        for _b in _player_btns:
+            _b.setFixedHeight(_max_h)
+
         self.btn_browse.clicked.connect(self._on_browse_clicked)
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
