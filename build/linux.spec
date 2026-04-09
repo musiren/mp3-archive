@@ -20,9 +20,11 @@ block_cipher = None
 # ROOT is the project root (one level up).
 ROOT = os.path.dirname(SPECPATH)
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_data_files, collect_dynamic_libs, collect_submodules
+)
 
-pyqt6_datas = collect_data_files("PyQt6")
+pyqt6_datas   = collect_data_files("PyQt6")
 mutagen_datas = collect_data_files("mutagen")
 
 a = Analysis(
@@ -34,21 +36,35 @@ a = Analysis(
         (os.path.join(ROOT, "assets", "icon.png"), "assets"),
     ],
     hiddenimports=[
+        # PyQt6
         "PyQt6.QtCore",
         "PyQt6.QtGui",
         "PyQt6.QtWidgets",
+        "PyQt6.QtMultimedia",
         "PyQt6.sip",
-        "mutagen",
-        "mutagen.mp3",
-        "mutagen.id3",
+        # mutagen — collect all submodules so every format codec is included
+        *collect_submodules("mutagen"),
+        # musicbrainzngs — collect all submodules
+        *collect_submodules("musicbrainzngs"),
+        # Standard library modules that PyInstaller's static analysis often misses
         "sqlite3",
-        "musicbrainzngs",
+        "ipaddress",
+        "ssl",
+        "http.client",
+        "urllib.parse",
+        "urllib.request",
+        "urllib.error",
+        "encodings.utf_8",
+        "encodings.ascii",
+        "encodings.latin_1",
+        # Application modules
+        "mp3_manager",
         "tag_fetcher",
         "tag_fetch_dialog",
         "itunes_fetcher",
         "song_info_dialog",
         "tag_detail_dialog",
-        "mp3_manager",
+        "lyrics_dialog",
     ],
     hookspath=[],
     hooksconfig={},
