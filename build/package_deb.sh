@@ -52,6 +52,9 @@ rm -rf "$STAGING"
 # onedir mode places the executable and all libraries in dist/mp3-archive/
 install -d "$STAGING/usr/lib/mp3-archive"
 cp -r "$ROOT/dist/mp3-archive/." "$STAGING/usr/lib/mp3-archive/"
+# Ensure all files are readable and directories are accessible
+find "$STAGING/usr/lib/mp3-archive" -type d -exec chmod 755 {} \;
+find "$STAGING/usr/lib/mp3-archive" -type f -exec chmod 644 {} \;
 chmod 755 "$STAGING/usr/lib/mp3-archive/mp3-archive"
 
 # /usr/bin/mp3-archive    — wrapper script

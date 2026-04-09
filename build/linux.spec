@@ -75,7 +75,7 @@ a = Analysis(
         "xmlrpc",
     ],
     cipher=block_cipher,
-    noarchive=False,
+    noarchive=True,   # store .pyc files directly on disk instead of in a PKG archive
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
