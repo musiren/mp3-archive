@@ -80,15 +80,15 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# onedir mode: all files are placed in dist/mp3-archive/ with no extraction
-# step at runtime.  This avoids all /tmp extraction issues with onefile mode.
+# onedir mode: exclude_binaries=True keeps the exe small; COLLECT bundles
+# all libraries alongside it in dist/mp3-archive/. No /tmp extraction needed.
 exe = EXE(
     pyz,
     a.scripts,
-    [],   # binaries and datas go into COLLECT, not the exe itself
+    [],
+    exclude_binaries=True,
 
     name="mp3-archive",
-    onefile=False,
 
     # Linux does not use a windowed subsystem flag; the GUI hides the terminal
     console=False,
@@ -98,7 +98,6 @@ exe = EXE(
     strip=False,
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     icon=os.path.join(ROOT, "assets", "icon.png"),
 )
 
