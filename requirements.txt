@@ -1,4 +1,7 @@
+# Runtime dependencies
 PyQt6>=6.4.0
 mutagen>=1.47.0
-Pillow>=9.0.0
 musicbrainzngs>=0.7.1
+
+# Build / packaging (not required to run the app)
+# pyinstaller>=5.13
