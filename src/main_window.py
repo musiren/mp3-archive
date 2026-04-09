@@ -117,7 +117,7 @@ def _album_art_tooltip(file_path: str) -> str:
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
 from tag_detail_dialog import TagDetailDialog
-from lyrics_dialog import LyricsDialog
+from lyrics_dialog import LyricsDialog, _get_lyrics
 
 # Path to the Qt Designer UI file.
 # When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
@@ -530,20 +530,26 @@ class MainWindow(QMainWindow):
         self.playlist_widget.installEventFilter(self)
 
     def _setup_art_splitter(self) -> None:
-        """Restore saved art_splitter position and install resize event filter.
+        """Restore saved splitter positions and install resize event filter.
 
-        Saves and restores the splitter state via QSettings so the user's
-        chosen album-art height persists across sessions.  An event filter
-        on album_art_label re-renders the pixmap whenever the label is resized
-        by dragging the splitter handle.
+        Saves and restores both splitter states via QSettings so the user's
+        chosen sizes persist across sessions.  An event filter on
+        album_art_label re-renders the pixmap whenever the label is resized.
         """
         state = self._settings.value("art_splitter/state")
         if state:
             self.art_splitter.restoreState(state)
         else:
-            # Default: give roughly equal space to art panel and controls
             self.art_splitter.setSizes([200, 200])
         self.art_splitter.splitterMoved.connect(self._on_art_splitter_moved)
+
+        art_lyrics_state = self._settings.value("art_lyrics_splitter/state")
+        if art_lyrics_state:
+            self.art_lyrics_splitter.restoreState(art_lyrics_state)
+        else:
+            self.art_lyrics_splitter.setSizes([1, 1])
+        self.art_lyrics_splitter.splitterMoved.connect(self._on_art_lyrics_splitter_moved)
+
         self.album_art_label.installEventFilter(self)
 
     def _on_art_splitter_moved(self, _pos: int, _index: int) -> None:
@@ -554,6 +560,18 @@ class MainWindow(QMainWindow):
             _index: Index of the moved handle (unused).
         """
         self._settings.setValue("art_splitter/state", self.art_splitter.saveState())
+        self._rescale_album_art()
+
+    def _on_art_lyrics_splitter_moved(self, _pos: int, _index: int) -> None:
+        """Persist the art/lyrics splitter position and re-render the album art.
+
+        Args:
+            _pos:   New position of the moved handle (unused).
+            _index: Index of the moved handle (unused).
+        """
+        self._settings.setValue(
+            "art_lyrics_splitter/state", self.art_lyrics_splitter.saveState()
+        )
         self._rescale_album_art()
 
     def _rescale_album_art(self) -> None:
@@ -923,6 +941,7 @@ class MainWindow(QMainWindow):
         name = os.path.basename(path)
         self.player_title_label.setText(name)
         self._update_album_art(path)
+        self._update_lyrics(path)
         if self._player is None:
             return
         self._player.setSource(QUrl.fromLocalFile(path))
@@ -958,6 +977,21 @@ class MainWindow(QMainWindow):
             self.album_art_label.clear()
             self.album_art_label.setText("♪")
 
+    def _update_lyrics(self, path: str) -> None:
+        """Load and display the embedded lyrics for the given file.
+
+        Shows the lyrics text in the lyrics_text widget.  Clears the
+        widget when no lyrics are embedded in the file.
+
+        Args:
+            path: Absolute path to the audio file.
+        """
+        lyrics = _get_lyrics(path)
+        if lyrics:
+            self.lyrics_text.setPlainText(lyrics)
+        else:
+            self.lyrics_text.setPlainText("")
+
     # ------------------------------------------------------------------
     # Playback slots
     # ------------------------------------------------------------------
@@ -988,6 +1022,7 @@ class MainWindow(QMainWindow):
         self._art_pixmap = None
         self.album_art_label.clear()
         self.album_art_label.setText("♪")
+        self.lyrics_text.setPlainText("")
 
     def _on_prev_clicked(self) -> None:
         """
@@ -1199,6 +1234,10 @@ class MainWindow(QMainWindow):
         self.time_current_label.setText("0:00")
         self.time_total_label.setText("0:00")
         self.seek_slider.setValue(0)
+        self._art_pixmap = None
+        self.album_art_label.clear()
+        self.album_art_label.setText("♪")
+        self.lyrics_text.setPlainText("")
 
     def _on_playlist_double_clicked(self, item: QListWidgetItem) -> None:
         """

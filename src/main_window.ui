@@ -454,22 +454,47 @@
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="album_art_label">
-              <property name="toolTip">
-               <string>현재 재생 중인 곡의 앨범 아트 (스플리터 핸들로 크기 조절)</string>
-              </property>
-              <property name="text"><string>♪</string></property>
-              <property name="alignment"><set>Qt::AlignCenter</set></property>
-              <property name="minimumSize">
-               <size><width>0</width><height>40</height></size>
-              </property>
+             <!-- Horizontal splitter: album art (left) | lyrics (right) -->
+             <widget class="QSplitter" name="art_lyrics_splitter">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+              <property name="childrenCollapsible"><bool>false</bool></property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
                 <horstretch>0</horstretch>
                 <verstretch>1</verstretch>
                </sizepolicy>
               </property>
-              <property name="scaledContents"><bool>false</bool></property>
+              <widget class="QLabel" name="album_art_label">
+               <property name="toolTip">
+                <string>현재 재생 중인 곡의 앨범 아트 (스플리터 핸들로 크기 조절)</string>
+               </property>
+               <property name="text"><string>♪</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="minimumSize">
+                <size><width>40</width><height>40</height></size>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>1</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="scaledContents"><bool>false</bool></property>
+              </widget>
+              <widget class="QTextEdit" name="lyrics_text">
+               <property name="toolTip"><string>현재 재생 중인 곡의 가사</string></property>
+               <property name="readOnly"><bool>true</bool></property>
+               <property name="placeholderText"><string>가사 없음</string></property>
+               <property name="minimumSize">
+                <size><width>40</width><height>40</height></size>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>1</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
              </widget>
             </item>
             <!-- Fixed-height player controls below album art -->
