@@ -199,22 +199,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="btn_tag_fetch">
-        <property name="toolTip">
-         <string>선택한 항목(또는 태그 없는 전체 파일)의 태그를&#10;MusicBrainz에서 검색해 자동으로 채웁니다</string>
-        </property>
-        <property name="text">
-         <string>태그 찾기</string>
-        </property>
-        <property name="minimumWidth">
-         <number>90</number>
-        </property>
-        <property name="maximumWidth">
-         <number>90</number>
-        </property>
-       </widget>
-      </item>
-      <item>
        <widget class="QPushButton" name="btn_view_toggle">
         <property name="text">
          <string>🌲 트리</string>

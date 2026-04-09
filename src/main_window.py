@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
-        self.btn_tag_fetch.clicked.connect(self._on_tag_fetch_clicked)
+
         self.btn_search.clicked.connect(self._on_search_clicked)
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
