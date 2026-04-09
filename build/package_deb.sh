@@ -39,21 +39,22 @@ ROOT="$ROOT_TMP"
 STAGING="$ROOT/build/_deb_staging"
 DEB_OUT="$ROOT/dist/mp3-archive_${VERSION}_amd64.deb"
 
-echo "==> Building EXE with PyInstaller..."
+echo "==> Building with PyInstaller (onedir mode)..."
 cd "$ROOT"
-pyinstaller build/linux.spec
+# Clean previous build so stale files don't carry over
+rm -rf "$ROOT/dist/mp3-archive" "$ROOT/build/mp3-archive"
+python3 -m PyInstaller build/linux.spec
 
 echo "==> Setting up staging directory..."
 rm -rf "$STAGING"
 
-# /usr/lib/mp3-archive/   — main binary
-install -Dm755 "$ROOT/dist/mp3-archive" \
-               "$STAGING/usr/lib/mp3-archive/mp3-archive"
+# /usr/lib/mp3-archive/   — copy entire onedir bundle
+# onedir mode places the executable and all libraries in dist/mp3-archive/
+install -d "$STAGING/usr/lib/mp3-archive"
+cp -r "$ROOT/dist/mp3-archive/." "$STAGING/usr/lib/mp3-archive/"
+chmod 755 "$STAGING/usr/lib/mp3-archive/mp3-archive"
 
-# /usr/bin/mp3-archive    — wrapper script (NOT a symlink)
-# PyInstaller onefile binaries can misbehave when launched via symlink
-# because the bootloader uses argv[0] to locate its embedded archive.
-# A wrapper script that exec's the real binary avoids this problem.
+# /usr/bin/mp3-archive    — wrapper script
 install -d "$STAGING/usr/bin"
 cat > "$STAGING/usr/bin/mp3-archive" << 'WRAPPER'
 #!/bin/sh

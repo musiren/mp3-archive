@@ -80,24 +80,35 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onedir mode: all files are placed in dist/mp3-archive/ with no extraction
+# step at runtime.  This avoids all /tmp extraction issues with onefile mode.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+    [],   # binaries and datas go into COLLECT, not the exe itself
 
     name="mp3-archive",
-    onefile=True,
+    onefile=False,
 
     # Linux does not use a windowed subsystem flag; the GUI hides the terminal
     console=False,
 
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,           # Do NOT strip: stripping can corrupt PyInstaller's embedded archive
-    upx=False,             # UPX corrupts PyInstaller's appended PKG archive on Linux
+    strip=False,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     icon=os.path.join(ROOT, "assets", "icon.png"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="mp3-archive",
 )
