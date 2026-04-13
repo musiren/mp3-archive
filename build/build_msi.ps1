@@ -9,7 +9,6 @@
 # Requirements:
 #   - pyinstaller  (pip install pyinstaller)
 #   - WiX Toolset v3  https://github.com/wixtoolset/wix3/releases
-#     candle.exe and light.exe must be on PATH (or in C:\Program Files (x86)\WiX Toolset v3.x\bin\)
 #
 # Output:
 #   dist\mp3-archive.msi
@@ -18,6 +17,51 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
+
+# ---------------------------------------------------------------------------
+# Locate WiX Toolset v3 (candle.exe / light.exe)
+# ---------------------------------------------------------------------------
+function Find-WixBin {
+    # 1. Already on PATH
+    if (Get-Command candle.exe -ErrorAction SilentlyContinue) {
+        return $null   # use PATH as-is
+    }
+    # 2. Common install locations
+    $searchRoots = @(
+        "${env:ProgramFiles(x86)}",
+        "${env:ProgramFiles}"
+    )
+    foreach ($base in $searchRoots) {
+        if (-not $base) { continue }
+        Get-ChildItem -Path $base -Filter "WiX Toolset v3*" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                $bin = Join-Path $_.FullName "bin"
+                if (Test-Path (Join-Path $bin "candle.exe")) {
+                    return $bin
+                }
+            }
+    }
+    return $null
+}
+
+$wixBin = Find-WixBin
+if ($wixBin -eq $null -and -not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+    Write-Error @"
+WiX Toolset v3 not found.
+Install it from: https://github.com/wixtoolset/wix3/releases
+Then re-run this script.
+"@
+    exit 1
+}
+if ($wixBin) {
+    Write-Host "==> WiX found: $wixBin"
+    $candle = Join-Path $wixBin "candle.exe"
+    $light  = Join-Path $wixBin "light.exe"
+} else {
+    $candle = "candle"
+    $light  = "light"
+}
 
 # ---------------------------------------------------------------------------
 # Parse version from NEWS
@@ -50,7 +94,7 @@ Pop-Location
 Write-Host "==> Running candle..."
 $wxsFile  = Join-Path $Root "build\installer.wxs"
 $wixObj   = Join-Path $Root "build\installer.wixobj"
-candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
+& $candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
 
 # ---------------------------------------------------------------------------
 # Step 3: Link into MSI
@@ -58,7 +102,7 @@ candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
 Write-Host "==> Running light..."
 $msiOut = Join-Path $Root "dist\mp3-archive.msi"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "dist") | Out-Null
-light $wixObj -ext WixUIExtension -o $msiOut
+& $light $wixObj -ext WixUIExtension -o $msiOut
 
 Write-Host ""
 Write-Host "Done: $msiOut"
