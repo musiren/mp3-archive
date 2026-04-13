@@ -26,19 +26,33 @@ function Find-WixBin {
     if (Get-Command candle.exe -ErrorAction SilentlyContinue) {
         return $null   # use PATH as-is
     }
-    # 2. Common install locations
+    # 2. Refresh PATH from registry (picks up installs done in this session)
+    $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $userPath    = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+    $env:PATH    = "$machinePath;$userPath"
+    if (Get-Command candle.exe -ErrorAction SilentlyContinue) {
+        return $null
+    }
+    # 3. Scan common install roots for any WiX v3 directory
     $searchRoots = @(
+        "${env:ProgramFiles}",
         "${env:ProgramFiles(x86)}",
-        "${env:ProgramFiles}"
+        "${env:LocalAppData}\Programs",
+        "${env:ProgramData}"
     )
     foreach ($base in $searchRoots) {
-        if (-not $base) { continue }
-        Get-ChildItem -Path $base -Filter "WiX Toolset v3*" -Directory -ErrorAction SilentlyContinue |
+        if (-not $base -or -not (Test-Path $base)) { continue }
+        Get-ChildItem -Path $base -Filter "WiX*" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "v?3\." -or $_.Name -match "Toolset" } |
             Sort-Object Name -Descending |
             ForEach-Object {
                 $bin = Join-Path $_.FullName "bin"
                 if (Test-Path (Join-Path $bin "candle.exe")) {
                     return $bin
+                }
+                # Some installs put candle.exe directly in the root
+                if (Test-Path (Join-Path $_.FullName "candle.exe")) {
+                    return $_.FullName
                 }
             }
     }
