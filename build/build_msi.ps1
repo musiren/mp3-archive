@@ -87,10 +87,10 @@ if (-not $match) {
     exit 1
 }
 $raw = $match.Matches[0].Groups[1].Value   # e.g. "20260407"
-$year  = $raw.Substring(0, 4)              # "2026"
+$yy    = [int]$raw.Substring(2, 2)        # 26  (WiX major must be < 256)
 $month = [int]$raw.Substring(4, 2)        # 4
 $day   = [int]$raw.Substring(6, 2)        # 7
-$WixVersion = "$year.$month.$day.0"        # "2026.4.7.0"
+$WixVersion = "$yy.$month.$day.0"         # "26.4.7.0"
 
 Write-Host "==> Version from NEWS: $raw  ->  WiX: $WixVersion"
 
