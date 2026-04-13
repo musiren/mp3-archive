@@ -35,26 +35,26 @@ function Find-WixBin {
     }
     # 3. Scan common install roots for any WiX v3 directory
     $searchRoots = @(
-        "${env:ProgramFiles}",
         "${env:ProgramFiles(x86)}",
+        "${env:ProgramFiles}",
         "${env:LocalAppData}\Programs",
         "${env:ProgramData}"
     )
     foreach ($base in $searchRoots) {
         if (-not $base -or -not (Test-Path $base)) { continue }
-        Get-ChildItem -Path $base -Filter "WiX*" -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match "v?3\." -or $_.Name -match "Toolset" } |
-            Sort-Object Name -Descending |
-            ForEach-Object {
-                $bin = Join-Path $_.FullName "bin"
-                if (Test-Path (Join-Path $bin "candle.exe")) {
-                    return $bin
-                }
-                # Some installs put candle.exe directly in the root
-                if (Test-Path (Join-Path $_.FullName "candle.exe")) {
-                    return $_.FullName
-                }
+        # Use foreach loop (not ForEach-Object) so return exits the function
+        $dirs = Get-ChildItem -Path $base -Filter "WiX*" -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match "v?3\." -or $_.Name -match "Toolset" } |
+                    Sort-Object Name -Descending
+        foreach ($dir in $dirs) {
+            $bin = Join-Path $dir.FullName "bin"
+            if (Test-Path (Join-Path $bin "candle.exe")) {
+                return $bin
             }
+            if (Test-Path (Join-Path $dir.FullName "candle.exe")) {
+                return $dir.FullName
+            }
+        }
     }
     return $null
 }
