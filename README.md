@@ -44,11 +44,12 @@
   - 소스 선택 가능: MusicBrainz / iTunes / 둘 다 (Both)
   - 검색어 직접 입력하여 재검색 가능
   - 결과 없을 시 파일명으로 자동 재검색 후에도 없으면 팝업 알림
-- **우클릭 메뉴**:
+- **우클릭 메뉴** (테이블 및 트리 뷰 동일):
   - `자세히` — 파일에 내장된 모든 태그 + 앨범 아트 팝업 (편집 가능)
   - `인터넷에서 정보 보기` — MusicBrainz 곡 정보 조회 팝업
   - `가사 보기` — 파일에 내장된 가사 팝업
   - `태그 찾기` — 해당 행 태그 개별 검색
+- **버전 확인**: 툴바 `?` 버튼으로 현재 버전 확인 가능
 
 ---
 
@@ -127,12 +128,11 @@ pyinstaller build/windows.spec
 버전은 `NEWS` 파일의 최신 항목(`vYYYYMMDD`)에서 자동 추출됩니다.
 
 ```powershell
-# LICENSE.rtf 파일이 없으면 생성 (라이선스 화면에 필요)
-New-Item -Force LICENSE.rtf
-
 # EXE 빌드 + MSI 패키징 (프로젝트 루트에서 실행)
 powershell -ExecutionPolicy Bypass -File build\build_msi.ps1
 ```
+
+> `LICENSE.rtf`가 없으면 `python build/make_license_rtf.py`로 먼저 생성하세요.
 
 결과물: `dist/mp3-archive.msi`
 
