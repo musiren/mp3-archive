@@ -117,7 +117,7 @@ def _album_art_tooltip(file_path: str) -> str:
 from tag_fetch_dialog import TagFetchDialog
 from song_info_dialog import SongInfoDialog
 from tag_detail_dialog import TagDetailDialog
-from lyrics_dialog import LyricsDialog
+from lyrics_dialog import LyricsDialog, _get_lyrics
 
 # Path to the Qt Designer UI file.
 # When frozen by PyInstaller (sys._MEIPASS), the .ui file is extracted
@@ -130,6 +130,30 @@ if getattr(sys, "frozen", False):
     _ICON_FILE = os.path.join(_BASE_DIR, "assets", "icon.png")
 else:
     _ICON_FILE = os.path.join(os.path.dirname(_BASE_DIR), "assets", "icon.png")
+
+_NEWS_FILE = os.path.join(os.path.dirname(_BASE_DIR) if not getattr(sys, "frozen", False)
+                          else _BASE_DIR, "NEWS")
+
+
+def _read_version() -> str:
+    """
+    Read the version string from the NEWS file.
+
+    Returns:
+        The version tag (e.g. 'v20260409') from the first matching line,
+        or 'unknown' if the file is missing or unparsable.
+    """
+    import re
+    try:
+        with open(_NEWS_FILE, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"^(v\d{8})", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return "unknown"
+
 
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
@@ -413,12 +437,27 @@ class MainWindow(QMainWindow):
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
 
     def _connect_signals(self) -> None:
-        """Connect all button click signals to their handler slots."""
+        """Connect all button click signals to their handler slots.
+
+        Also enforces uniform height across the four player transport
+        buttons so that the ▶ glyph (Geometric Shapes block) is not
+        rendered shorter than ⏮ / ⏹ / ⏭ (Miscellaneous Technical block)
+        on Linux font configurations where the two blocks have different
+        ascender heights.
+        """
+        _player_btns = [
+            self.btn_prev, self.btn_play_pause, self.btn_stop, self.btn_next,
+            self.btn_play_mode,
+        ]
+        _max_h = max(b.sizeHint().height() for b in _player_btns)
+        for _b in _player_btns:
+            _b.setFixedHeight(_max_h)
+
         self.btn_browse.clicked.connect(self._on_browse_clicked)
         self.btn_scan.clicked.connect(self._on_scan_clicked)
         self.btn_force_scan.clicked.connect(self._on_force_scan_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
-        self.btn_tag_fetch.clicked.connect(self._on_tag_fetch_clicked)
+
         self.btn_search.clicked.connect(self._on_search_clicked)
         self.btn_search_clear.clicked.connect(self._on_search_clear_clicked)
         self.search_edit.returnPressed.connect(self._on_search_clicked)
@@ -426,6 +465,7 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
+        self.btn_about.clicked.connect(self._on_about_clicked)
 
         # Tree view
         self.tree_widget.itemDoubleClicked.connect(self._on_tree_double_clicked)
@@ -516,20 +556,26 @@ class MainWindow(QMainWindow):
         self.playlist_widget.installEventFilter(self)
 
     def _setup_art_splitter(self) -> None:
-        """Restore saved art_splitter position and install resize event filter.
+        """Restore saved splitter positions and install resize event filter.
 
-        Saves and restores the splitter state via QSettings so the user's
-        chosen album-art height persists across sessions.  An event filter
-        on album_art_label re-renders the pixmap whenever the label is resized
-        by dragging the splitter handle.
+        Saves and restores both splitter states via QSettings so the user's
+        chosen sizes persist across sessions.  An event filter on
+        album_art_label re-renders the pixmap whenever the label is resized.
         """
         state = self._settings.value("art_splitter/state")
         if state:
             self.art_splitter.restoreState(state)
         else:
-            # Default: give roughly equal space to art panel and controls
             self.art_splitter.setSizes([200, 200])
         self.art_splitter.splitterMoved.connect(self._on_art_splitter_moved)
+
+        art_lyrics_state = self._settings.value("art_lyrics_splitter/state")
+        if art_lyrics_state:
+            self.art_lyrics_splitter.restoreState(art_lyrics_state)
+        else:
+            self.art_lyrics_splitter.setSizes([1, 1])
+        self.art_lyrics_splitter.splitterMoved.connect(self._on_art_lyrics_splitter_moved)
+
         self.album_art_label.installEventFilter(self)
 
     def _on_art_splitter_moved(self, _pos: int, _index: int) -> None:
@@ -540,6 +586,18 @@ class MainWindow(QMainWindow):
             _index: Index of the moved handle (unused).
         """
         self._settings.setValue("art_splitter/state", self.art_splitter.saveState())
+        self._rescale_album_art()
+
+    def _on_art_lyrics_splitter_moved(self, _pos: int, _index: int) -> None:
+        """Persist the art/lyrics splitter position and re-render the album art.
+
+        Args:
+            _pos:   New position of the moved handle (unused).
+            _index: Index of the moved handle (unused).
+        """
+        self._settings.setValue(
+            "art_lyrics_splitter/state", self.art_lyrics_splitter.saveState()
+        )
         self._rescale_album_art()
 
     def _rescale_album_art(self) -> None:
@@ -639,6 +697,15 @@ class MainWindow(QMainWindow):
         _cycle = {"system": "light", "light": "dark", "dark": "system"}
         current = self._settings.value(_KEY_THEME, "system")
         self._apply_theme(_cycle.get(current, "system"))
+
+    def _on_about_clicked(self) -> None:
+        """Show an About dialog with the application version read from NEWS."""
+        version = _read_version()
+        QMessageBox.about(
+            self,
+            "mp3-archive 정보",
+            f"<b>mp3-archive</b><br>버전: {version}",
+        )
 
     # ------------------------------------------------------------------
     # Qt event filter: handle drag-and-drop onto playlist
@@ -909,6 +976,7 @@ class MainWindow(QMainWindow):
         name = os.path.basename(path)
         self.player_title_label.setText(name)
         self._update_album_art(path)
+        self._update_lyrics(path)
         if self._player is None:
             return
         self._player.setSource(QUrl.fromLocalFile(path))
@@ -944,6 +1012,21 @@ class MainWindow(QMainWindow):
             self.album_art_label.clear()
             self.album_art_label.setText("♪")
 
+    def _update_lyrics(self, path: str) -> None:
+        """Load and display the embedded lyrics for the given file.
+
+        Shows the lyrics text in the lyrics_text widget.  Clears the
+        widget when no lyrics are embedded in the file.
+
+        Args:
+            path: Absolute path to the audio file.
+        """
+        lyrics = _get_lyrics(path)
+        if lyrics:
+            self.lyrics_text.setPlainText(lyrics)
+        else:
+            self.lyrics_text.setPlainText("")
+
     # ------------------------------------------------------------------
     # Playback slots
     # ------------------------------------------------------------------
@@ -974,6 +1057,7 @@ class MainWindow(QMainWindow):
         self._art_pixmap = None
         self.album_art_label.clear()
         self.album_art_label.setText("♪")
+        self.lyrics_text.setPlainText("")
 
     def _on_prev_clicked(self) -> None:
         """
@@ -1082,10 +1166,10 @@ class MainWindow(QMainWindow):
         Updates the button label to reflect the active mode.
         """
         _modes = [
-            ("sequential",  "➡ 전체재생"),
-            ("repeat_one",  "🔂 한곡반복"),
-            ("repeat_all",  "🔁 전체반복"),
-            ("shuffle",     "🔀 랜덤"),
+            ("sequential",  "➡"),
+            ("repeat_one",  "🔂"),
+            ("repeat_all",  "🔁"),
+            ("shuffle",     "🔀"),
         ]
         keys = [m[0] for m in _modes]
         idx = (keys.index(self._play_mode) + 1) % len(_modes)
@@ -1185,6 +1269,10 @@ class MainWindow(QMainWindow):
         self.time_current_label.setText("0:00")
         self.time_total_label.setText("0:00")
         self.seek_slider.setValue(0)
+        self._art_pixmap = None
+        self.album_art_label.clear()
+        self.album_art_label.setText("♪")
+        self.lyrics_text.setPlainText("")
 
     def _on_playlist_double_clicked(self, item: QListWidgetItem) -> None:
         """
@@ -1653,7 +1741,6 @@ class MainWindow(QMainWindow):
                 file_item.setToolTip(0, f["path"])
 
         _add_nodes(self.tree_widget, dir_tree)
-        self.tree_widget.expandAll()
 
     def _collect_tree_paths(self, items) -> list:
         """
@@ -1734,23 +1821,36 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         action_detail = None
         action_lyrics = None
+        action_info = None
+        action_tag = None
         if not is_dir:
             action_detail = menu.addAction("자세히")
             action_lyrics = menu.addAction("가사보기")
         n = len(selected_paths)
         label = f"재생목록에 추가 ({n}곡)" if n > 1 else "재생목록에 추가"
         action_playlist = menu.addAction(label)
+        if not is_dir:
+            menu.addSeparator()
+            action_info = menu.addAction("인터넷에서 정보 보기")
+            action_tag = menu.addAction("태그 찾기")
 
         action = menu.exec(self.tree_widget.viewport().mapToGlobal(pos))
 
-        if action in (action_detail, action_lyrics) and action is not None:
+        if action is not None and action in (action_detail, action_lyrics, action_info, action_tag):
             path = item.data(0, Qt.ItemDataRole.UserRole)
             file_info = self._manager.get_by_path(path)
             if file_info:
                 if action == action_detail:
                     TagDetailDialog(file_info, manager=self._manager, parent=self).exec()
-                else:
+                    self._load_table()
+                elif action == action_lyrics:
                     LyricsDialog(file_info, parent=self).exec()
+                elif action == action_info:
+                    SongInfoDialog(self._manager, file_info, parent=self).exec()
+                    self._load_table()
+                elif action == action_tag:
+                    TagFetchDialog(self._manager, [file_info], parent=self, force=True).exec()
+                    self._load_table()
         elif action == action_playlist:
             for p in selected_paths:
                 self._playlist_add(p)

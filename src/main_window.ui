@@ -199,22 +199,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="btn_tag_fetch">
-        <property name="toolTip">
-         <string>선택한 항목(또는 태그 없는 전체 파일)의 태그를&#10;MusicBrainz에서 검색해 자동으로 채웁니다</string>
-        </property>
-        <property name="text">
-         <string>태그 찾기</string>
-        </property>
-        <property name="minimumWidth">
-         <number>90</number>
-        </property>
-        <property name="maximumWidth">
-         <number>90</number>
-        </property>
-       </widget>
-      </item>
-      <item>
        <widget class="QPushButton" name="btn_view_toggle">
         <property name="text">
          <string>🌲 트리</string>
@@ -256,6 +240,22 @@
         </property>
         <property name="maximumWidth">
          <number>90</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_about">
+        <property name="text">
+         <string>?</string>
+        </property>
+        <property name="toolTip">
+         <string>버전 정보</string>
+        </property>
+        <property name="minimumWidth">
+         <number>30</number>
+        </property>
+        <property name="maximumWidth">
+         <number>30</number>
         </property>
        </widget>
       </item>
@@ -454,22 +454,47 @@
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="album_art_label">
-              <property name="toolTip">
-               <string>현재 재생 중인 곡의 앨범 아트 (스플리터 핸들로 크기 조절)</string>
-              </property>
-              <property name="text"><string>♪</string></property>
-              <property name="alignment"><set>Qt::AlignCenter</set></property>
-              <property name="minimumSize">
-               <size><width>0</width><height>40</height></size>
-              </property>
+             <!-- Horizontal splitter: album art (left) | lyrics (right) -->
+             <widget class="QSplitter" name="art_lyrics_splitter">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+              <property name="childrenCollapsible"><bool>false</bool></property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
                 <horstretch>0</horstretch>
                 <verstretch>1</verstretch>
                </sizepolicy>
               </property>
-              <property name="scaledContents"><bool>false</bool></property>
+              <widget class="QLabel" name="album_art_label">
+               <property name="toolTip">
+                <string>현재 재생 중인 곡의 앨범 아트 (스플리터 핸들로 크기 조절)</string>
+               </property>
+               <property name="text"><string>♪</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="minimumSize">
+                <size><width>40</width><height>40</height></size>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>1</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="scaledContents"><bool>false</bool></property>
+              </widget>
+              <widget class="QTextEdit" name="lyrics_text">
+               <property name="toolTip"><string>현재 재생 중인 곡의 가사</string></property>
+               <property name="readOnly"><bool>true</bool></property>
+               <property name="placeholderText"><string>가사 없음</string></property>
+               <property name="minimumSize">
+                <size><width>40</width><height>40</height></size>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>1</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
              </widget>
             </item>
             <!-- Fixed-height player controls below album art -->
@@ -507,37 +532,62 @@
              <layout class="QHBoxLayout" name="playerButtonLayout">
               <item>
                <widget class="QPushButton" name="btn_prev">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch><verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>⏮</string></property>
                 <property name="toolTip"><string>이전 곡</string></property>
                </widget>
               </item>
               <item>
                <widget class="QPushButton" name="btn_play_pause">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch><verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>▶</string></property>
                 <property name="toolTip"><string>재생 / 일시정지</string></property>
                </widget>
               </item>
               <item>
                <widget class="QPushButton" name="btn_stop">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch><verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>⏹</string></property>
                 <property name="toolTip"><string>정지</string></property>
                </widget>
               </item>
               <item>
                <widget class="QPushButton" name="btn_next">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch><verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>⏭</string></property>
                 <property name="toolTip"><string>다음 곡</string></property>
                </widget>
               </item>
+              <item>
+               <widget class="QPushButton" name="btn_play_mode">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>2</horstretch><verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="text"><string>➡</string></property>
+                <property name="toolTip">
+                 <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
+                </property>
+               </widget>
+              </item>
              </layout>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btn_play_mode">
-              <property name="text"><string>➡ 전체재생</string></property>
-              <property name="toolTip">
-               <string>재생 모드 전환: 전체재생 → 한곡반복 → 전체반복 → 랜덤</string>
-              </property>
-             </widget>
             </item>
             <item>
              <layout class="QHBoxLayout" name="volumeLayout">
@@ -571,6 +621,12 @@
              <layout class="QHBoxLayout" name="playlistFileLayout">
               <item>
                <widget class="QPushButton" name="btn_playlist_save">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>저장</string></property>
                 <property name="toolTip">
                  <string>현재 재생 목록을 .list 파일로 저장합니다</string>
@@ -579,19 +635,31 @@
               </item>
               <item>
                <widget class="QPushButton" name="btn_playlist_load">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>4</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="text"><string>불러오기</string></property>
                 <property name="toolTip">
                  <string>.list 파일에서 재생 목록을 불러옵니다</string>
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QPushButton" name="btn_playlist_clear">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>2</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="text"><string>목록 비우기</string></property>
+                <property name="toolTip"><string>재생 목록을 모두 지웁니다</string></property>
+               </widget>
+              </item>
              </layout>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btn_playlist_clear">
-              <property name="text"><string>목록 비우기</string></property>
-              <property name="toolTip"><string>재생 목록을 모두 지웁니다</string></property>
-             </widget>
             </item>
            </layout>
           </widget>

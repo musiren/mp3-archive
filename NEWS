@@ -1,6 +1,29 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260419 (2026-04-19)
+===========================================================================
+
+New features
+------------
+- About dialog: toolbar '?' button shows the current version read from NEWS
+- Tree view — collapsed by default: directories no longer expand automatically
+  on load; users can expand only the folders they need
+- Tree context menu: right-clicking a file node in the tree view now shows
+  the same menu as the table view ('자세히', '가사보기', '재생목록에 추가',
+  '인터넷에서 정보 보기', '태그 찾기')
+
+Bug fixes / improvements
+------------------------
+- Windows MSI build: fixed codepage error by replacing Korean strings with
+  English equivalents in installer.wxs
+- Windows MSI build: fixed ICE50 validation error by removing Icon attribute
+  from the desktop shortcut (exe embedded icon is used automatically)
+- Windows MSI build: added LICENSE.rtf (required by WixUIExtension license
+  screen); added build/make_license_rtf.py to regenerate it from LICENSE
+- Windows MSI build: improved WiX Toolset v3 auto-detection in build_msi.ps1
+
+===========================================================================
 v20260409 (2026-04-09)
 ===========================================================================
 
