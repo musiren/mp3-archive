@@ -37,10 +37,10 @@
              Compressed="yes"
              InstallScope="perMachine"
              Description="MP3 Archive Manager"
-             Comments="Audio file metadata manager — scan, tag, and play your music library." />
+             Comments="Audio file metadata manager - scan, tag, and play your music library." />
 
     <!-- Prevent downgrades; silently replace older versions -->
-    <MajorUpgrade DowngradeErrorMessage="더 최신 버전이 이미 설치되어 있습니다." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
 
     <!-- Embed the cab file inside the MSI -->
     <MediaTemplate EmbedCab="yes" />
@@ -71,7 +71,6 @@
                       Directory="DesktopFolder"
                       Name="mp3-archive"
                       WorkingDirectory="INSTALLDIR"
-                      Icon="AppIcon"
                       Advertise="yes" />
           </Component>
 
@@ -91,7 +90,7 @@
                       Icon="AppIcon" />
 
             <Shortcut Id="UninstallShortcut"
-                      Name="mp3-archive 제거"
+                      Name="Uninstall mp3-archive"
                       Target="[SystemFolder]msiexec.exe"
                       Arguments="/x [ProductCode]" />
 
