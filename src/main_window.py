@@ -1707,7 +1707,6 @@ class MainWindow(QMainWindow):
                 file_item.setToolTip(0, f["path"])
 
         _add_nodes(self.tree_widget, dir_tree)
-        self.tree_widget.expandAll()
 
     def _collect_tree_paths(self, items) -> list:
         """
