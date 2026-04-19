@@ -34,6 +34,7 @@ a = Analysis(
     datas=pyqt6_datas + mutagen_datas + [
         (os.path.join(ROOT, "src", "main_window.ui"), "."),
         (os.path.join(ROOT, "assets", "icon.png"), "assets"),
+        (os.path.join(ROOT, "NEWS"), "."),
     ],
     hiddenimports=[
         # PyQt6
