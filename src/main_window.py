@@ -1821,23 +1821,36 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         action_detail = None
         action_lyrics = None
+        action_info = None
+        action_tag = None
         if not is_dir:
             action_detail = menu.addAction("자세히")
             action_lyrics = menu.addAction("가사보기")
         n = len(selected_paths)
         label = f"재생목록에 추가 ({n}곡)" if n > 1 else "재생목록에 추가"
         action_playlist = menu.addAction(label)
+        if not is_dir:
+            menu.addSeparator()
+            action_info = menu.addAction("인터넷에서 정보 보기")
+            action_tag = menu.addAction("태그 찾기")
 
         action = menu.exec(self.tree_widget.viewport().mapToGlobal(pos))
 
-        if action in (action_detail, action_lyrics) and action is not None:
+        if action is not None and action in (action_detail, action_lyrics, action_info, action_tag):
             path = item.data(0, Qt.ItemDataRole.UserRole)
             file_info = self._manager.get_by_path(path)
             if file_info:
                 if action == action_detail:
                     TagDetailDialog(file_info, manager=self._manager, parent=self).exec()
-                else:
+                    self._load_table()
+                elif action == action_lyrics:
                     LyricsDialog(file_info, parent=self).exec()
+                elif action == action_info:
+                    SongInfoDialog(self._manager, file_info, parent=self).exec()
+                    self._load_table()
+                elif action == action_tag:
+                    TagFetchDialog(self._manager, [file_info], parent=self, force=True).exec()
+                    self._load_table()
         elif action == action_playlist:
             for p in selected_paths:
                 self._playlist_add(p)
