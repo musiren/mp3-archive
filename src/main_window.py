@@ -131,6 +131,30 @@ if getattr(sys, "frozen", False):
 else:
     _ICON_FILE = os.path.join(os.path.dirname(_BASE_DIR), "assets", "icon.png")
 
+_NEWS_FILE = os.path.join(os.path.dirname(_BASE_DIR) if not getattr(sys, "frozen", False)
+                          else _BASE_DIR, "NEWS")
+
+
+def _read_version() -> str:
+    """
+    Read the version string from the NEWS file.
+
+    Returns:
+        The version tag (e.g. 'v20260409') from the first matching line,
+        or 'unknown' if the file is missing or unparsable.
+    """
+    import re
+    try:
+        with open(_NEWS_FILE, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"^(v\d{8})", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return "unknown"
+
+
 # QSettings keys
 _SETTINGS_ORG  = "mp3-archive"
 _SETTINGS_APP  = "MP3ArchiveManager"
@@ -441,6 +465,7 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
+        self.btn_about.clicked.connect(self._on_about_clicked)
 
         # Tree view
         self.tree_widget.itemDoubleClicked.connect(self._on_tree_double_clicked)
@@ -672,6 +697,15 @@ class MainWindow(QMainWindow):
         _cycle = {"system": "light", "light": "dark", "dark": "system"}
         current = self._settings.value(_KEY_THEME, "system")
         self._apply_theme(_cycle.get(current, "system"))
+
+    def _on_about_clicked(self) -> None:
+        """Show an About dialog with the application version read from NEWS."""
+        version = _read_version()
+        QMessageBox.about(
+            self,
+            "mp3-archive 정보",
+            f"<b>mp3-archive</b><br>버전: {version}",
+        )
 
     # ------------------------------------------------------------------
     # Qt event filter: handle drag-and-drop onto playlist
