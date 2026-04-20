@@ -721,12 +721,18 @@ class MainWindow(QMainWindow):
 
     def _on_about_clicked(self) -> None:
         """Show an About dialog with the application version read from NEWS."""
+        from PyQt6.QtCore import QSizePolicy
+        from PyQt6.QtWidgets import QSpacerItem
         version = _read_version()
-        QMessageBox.about(
-            self,
-            "mp3-archive 정보",
-            f"<b>mp3-archive</b><br>버전: {version}",
-        )
+        msg = QMessageBox(self)
+        msg.setWindowTitle("mp3-archive 정보")
+        msg.setText(f"<b>mp3-archive</b><br>버전: {version}")
+        msg.setIcon(QMessageBox.Icon.Information)
+        # Force minimum width so the title is not truncated
+        layout = msg.layout()
+        spacer = QSpacerItem(420, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        layout.addItem(spacer, layout.rowCount(), 0, 1, layout.columnCount())
+        msg.exec()
 
     # ------------------------------------------------------------------
     # Qt event filter: handle drag-and-drop onto playlist
