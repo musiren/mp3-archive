@@ -733,12 +733,13 @@ class TestTheme(unittest.TestCase):
         self.assertNotEqual(_app.styleSheet(), "")
         win.close()
 
-    def test_apply_system_clears_stylesheet(self):
-        """Verify that applying system theme clears the stylesheet."""
+    def test_apply_system_uses_minimal_stylesheet(self):
+        """Verify that applying system theme sets only the tooltip padding stylesheet."""
         win = self._make_window()
         win._apply_theme("dark")
         win._apply_theme("system")
-        self.assertEqual(_app.styleSheet(), "")
+        self.assertIn("QToolTip", _app.styleSheet())
+        self.assertIn("padding", _app.styleSheet())
         win.close()
 
     def test_btn_label_matches_active_theme(self):

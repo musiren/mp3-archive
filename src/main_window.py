@@ -244,6 +244,7 @@ QToolTip {
     background-color: #ffffcc;
     color: #1a1a1a;
     border: 1px solid #c0c0c0;
+    padding: 4px 8px;
 }
 """
 
@@ -316,6 +317,7 @@ QToolTip {
     background-color: #3c3c3c;
     color: #e8e8e8;
     border: 1px solid #555555;
+    padding: 4px 8px;
 }
 """
 
@@ -697,7 +699,9 @@ class MainWindow(QMainWindow):
         elif theme == "light":
             QApplication.instance().setStyleSheet(_QSS_LIGHT)
         else:
-            QApplication.instance().setStyleSheet("")
+            QApplication.instance().setStyleSheet(
+                "QToolTip { padding: 4px 8px; }"
+            )
         self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
         # Re-apply highlight so playing-row colour matches the new theme
