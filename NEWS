@@ -11,6 +11,9 @@ New features
   F5, Ctrl+F5, Ctrl+T, F1)
 - Tree view: root is now the configured music directory instead of the
   filesystem root, showing only the relevant subdirectory structure
+- Tree view is now the default view on startup (was table)
+- About dialog: now shows the app icon (assets/icon.png) instead of
+  the generic information icon
 
 Bug fixes / improvements
 ------------------------
@@ -21,7 +24,11 @@ Bug fixes / improvements
 - Tooltips: added 4px 8px padding to QToolTip in all themes (including
   system theme) for consistent spacing
 - About: moved from toolbar '?' button to 도움말 > About mp3-archive
-  menu entry (F1)
+  menu entry (F1); dialog widened so the window title is not truncated
+- About: fixed ImportError (QSizePolicy imported from wrong module)
+- Toolbar: removed redundant theme toggle button (menu bar item replaces it)
+- Windows: switched PyInstaller build to onedir mode, eliminating the
+  "Failed to remove temporary directory" warning popup on startup
 
 ===========================================================================
 v20260419 (2026-04-19)
