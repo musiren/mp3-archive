@@ -1173,5 +1173,68 @@ class TestTreeView(unittest.TestCase):
         win.close()
 
 
+class TestReadVersion(unittest.TestCase):
+    """Tests for the _read_version() module-level helper."""
+
+    def test_returns_version_from_news_file(self):
+        """_read_version returns the first vYYYYMMDD tag found in a valid NEWS file."""
+        import tempfile
+        import main_window as mw
+        content = (
+            "mp3-archive NEWS\n\n"
+            "===========================================================================\n"
+            "v20260419 (2026-04-19)\n"
+            "===========================================================================\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            with unittest.mock.patch.object(mw, "_NEWS_FILE", tmp):
+                self.assertEqual(mw._read_version(), "v20260419")
+        finally:
+            os.unlink(tmp)
+
+    def test_returns_unknown_when_file_missing(self):
+        """_read_version returns 'unknown' when the NEWS file does not exist."""
+        import main_window as mw
+        with unittest.mock.patch.object(mw, "_NEWS_FILE", "/nonexistent/path/NEWS"):
+            self.assertEqual(mw._read_version(), "unknown")
+
+    def test_returns_unknown_when_no_version_line(self):
+        """_read_version returns 'unknown' when NEWS contains no vYYYYMMDD line."""
+        import tempfile
+        import main_window as mw
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False,
+                                         encoding="utf-8") as f:
+            f.write("mp3-archive NEWS\n\nNo version here.\n")
+            tmp = f.name
+        try:
+            with unittest.mock.patch.object(mw, "_NEWS_FILE", tmp):
+                self.assertEqual(mw._read_version(), "unknown")
+        finally:
+            os.unlink(tmp)
+
+    def test_returns_first_version_when_multiple_present(self):
+        """_read_version returns the first vYYYYMMDD tag, not a later one."""
+        import tempfile
+        import main_window as mw
+        content = (
+            "mp3-archive NEWS\n\n"
+            "v20260419 (2026-04-19)\n"
+            "v20260409 (2026-04-09)\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            with unittest.mock.patch.object(mw, "_NEWS_FILE", tmp):
+                self.assertEqual(mw._read_version(), "v20260419")
+        finally:
+            os.unlink(tmp)
+
+
 if __name__ == "__main__":
     unittest.main()

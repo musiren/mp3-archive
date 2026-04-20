@@ -44,6 +44,7 @@ a = Analysis(
     datas=pyqt6_datas + mutagen_datas + [
         (os.path.join(ROOT, "src", "main_window.ui"), "."),
         (os.path.join(ROOT, "assets"), "assets"),
+        (os.path.join(ROOT, "NEWS"), "."),
     ],
 
     # Python-level hidden imports that PyInstaller may miss
