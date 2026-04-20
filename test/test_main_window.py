@@ -1134,6 +1134,48 @@ class TestTreeView(unittest.TestCase):
         self.assertEqual(win.tree_widget.topLevelItemCount(), 0)
         win.close()
 
+    def test_fill_tree_base_dir_strips_prefix(self):
+        """With base_dir set, top-level items should be subdirs of the base, not absolute roots."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/pop/song.mp3")], base_dir="/music")
+        root = win.tree_widget.invisibleRootItem()
+        # Top-level item should be 'pop', not '/' or 'music'
+        self.assertEqual(root.child(0).text(0), "pop")
+        win.close()
+
+    def test_fill_tree_base_dir_file_at_root_level(self):
+        """Files directly in base_dir appear as top-level file nodes."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")], base_dir="/music")
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        # song.mp3 is directly under base_dir → top-level file node
+        top = root.child(0)
+        self.assertEqual(top.text(0), "song.mp3")
+        self.assertEqual(top.data(0, Qt.ItemDataRole.UserRole), "/music/song.mp3")
+        win.close()
+
+    def test_fill_tree_base_dir_absolute_path_preserved_in_user_role(self):
+        """File UserRole must always hold the original absolute path regardless of base_dir."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/pop/song.mp3")], base_dir="/music")
+        from PyQt6.QtCore import Qt
+
+        def _find_file(parent):
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                if child.data(0, Qt.ItemDataRole.UserRole) is not None:
+                    return child
+                result = _find_file(child)
+                if result:
+                    return result
+            return None
+
+        file_item = _find_file(win.tree_widget.invisibleRootItem())
+        self.assertIsNotNone(file_item)
+        self.assertEqual(file_item.data(0, Qt.ItemDataRole.UserRole), "/music/pop/song.mp3")
+        win.close()
+
     def test_collect_tree_paths_file_node(self):
         """Verify that _collect_tree_paths returns the path for a file node."""
         from PyQt6.QtCore import Qt

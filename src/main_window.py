@@ -1697,12 +1697,17 @@ class MainWindow(QMainWindow):
             self.count_label.setText(f"검색 결과: {n}곡 / 전체 {total}곡")
         else:
             self.count_label.setText(f"전체 {n}곡")
-        self._fill_tree(files)
+        self._fill_tree(files, self.path_edit.text().strip())
 
-    def _fill_tree(self, files: list) -> None:
+    def _fill_tree(self, files: list, base_dir: str = "") -> None:
         """
         Populate the tree widget with a directory hierarchy derived from
         the file paths in *files*.
+
+        Paths are shown relative to *base_dir* (the configured music
+        directory) so the tree root matches the selected scan location.
+        If *base_dir* is empty or a path cannot be made relative, the
+        full absolute path components are used as a fallback.
 
         Directory nodes are non-draggable parents; file nodes store the
         absolute path in Qt.ItemDataRole.UserRole and can be dragged to
@@ -1711,20 +1716,29 @@ class MainWindow(QMainWindow):
         Args:
             files: List of record dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
+            base_dir: Absolute path of the configured music directory used
+                      as the tree root.
         """
         from pathlib import Path
         from PyQt6.QtWidgets import QTreeWidgetItem
 
         self.tree_widget.clear()
 
+        base = Path(base_dir) if base_dir else None
+
         # Build a nested dict representing the directory tree.
         # Each node is a dict whose keys are either sub-directory names or
         # the sentinel "__files__" (value: list of file dicts at that level).
         dir_tree: dict = {}
         for f in files:
-            parts = Path(f["path"]).parts  # e.g. ('/', 'music', 'pop', 'song.mp3')
+            full = Path(f["path"])
+            try:
+                rel = full.relative_to(base) if base else full
+            except ValueError:
+                rel = full
+            parts = rel.parts          # relative parts, last element is filename
             node = dir_tree
-            for part in parts[:-1]:        # directory components
+            for part in parts[:-1]:   # directory components only
                 node = node.setdefault(part, {"__files__": []})
             node.setdefault("__files__", []).append(f)
 
