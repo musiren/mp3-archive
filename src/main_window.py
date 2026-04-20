@@ -1302,8 +1302,7 @@ class MainWindow(QMainWindow):
         Args:
             item: The list widget item that was double-clicked.
         """
-        path = item.data(Qt.ItemDataRole.UserRole)
-        self._play_path(path)
+        self._playlist_play_index(self.playlist_widget.row(item))
 
     def _on_table_double_clicked(self, row: int, _col: int) -> None:
         """

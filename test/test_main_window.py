@@ -392,6 +392,34 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(item1.background(), QBrush())
         win.close()
 
+    def test_double_click_playlist_clears_previous_highlight(self):
+        """Double-clicking a different playlist item removes the previous row's highlight."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._highlight_playing_row(0)
+        # Double-click row 1
+        item1 = win.playlist_widget.item(1)
+        win._on_playlist_double_clicked(item1)
+        item0 = win.playlist_widget.item(0)
+        # Previous row must be reset to null brush
+        self.assertEqual(item0.background(), QBrush())
+        win.close()
+
+    def test_double_click_playlist_highlights_new_row(self):
+        """Double-clicking a playlist item highlights that row."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._highlight_playing_row(0)
+        item1 = win.playlist_widget.item(1)
+        win._on_playlist_double_clicked(item1)
+        # New row must have a non-null brush
+        self.assertNotEqual(item1.background(), QBrush())
+        win.close()
+
     def test_highlight_playing_row_minus_one_resets_all(self):
         """Verify that _highlight_playing_row(-1) resets all rows to null brush."""
         from PyQt6.QtGui import QBrush
