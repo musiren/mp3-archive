@@ -1812,13 +1812,13 @@ class MainWindow(QMainWindow):
         return paths
 
     def _on_view_toggle_clicked(self) -> None:
-        """Toggle between table view (page 0) and tree view (page 1)."""
-        if self.view_stack.currentIndex() == 0:
-            self.view_stack.setCurrentIndex(1)
-            self.btn_view_toggle.setText("📋 테이블")
-        else:
+        """Toggle between tree view (page 1, default) and table view (page 0)."""
+        if self.view_stack.currentIndex() == 1:
             self.view_stack.setCurrentIndex(0)
             self.btn_view_toggle.setText("🌲 트리")
+        else:
+            self.view_stack.setCurrentIndex(1)
+            self.btn_view_toggle.setText("📋 테이블")
 
     def _on_tree_double_clicked(self, item) -> None:
         """
