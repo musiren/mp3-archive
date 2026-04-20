@@ -471,7 +471,6 @@ class MainWindow(QMainWindow):
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
-        self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
 
         # Menu bar actions
@@ -708,7 +707,6 @@ class MainWindow(QMainWindow):
             QApplication.instance().setStyleSheet(
                 "QToolTip { padding: 4px 8px; }"
             )
-        self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
         # Re-apply highlight so playing-row colour matches the new theme
         self._highlight_playing_row(self._playing_index)

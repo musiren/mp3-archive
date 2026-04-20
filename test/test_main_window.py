@@ -744,12 +744,12 @@ class TestTheme(unittest.TestCase):
         win.close()
 
     def test_theme_cycles_through_all(self):
-        """Verify that clicking btn_theme cycles system → light → dark → system."""
+        """Verify that triggering action_theme cycles system → light → dark → system."""
         win = self._make_window()
         win._apply_theme("system")
         expected = ["light", "dark", "system"]
         for mode in expected:
-            win.btn_theme.click()
+            win.action_theme.trigger()
             saved = win._settings.value("ui/theme", "system")
             self.assertEqual(saved, mode)
         win.close()
@@ -768,15 +768,6 @@ class TestTheme(unittest.TestCase):
         win._apply_theme("system")
         self.assertIn("QToolTip", _app.styleSheet())
         self.assertIn("padding", _app.styleSheet())
-        win.close()
-
-    def test_btn_label_matches_active_theme(self):
-        """Verify that the theme button label matches the current theme."""
-        win = self._make_window()
-        labels = {"system": "💻 시스템", "light": "☀ 라이트", "dark": "🌙 다크"}
-        for theme, label in labels.items():
-            win._apply_theme(theme)
-            self.assertEqual(win.btn_theme.text(), label)
         win.close()
 
 
