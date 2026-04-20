@@ -239,6 +239,9 @@ QMenu {
     color: #1a1a1a;
     border: 1px solid #c0c0c0;
 }
+QMenu::item {
+    padding: 4px 80px 4px 20px;
+}
 QMenu::item:selected { background-color: #cce0ff; }
 QToolTip {
     background-color: #ffffcc;
@@ -311,6 +314,9 @@ QMenu {
     background-color: #2b2b2b;
     color: #e8e8e8;
     border: 1px solid #555555;
+}
+QMenu::item {
+    padding: 4px 80px 4px 20px;
 }
 QMenu::item:selected { background-color: #3a5a8a; }
 QToolTip {
