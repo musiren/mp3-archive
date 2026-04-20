@@ -465,6 +465,17 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
+
+        # Menu bar actions
+        self.action_browse.triggered.connect(self._on_browse_clicked)
+        self.action_playlist_save.triggered.connect(self._on_playlist_save_clicked)
+        self.action_playlist_load.triggered.connect(self._on_playlist_load_clicked)
+        self.action_playlist_clear.triggered.connect(self._on_playlist_clear_clicked)
+        self.action_quit.triggered.connect(QApplication.instance().quit)
+        self.action_scan.triggered.connect(self._on_scan_clicked)
+        self.action_force_scan.triggered.connect(self._on_force_scan_clicked)
+        self.action_view_toggle.triggered.connect(self._on_view_toggle_clicked)
+        self.action_theme.triggered.connect(self._on_theme_clicked)
         self.action_about.triggered.connect(self._on_about_clicked)
 
         # Tree view
