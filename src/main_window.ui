@@ -750,6 +750,9 @@
    <property name="text">
     <string>트리/테이블 전환</string>
    </property>
+   <property name="shortcut">
+    <string>Ctrl+T</string>
+   </property>
   </action>
   <action name="action_theme">
    <property name="text">
@@ -759,6 +762,9 @@
   <action name="action_about">
    <property name="text">
     <string>About mp3-archive</string>
+   </property>
+   <property name="shortcut">
+    <string>F1</string>
    </property>
   </action>
  </widget>
