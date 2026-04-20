@@ -719,8 +719,7 @@ class MainWindow(QMainWindow):
 
     def _on_about_clicked(self) -> None:
         """Show an About dialog with the application version read from NEWS."""
-        from PyQt6.QtCore import QSizePolicy
-        from PyQt6.QtWidgets import QSpacerItem
+        from PyQt6.QtWidgets import QSizePolicy, QSpacerItem
         version = _read_version()
         msg = QMessageBox(self)
         msg.setWindowTitle("mp3-archive 정보")
