@@ -744,12 +744,12 @@ class TestTheme(unittest.TestCase):
         win.close()
 
     def test_theme_cycles_through_all(self):
-        """Verify that clicking btn_theme cycles system → light → dark → system."""
+        """Verify that triggering action_theme cycles system → light → dark → system."""
         win = self._make_window()
         win._apply_theme("system")
         expected = ["light", "dark", "system"]
         for mode in expected:
-            win.btn_theme.click()
+            win.action_theme.trigger()
             saved = win._settings.value("ui/theme", "system")
             self.assertEqual(saved, mode)
         win.close()
@@ -768,15 +768,6 @@ class TestTheme(unittest.TestCase):
         win._apply_theme("system")
         self.assertIn("QToolTip", _app.styleSheet())
         self.assertIn("padding", _app.styleSheet())
-        win.close()
-
-    def test_btn_label_matches_active_theme(self):
-        """Verify that the theme button label matches the current theme."""
-        win = self._make_window()
-        labels = {"system": "💻 시스템", "light": "☀ 라이트", "dark": "🌙 다크"}
-        for theme, label in labels.items():
-            win._apply_theme(theme)
-            self.assertEqual(win.btn_theme.text(), label)
         win.close()
 
 
@@ -1054,40 +1045,40 @@ class TestTreeView(unittest.TestCase):
         if hasattr(self, "_db_path") and os.path.exists(self._db_path):
             os.unlink(self._db_path)
 
-    def test_default_view_is_table(self):
-        """Verify that the table view (page 0) is shown on startup."""
+    def test_default_view_is_tree(self):
+        """Verify that the tree view (page 1) is shown on startup."""
         win = self._make_window()
+        self.assertEqual(win.view_stack.currentIndex(), 1)
+        win.close()
+
+    def test_toggle_switches_to_table(self):
+        """Verify that clicking view toggle switches to table view (page 0)."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
         self.assertEqual(win.view_stack.currentIndex(), 0)
         win.close()
 
-    def test_toggle_switches_to_tree(self):
-        """Verify that clicking view toggle switches to tree view (page 1)."""
+    def test_toggle_switches_back_to_tree(self):
+        """Verify that clicking view toggle twice returns to tree view."""
         win = self._make_window()
+        win.btn_view_toggle.click()
         win.btn_view_toggle.click()
         self.assertEqual(win.view_stack.currentIndex(), 1)
         win.close()
 
-    def test_toggle_switches_back_to_table(self):
-        """Verify that clicking view toggle twice returns to table view."""
+    def test_toggle_button_label_changes_to_tree(self):
+        """Verify that the toggle button shows '🌲 트리' when in table view."""
         win = self._make_window()
-        win.btn_view_toggle.click()
-        win.btn_view_toggle.click()
-        self.assertEqual(win.view_stack.currentIndex(), 0)
-        win.close()
-
-    def test_toggle_button_label_changes_to_table(self):
-        """Verify that the toggle button shows '📋 테이블' when in tree view."""
-        win = self._make_window()
-        win.btn_view_toggle.click()
-        self.assertIn("테이블", win.btn_view_toggle.text())
-        win.close()
-
-    def test_toggle_button_label_returns_to_tree(self):
-        """Verify that the toggle button shows '🌲 트리' when back in table view."""
-        win = self._make_window()
-        win.btn_view_toggle.click()
         win.btn_view_toggle.click()
         self.assertIn("트리", win.btn_view_toggle.text())
+        win.close()
+
+    def test_toggle_button_label_returns_to_table(self):
+        """Verify that the toggle button shows '📋 테이블' when back in tree view."""
+        win = self._make_window()
+        win.btn_view_toggle.click()
+        win.btn_view_toggle.click()
+        self.assertIn("테이블", win.btn_view_toggle.text())
         win.close()
 
     def test_fill_tree_creates_top_level_items(self):

@@ -201,7 +201,7 @@
       <item>
        <widget class="QPushButton" name="btn_view_toggle">
         <property name="text">
-         <string>🌲 트리</string>
+         <string>📋 테이블</string>
         </property>
         <property name="toolTip">
          <string>테이블 보기와 경로 트리 보기를 전환합니다</string>
@@ -226,22 +226,6 @@
          </size>
         </property>
        </spacer>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btn_theme">
-        <property name="text">
-         <string>🌙 다크</string>
-        </property>
-        <property name="toolTip">
-         <string>테마 전환: 시스템 → 라이트 → 다크</string>
-        </property>
-        <property name="minimumWidth">
-         <number>90</number>
-        </property>
-        <property name="maximumWidth">
-         <number>90</number>
-        </property>
-       </widget>
       </item>
       <item>
        <widget class="QLabel" name="status_label">
@@ -272,7 +256,7 @@
       <!-- View stack: table (page 0) and path tree (page 1) -->
       <widget class="QStackedWidget" name="view_stack">
        <property name="currentIndex">
-        <number>0</number>
+        <number>1</number>
        </property>
        <!-- Page 0: MP3 table -->
        <widget class="QWidget" name="page_table">

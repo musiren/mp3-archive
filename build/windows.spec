@@ -1,5 +1,5 @@
 # build/windows.spec
-# PyInstaller spec file for building mp3-archive.exe (Windows, standalone).
+# PyInstaller spec file for building mp3-archive (Windows, onedir).
 #
 # Build command (run from project root):
 #   pyinstaller build/windows.spec
@@ -8,7 +8,7 @@
 #   pip install pyinstaller pyqt6 mutagen
 #
 # Output:
-#   dist/mp3-archive.exe  (single self-contained executable)
+#   dist/mp3-archive/mp3-archive.exe  (onedir bundle, no temp extraction)
 
 import os
 import sys
@@ -94,21 +94,21 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onedir: exe references binaries/data in COLLECT rather than embedding them.
+# No temp extraction at runtime — eliminates the "Failed to remove temporary
+# directory" warning popup and makes startup significantly faster.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+    [],
+    exclude_binaries=True,
 
-    # Single-file executable (extracts to %TEMP% at runtime)
     name="mp3-archive",
-    onefile=True,
 
     # No console window (GUI application)
     console=False,
@@ -120,8 +120,18 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,          # Compress with UPX if available (reduces size)
+    upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     icon=os.path.join(ROOT, "assets", "icon.ico"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="mp3-archive",
 )

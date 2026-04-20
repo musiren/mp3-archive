@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
 # ---------------------------------------------------------------------------
-# Locate WiX Toolset v3 (candle.exe / light.exe)
+# Locate WiX Toolset v3 (candle.exe / light.exe / heat.exe)
 # ---------------------------------------------------------------------------
 function Find-WixBin {
     # 1. Already on PATH
@@ -42,7 +42,6 @@ function Find-WixBin {
     )
     foreach ($base in $searchRoots) {
         if (-not $base -or -not (Test-Path $base)) { continue }
-        # Use foreach loop (not ForEach-Object) so return exits the function
         $dirs = Get-ChildItem -Path $base -Filter "WiX*" -Directory -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -match "v?3\." -or $_.Name -match "Toolset" } |
                     Sort-Object Name -Descending
@@ -72,9 +71,11 @@ if ($wixBin) {
     Write-Host "==> WiX found: $wixBin"
     $candle = Join-Path $wixBin "candle.exe"
     $light  = Join-Path $wixBin "light.exe"
+    $heat   = Join-Path $wixBin "heat.exe"
 } else {
     $candle = "candle"
     $light  = "light"
+    $heat   = "heat"
 }
 
 # ---------------------------------------------------------------------------
@@ -95,28 +96,61 @@ $WixVersion = "$yy.$month.$day.0"         # "26.4.7.0"
 Write-Host "==> Version from NEWS: $raw  ->  WiX: $WixVersion"
 
 # ---------------------------------------------------------------------------
-# Step 1: Build EXE with PyInstaller
+# Step 1: Build onedir bundle with PyInstaller
 # ---------------------------------------------------------------------------
-Write-Host "==> Building EXE with PyInstaller..."
+Write-Host "==> Building onedir bundle with PyInstaller..."
 Push-Location $Root
 python.exe -m PyInstaller build\windows.spec
 Pop-Location
 
-# ---------------------------------------------------------------------------
-# Step 2: Compile WiX source
-# ---------------------------------------------------------------------------
-Write-Host "==> Running candle..."
-$wxsFile  = Join-Path $Root "build\installer.wxs"
-$wixObj   = Join-Path $Root "build\installer.wixobj"
-& $candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
+$distDir = Join-Path $Root "dist\mp3-archive"
+if (-not (Test-Path $distDir)) {
+    Write-Error "PyInstaller output not found: $distDir"
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
-# Step 3: Link into MSI
+# Step 2: Harvest dist\mp3-archive\ into build\files.wxs (AppFiles group)
+# ---------------------------------------------------------------------------
+Write-Host "==> Harvesting app files with heat..."
+$filesWxs = Join-Path $Root "build\files.wxs"
+& $heat dir $distDir `
+    -cg AppFiles `
+    -dr INSTALLDIR `
+    -gg `
+    -scom `
+    -sfrag `
+    -sreg `
+    -srd `
+    -var var.SourceDir `
+    -o $filesWxs
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "heat failed (exit $LASTEXITCODE)"
+    exit $LASTEXITCODE
+}
+
+# ---------------------------------------------------------------------------
+# Step 3: Compile WiX sources
+# ---------------------------------------------------------------------------
+Write-Host "==> Running candle..."
+$wxsFile      = Join-Path $Root "build\installer.wxs"
+$wixObj       = Join-Path $Root "build\installer.wixobj"
+$filesWixObj  = Join-Path $Root "build\files.wixobj"
+
+& $candle $wxsFile "-dVersion=$WixVersion" -o $wixObj
+if ($LASTEXITCODE -ne 0) { Write-Error "candle failed on installer.wxs"; exit $LASTEXITCODE }
+
+& $candle $filesWxs "-dSourceDir=$distDir" -o $filesWixObj
+if ($LASTEXITCODE -ne 0) { Write-Error "candle failed on files.wxs"; exit $LASTEXITCODE }
+
+# ---------------------------------------------------------------------------
+# Step 4: Link into MSI
 # ---------------------------------------------------------------------------
 Write-Host "==> Running light..."
 $msiOut = Join-Path $Root "dist\mp3-archive.msi"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "dist") | Out-Null
-& $light $wixObj -ext WixUIExtension -o $msiOut
+& $light $wixObj $filesWixObj -ext WixUIExtension -o $msiOut
+if ($LASTEXITCODE -ne 0) { Write-Error "light failed"; exit $LASTEXITCODE }
 
 Write-Host ""
 Write-Host "Done: $msiOut"

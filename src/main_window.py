@@ -471,7 +471,6 @@ class MainWindow(QMainWindow):
         self.search_edit.returnPressed.connect(self._on_search_clicked)
         self.search_edit.textChanged.connect(self._on_search_text_changed)
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
-        self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
 
         # Menu bar actions
@@ -708,7 +707,6 @@ class MainWindow(QMainWindow):
             QApplication.instance().setStyleSheet(
                 "QToolTip { padding: 4px 8px; }"
             )
-        self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
         # Re-apply highlight so playing-row colour matches the new theme
         self._highlight_playing_row(self._playing_index)
@@ -721,12 +719,22 @@ class MainWindow(QMainWindow):
 
     def _on_about_clicked(self) -> None:
         """Show an About dialog with the application version read from NEWS."""
+        from PyQt6.QtGui import QPixmap
+        from PyQt6.QtWidgets import QSizePolicy, QSpacerItem
         version = _read_version()
-        QMessageBox.about(
-            self,
-            "mp3-archive 정보",
-            f"<b>mp3-archive</b><br>버전: {version}",
-        )
+        msg = QMessageBox(self)
+        msg.setWindowTitle("mp3-archive 정보")
+        msg.setText(f"<b>mp3-archive</b><br>버전: {version}")
+        msg.setIconPixmap(QPixmap(_ICON_FILE).scaled(
+            64, 64,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+        # Force minimum width so the title is not truncated
+        layout = msg.layout()
+        spacer = QSpacerItem(420, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        layout.addItem(spacer, layout.rowCount(), 0, 1, layout.columnCount())
+        msg.exec()
 
     # ------------------------------------------------------------------
     # Qt event filter: handle drag-and-drop onto playlist
@@ -1808,13 +1816,13 @@ class MainWindow(QMainWindow):
         return paths
 
     def _on_view_toggle_clicked(self) -> None:
-        """Toggle between table view (page 0) and tree view (page 1)."""
-        if self.view_stack.currentIndex() == 0:
-            self.view_stack.setCurrentIndex(1)
-            self.btn_view_toggle.setText("📋 테이블")
-        else:
+        """Toggle between tree view (page 1, default) and table view (page 0)."""
+        if self.view_stack.currentIndex() == 1:
             self.view_stack.setCurrentIndex(0)
             self.btn_view_toggle.setText("🌲 트리")
+        else:
+            self.view_stack.setCurrentIndex(1)
+            self.btn_view_toggle.setText("📋 테이블")
 
     def _on_tree_double_clicked(self, item) -> None:
         """

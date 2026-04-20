@@ -135,7 +135,7 @@ python src/main_window.py
 
 ```bash
 pyinstaller build/windows.spec
-# 결과물: dist/mp3-archive.exe
+# 결과물: dist/mp3-archive/mp3-archive.exe  (onedir 번들)
 ```
 
 ### Windows — MSI (설치 패키지)
