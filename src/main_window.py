@@ -239,11 +239,15 @@ QMenu {
     color: #1a1a1a;
     border: 1px solid #c0c0c0;
 }
+QMenu::item {
+    padding: 4px 80px 4px 20px;
+}
 QMenu::item:selected { background-color: #cce0ff; }
 QToolTip {
     background-color: #ffffcc;
     color: #1a1a1a;
     border: 1px solid #c0c0c0;
+    padding: 4px 8px;
 }
 """
 
@@ -311,11 +315,15 @@ QMenu {
     color: #e8e8e8;
     border: 1px solid #555555;
 }
+QMenu::item {
+    padding: 4px 80px 4px 20px;
+}
 QMenu::item:selected { background-color: #3a5a8a; }
 QToolTip {
     background-color: #3c3c3c;
     color: #e8e8e8;
     border: 1px solid #555555;
+    padding: 4px 8px;
 }
 """
 
@@ -465,7 +473,18 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
-        self.btn_about.clicked.connect(self._on_about_clicked)
+
+        # Menu bar actions
+        self.action_browse.triggered.connect(self._on_browse_clicked)
+        self.action_playlist_save.triggered.connect(self._on_playlist_save_clicked)
+        self.action_playlist_load.triggered.connect(self._on_playlist_load_clicked)
+        self.action_playlist_clear.triggered.connect(self._on_playlist_clear_clicked)
+        self.action_quit.triggered.connect(QApplication.instance().quit)
+        self.action_scan.triggered.connect(self._on_scan_clicked)
+        self.action_force_scan.triggered.connect(self._on_force_scan_clicked)
+        self.action_view_toggle.triggered.connect(self._on_view_toggle_clicked)
+        self.action_theme.triggered.connect(self._on_theme_clicked)
+        self.action_about.triggered.connect(self._on_about_clicked)
 
         # Tree view
         self.tree_widget.itemDoubleClicked.connect(self._on_tree_double_clicked)
@@ -686,7 +705,9 @@ class MainWindow(QMainWindow):
         elif theme == "light":
             QApplication.instance().setStyleSheet(_QSS_LIGHT)
         else:
-            QApplication.instance().setStyleSheet("")
+            QApplication.instance().setStyleSheet(
+                "QToolTip { padding: 4px 8px; }"
+            )
         self.btn_theme.setText(_labels.get(theme, "💻 시스템"))
         self._settings.setValue(_KEY_THEME, theme)
         # Re-apply highlight so playing-row colour matches the new theme
@@ -1281,8 +1302,7 @@ class MainWindow(QMainWindow):
         Args:
             item: The list widget item that was double-clicked.
         """
-        path = item.data(Qt.ItemDataRole.UserRole)
-        self._play_path(path)
+        self._playlist_play_index(self.playlist_widget.row(item))
 
     def _on_table_double_clicked(self, row: int, _col: int) -> None:
         """
@@ -1697,12 +1717,17 @@ class MainWindow(QMainWindow):
             self.count_label.setText(f"검색 결과: {n}곡 / 전체 {total}곡")
         else:
             self.count_label.setText(f"전체 {n}곡")
-        self._fill_tree(files)
+        self._fill_tree(files, self.path_edit.text().strip())
 
-    def _fill_tree(self, files: list) -> None:
+    def _fill_tree(self, files: list, base_dir: str = "") -> None:
         """
         Populate the tree widget with a directory hierarchy derived from
         the file paths in *files*.
+
+        Paths are shown relative to *base_dir* (the configured music
+        directory) so the tree root matches the selected scan location.
+        If *base_dir* is empty or a path cannot be made relative, the
+        full absolute path components are used as a fallback.
 
         Directory nodes are non-draggable parents; file nodes store the
         absolute path in Qt.ItemDataRole.UserRole and can be dragged to
@@ -1711,20 +1736,29 @@ class MainWindow(QMainWindow):
         Args:
             files: List of record dicts as returned by Mp3Manager.list_files()
                    or Mp3Manager.search().
+            base_dir: Absolute path of the configured music directory used
+                      as the tree root.
         """
         from pathlib import Path
         from PyQt6.QtWidgets import QTreeWidgetItem
 
         self.tree_widget.clear()
 
+        base = Path(base_dir) if base_dir else None
+
         # Build a nested dict representing the directory tree.
         # Each node is a dict whose keys are either sub-directory names or
         # the sentinel "__files__" (value: list of file dicts at that level).
         dir_tree: dict = {}
         for f in files:
-            parts = Path(f["path"]).parts  # e.g. ('/', 'music', 'pop', 'song.mp3')
+            full = Path(f["path"])
+            try:
+                rel = full.relative_to(base) if base else full
+            except ValueError:
+                rel = full
+            parts = rel.parts          # relative parts, last element is filename
             node = dir_tree
-            for part in parts[:-1]:        # directory components
+            for part in parts[:-1]:   # directory components only
                 node = node.setdefault(part, {"__files__": []})
             node.setdefault("__files__", []).append(f)
 

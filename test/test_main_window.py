@@ -392,6 +392,34 @@ class TestPlaylist(unittest.TestCase):
         self.assertEqual(item1.background(), QBrush())
         win.close()
 
+    def test_double_click_playlist_clears_previous_highlight(self):
+        """Double-clicking a different playlist item removes the previous row's highlight."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._highlight_playing_row(0)
+        # Double-click row 1
+        item1 = win.playlist_widget.item(1)
+        win._on_playlist_double_clicked(item1)
+        item0 = win.playlist_widget.item(0)
+        # Previous row must be reset to null brush
+        self.assertEqual(item0.background(), QBrush())
+        win.close()
+
+    def test_double_click_playlist_highlights_new_row(self):
+        """Double-clicking a playlist item highlights that row."""
+        from PyQt6.QtGui import QBrush
+        win = self._make_window()
+        win._playlist_add("/music/a.mp3")
+        win._playlist_add("/music/b.mp3")
+        win._highlight_playing_row(0)
+        item1 = win.playlist_widget.item(1)
+        win._on_playlist_double_clicked(item1)
+        # New row must have a non-null brush
+        self.assertNotEqual(item1.background(), QBrush())
+        win.close()
+
     def test_highlight_playing_row_minus_one_resets_all(self):
         """Verify that _highlight_playing_row(-1) resets all rows to null brush."""
         from PyQt6.QtGui import QBrush
@@ -733,12 +761,13 @@ class TestTheme(unittest.TestCase):
         self.assertNotEqual(_app.styleSheet(), "")
         win.close()
 
-    def test_apply_system_clears_stylesheet(self):
-        """Verify that applying system theme clears the stylesheet."""
+    def test_apply_system_uses_minimal_stylesheet(self):
+        """Verify that applying system theme sets only the tooltip padding stylesheet."""
         win = self._make_window()
         win._apply_theme("dark")
         win._apply_theme("system")
-        self.assertEqual(_app.styleSheet(), "")
+        self.assertIn("QToolTip", _app.styleSheet())
+        self.assertIn("padding", _app.styleSheet())
         win.close()
 
     def test_btn_label_matches_active_theme(self):
@@ -1132,6 +1161,48 @@ class TestTreeView(unittest.TestCase):
         win._fill_tree([sample_info("/music/song.mp3")])
         win._fill_tree([])
         self.assertEqual(win.tree_widget.topLevelItemCount(), 0)
+        win.close()
+
+    def test_fill_tree_base_dir_strips_prefix(self):
+        """With base_dir set, top-level items should be subdirs of the base, not absolute roots."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/pop/song.mp3")], base_dir="/music")
+        root = win.tree_widget.invisibleRootItem()
+        # Top-level item should be 'pop', not '/' or 'music'
+        self.assertEqual(root.child(0).text(0), "pop")
+        win.close()
+
+    def test_fill_tree_base_dir_file_at_root_level(self):
+        """Files directly in base_dir appear as top-level file nodes."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/song.mp3")], base_dir="/music")
+        from PyQt6.QtCore import Qt
+        root = win.tree_widget.invisibleRootItem()
+        # song.mp3 is directly under base_dir → top-level file node
+        top = root.child(0)
+        self.assertEqual(top.text(0), "song.mp3")
+        self.assertEqual(top.data(0, Qt.ItemDataRole.UserRole), "/music/song.mp3")
+        win.close()
+
+    def test_fill_tree_base_dir_absolute_path_preserved_in_user_role(self):
+        """File UserRole must always hold the original absolute path regardless of base_dir."""
+        win = self._make_window()
+        win._fill_tree([sample_info("/music/pop/song.mp3")], base_dir="/music")
+        from PyQt6.QtCore import Qt
+
+        def _find_file(parent):
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                if child.data(0, Qt.ItemDataRole.UserRole) is not None:
+                    return child
+                result = _find_file(child)
+                if result:
+                    return result
+            return None
+
+        file_item = _find_file(win.tree_widget.invisibleRootItem())
+        self.assertIsNotNone(file_item)
+        self.assertEqual(file_item.data(0, Qt.ItemDataRole.UserRole), "/music/pop/song.mp3")
         win.close()
 
     def test_collect_tree_paths_file_node(self):

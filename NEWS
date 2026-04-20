@@ -1,6 +1,29 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260420 (2026-04-20)
+===========================================================================
+
+New features
+------------
+- Menu bar: added 파일 / 스캔 / 보기 / 도움말 menus covering all major
+  actions with keyboard shortcuts (Ctrl+O, Ctrl+S, Ctrl+L, Ctrl+Q,
+  F5, Ctrl+F5, Ctrl+T, F1)
+- Tree view: root is now the configured music directory instead of the
+  filesystem root, showing only the relevant subdirectory structure
+
+Bug fixes / improvements
+------------------------
+- Playlist: double-clicking a different song now correctly clears the
+  previous track's highlight before highlighting the new one
+- Menu items: added QMenu::item padding so shortcut text no longer
+  overlaps action labels in custom themes
+- Tooltips: added 4px 8px padding to QToolTip in all themes (including
+  system theme) for consistent spacing
+- About: moved from toolbar '?' button to 도움말 > About mp3-archive
+  menu entry (F1)
+
+===========================================================================
 v20260419 (2026-04-19)
 ===========================================================================
 
