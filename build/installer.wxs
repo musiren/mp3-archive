@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   build/installer.wxs
-  WiX Toolset v3 installer definition for mp3-archive.
+  WiX Toolset v3 installer definition for mp3-archive (onedir build).
 
   Prerequisites (Windows only):
-    1. Build the exe first:
+    1. Build the onedir bundle first:
          pyinstaller build/windows.spec
     2. Install WiX Toolset v3:
          https://github.com/wixtoolset/wix3/releases
-    3. Build the MSI (run from project root):
-         candle build\installer.wxs -o build\installer.wixobj
-         light  build\installer.wixobj -ext WixUIExtension -o dist\mp3-archive.msi
+    3. Build the MSI via the helper script (run from project root):
+         powershell -ExecutionPolicy Bypass -File build\build_msi.ps1
+
+  The build script runs heat.exe to harvest dist\mp3-archive\ into
+  build\files.wxs (AppFiles component group), then compiles and links
+  both this file and files.wxs into the final MSI.
 
   Output:
     dist\mp3-archive.msi
@@ -18,7 +21,6 @@
   Notes:
     - UpgradeCode must NEVER change across versions (identifies this product family).
     - Product Id="*" generates a new GUID per build, enabling MajorUpgrade.
-    - Component GUIDs must stay stable; only change them if the install path changes.
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
@@ -55,26 +57,9 @@
     <!-- ================================================================== -->
     <Directory Id="TARGETDIR" Name="SourceDir">
 
-      <!-- C:\Program Files\mp3-archive\ -->
+      <!-- C:\Program Files\mp3-archive\ (all files harvested by heat) -->
       <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLDIR" Name="mp3-archive">
-
-          <!-- Main executable -->
-          <Component Id="MainExecutable"
-                     Guid="{5F622568-EBAA-4B82-8428-CE1B65E9A7D6}">
-            <File Id="MainExe"
-                  Source="..\dist\mp3-archive.exe"
-                  KeyPath="yes" />
-
-            <!-- Desktop shortcut (created in user's desktop) -->
-            <Shortcut Id="DesktopShortcut"
-                      Directory="DesktopFolder"
-                      Name="mp3-archive"
-                      WorkingDirectory="INSTALLDIR"
-                      Advertise="yes" />
-          </Component>
-
-        </Directory>
+        <Directory Id="INSTALLDIR" Name="mp3-archive" />
       </Directory>
 
       <!-- Start Menu: Programs\mp3-archive\ -->
@@ -109,7 +94,22 @@
         </Directory>
       </Directory>
 
-      <Directory Id="DesktopFolder" />
+      <Directory Id="DesktopFolder">
+        <Component Id="DesktopShortcut"
+                   Guid="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
+          <Shortcut Id="DesktopShortcut"
+                    Name="mp3-archive"
+                    Target="[INSTALLDIR]mp3-archive.exe"
+                    WorkingDirectory="INSTALLDIR"
+                    Icon="AppIcon" />
+          <RegistryValue Root="HKCU"
+                         Key="Software\musiren\mp3-archive"
+                         Name="DesktopInstalled"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+        </Component>
+      </Directory>
 
     </Directory>
 
@@ -117,8 +117,10 @@
     <!-- Features                                                           -->
     <!-- ================================================================== -->
     <Feature Id="ProductFeature" Title="mp3-archive" Level="1">
-      <ComponentRef Id="MainExecutable" />
+      <!-- All app files harvested from dist\mp3-archive\ by heat.exe -->
+      <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
 
     <!-- ================================================================== -->
