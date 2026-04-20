@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
         self.chk_search_tags.toggled.connect(self._on_search_text_changed)
         self.btn_theme.clicked.connect(self._on_theme_clicked)
         self.btn_view_toggle.clicked.connect(self._on_view_toggle_clicked)
-        self.btn_about.clicked.connect(self._on_about_clicked)
+        self.action_about.triggered.connect(self._on_about_clicked)
 
         # Tree view
         self.tree_widget.itemDoubleClicked.connect(self._on_tree_double_clicked)

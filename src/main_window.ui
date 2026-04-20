@@ -244,22 +244,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="btn_about">
-        <property name="text">
-         <string>?</string>
-        </property>
-        <property name="toolTip">
-         <string>버전 정보</string>
-        </property>
-        <property name="minimumWidth">
-         <number>30</number>
-        </property>
-        <property name="maximumWidth">
-         <number>30</number>
-        </property>
-       </widget>
-      </item>
-      <item>
        <widget class="QLabel" name="status_label">
         <property name="text">
          <string>준비</string>
@@ -671,6 +655,20 @@
     </item>
    </layout>
   </widget>
+  <widget class="QMenuBar" name="menubar">
+   <widget class="QMenu" name="menu_help">
+    <property name="title">
+     <string>도움말</string>
+    </property>
+    <addaction name="action_about"/>
+   </widget>
+   <addaction name="menu_help"/>
+  </widget>
+  <action name="action_about">
+   <property name="text">
+    <string>About mp3-archive</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>
