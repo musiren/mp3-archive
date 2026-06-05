@@ -23,8 +23,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -q
+          sudo apt-get install -y -q \
             git zip unzip ant \
             libffi-dev libssl-dev \
             libsqlite3-dev zlib1g-dev \
@@ -32,95 +32,49 @@ jobs:
             libncurses5-dev libncursesw5-dev \
             cmake
 
-      - name: Diagnose pre-installed Android SDK
-        run: |
-          echo "=== ANDROID_SDK_ROOT ===" && echo "${ANDROID_SDK_ROOT:-not set}"
-          echo "=== All sdkmanager binaries on this runner ==="
-          find /usr /opt /home -name "sdkmanager" 2>/dev/null || true
-          echo "=== cmdline-tools dirs ==="
-          find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" \
-               -maxdepth 3 -name "sdkmanager" 2>/dev/null || true
-          echo "=== ls cmdline-tools ==="
-          ls "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/cmdline-tools/" 2>/dev/null || echo "no cmdline-tools"
-          echo "=== NDK dirs ==="
-          ls "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk/" 2>/dev/null || echo "no ndk"
-          echo "=== Test running system sdkmanager ==="
-          SDKMGR=$(find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" \
-                        -name "sdkmanager" 2>/dev/null | head -1)
-          if [ -n "$SDKMGR" ]; then
-            echo "Found: $SDKMGR"
-            "$SDKMGR" --version 2>&1 || echo "exit $?"
-          else
-            echo "sdkmanager not found anywhere"
-          fi
-
-      - name: Bootstrap Android SDK under HOME
+      - name: Bootstrap Android SDK
         run: |
           SDK="$HOME/android-sdk"
           mkdir -p "$SDK/cmdline-tools"
 
-          DOWNLOADED=0
           for BUILD in 10406996 9477386 8512546; do
             URL="https://dl.google.com/android/repository/commandlinetools-linux-${BUILD}_latest.zip"
-            echo "Trying $URL"
-            if wget -q "$URL" -O /tmp/cmdtools.zip; then
-              echo "Downloaded build $BUILD"
-              DOWNLOADED=1
-              break
-            fi
+            wget -q "$URL" -O /tmp/cmdtools.zip && break
           done
-          [ "$DOWNLOADED" -eq 1 ] || { echo "All cmdline-tools URLs failed"; exit 1; }
-
           unzip -q /tmp/cmdtools.zip -d /tmp/
-          echo "=== extracted to /tmp/ ==="
-          ls /tmp/cmdline-tools/ 2>/dev/null || { ls /tmp/ | head -20; echo "unexpected structure"; exit 1; }
-
           mv /tmp/cmdline-tools "$SDK/cmdline-tools/latest"
 
           SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          echo "sdkmanager path: $SDKMGR"
-          ls -la "$SDKMGR"
-          echo "sdkmanager version: $($SDKMGR --version)"
 
-          # p4a only checks tools/bin/sdkmanager (old location).
-          # Create a wrapper there that delegates to the real binary.
+          # p4a checks tools/bin/sdkmanager; create a wrapper there
           mkdir -p "$SDK/tools/bin"
           printf '#!/bin/bash\nexec "%s" "$@"\n' "$SDKMGR" > "$SDK/tools/bin/sdkmanager"
           chmod +x "$SDK/tools/bin/sdkmanager"
-          echo "wrapper created: $("$SDK/tools/bin/sdkmanager" --version)"
 
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
           yes | "$SDKMGR" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
           "$SDKMGR" --sdk_root="$SDK" \
-            "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+            "platform-tools" "platforms;android-33" "build-tools;33.0.2" >/dev/null
 
           NDK_DIR="/usr/local/lib/android/sdk/ndk/28.2.13676358"
-          if [ ! -d "$NDK_DIR" ]; then
-            NDK_DIR=$(find "/usr/local/lib/android/sdk/ndk" -maxdepth 1 \
+          [ ! -d "$NDK_DIR" ] && \
+            NDK_DIR=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 \
                       -name "28.*" -type d 2>/dev/null | sort -V | tail -1)
-          fi
           if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
-            echo "Installing NDK 28.2.13676358..."
-            "$SDKMGR" --sdk_root="$SDK" "ndk;28.2.13676358"
+            "$SDKMGR" --sdk_root="$SDK" "ndk;28.2.13676358" >/dev/null
             NDK_DIR="$SDK/ndk/28.2.13676358"
           fi
           echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
-          echo "Using NDK: $NDK_DIR"
 
       - name: Install buildozer and Cython
-        run: pip install buildozer cython virtualenv
+        run: pip install -q buildozer cython virtualenv
 
       - name: Point buildozer at SDK and NDK
         run: |
-          echo "=== ANDROID_SDK_ROOT in this step: $ANDROID_SDK_ROOT ==="
-          echo "=== NDK_DIR in this step: $NDK_DIR ==="
           sed -i \
             "s|^\[buildozer\]|android.sdk_path = $ANDROID_SDK_ROOT\nandroid.ndk_path = $NDK_DIR\n\n[buildozer]|" \
             buildozer.spec
-          echo "=== relevant buildozer.spec lines ==="
-          grep -E "sdk_path|ndk_path|^\[" buildozer.spec
 
       - name: Cache buildozer global directory
         uses: actions/cache@v4
@@ -130,7 +84,7 @@ jobs:
           restore-keys: buildozer-${{ runner.os }}-
 
       - name: Build debug APK
-        run: buildozer -v android debug
+        run: buildozer android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
