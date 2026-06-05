@@ -17,44 +17,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Sets up ANDROID_SDK_ROOT and adds cmdline-tools to PATH.
-      - uses: android-actions/setup-android@v3
-
-      # The runner may have cmdline-tools installed at a versioned dir
-      # (e.g. cmdline-tools/9.0) but not at the "latest" symlink that
-      # buildozer requires.  Without it buildozer falls back to the legacy
-      # tools/bin/sdkmanager which crashes on Java 17 (missing JAXB module).
-      - name: Ensure cmdline-tools/latest exists
-        run: |
-          TOOLS="$ANDROID_SDK_ROOT/cmdline-tools"
-          echo "=== cmdline-tools contents ==="
-          ls "$TOOLS" 2>/dev/null || echo "(empty)"
-          if [ ! -f "$TOOLS/latest/bin/sdkmanager" ]; then
-            EXISTING=$(ls "$TOOLS" 2>/dev/null | grep -v latest | sort -V | tail -1)
-            if [ -n "$EXISTING" ]; then
-              ln -sfn "$TOOLS/$EXISTING" "$TOOLS/latest"
-              echo "Linked cmdline-tools/$EXISTING → latest"
-            else
-              echo "ERROR: no cmdline-tools version found" && exit 1
-            fi
-          fi
-          echo "sdkmanager version: $("$TOOLS/latest/bin/sdkmanager" --version)"
-
-      - name: Install build-tools and locate NDK
-        run: |
-          sdkmanager "build-tools;33.0.2"
-
-          NDK_DIR=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "25.*" -type d \
-                    2>/dev/null | sort -V | tail -1)
-          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
-            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
-          fi
-          if [ -z "$NDK_DIR" ]; then
-            echo "No NDK found. Available:" && ls "$ANDROID_SDK_ROOT/ndk" 2>/dev/null && exit 1
-          fi
-          echo "Using NDK: $NDK_DIR"
-          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -70,10 +32,59 @@ jobs:
             libncurses5-dev libncursesw5-dev \
             cmake
 
+      # The ubuntu-22.04 runner ships an old tools/bin/sdkmanager that crashes
+      # on Java 17 (javax.xml.bind removed from JDK 11+).  android-actions/
+      # setup-android skips cmdline-tools installation when the SDK dir already
+      # exists, so we bypass it entirely: download fresh cmdline-tools from
+      # Google into $HOME/android-sdk where we have guaranteed write access.
+      - name: Set up Android SDK with Java-17-compatible sdkmanager
+        run: |
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+
+          # Try cmdline-tools 11.0 first, fall back to 9.0
+          wget -q \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            -O /tmp/cmdtools.zip \
+          || wget -q \
+            https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip \
+            -O /tmp/cmdtools.zip
+
+          unzip -q /tmp/cmdtools.zip -d /tmp/
+          mv /tmp/cmdline-tools "$SDK/cmdline-tools/latest"
+
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          echo "sdkmanager version: $("$SDKMGR" --version)"
+
+          # Accept all licenses silently
+          yes | "$SDKMGR" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+
+          # Install required SDK components
+          "$SDKMGR" --sdk_root="$SDK" \
+            "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+          # Locate NDK from the runner image (prefer 25.x, fall back to latest)
+          RUNNER_NDK_ROOT="/usr/local/lib/android/sdk/ndk"
+          NDK_DIR=$(find "$RUNNER_NDK_ROOT" -maxdepth 1 -name "25.*" -type d \
+                    2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
+          fi
+          if [ -z "$NDK_DIR" ]; then
+            echo "No pre-installed NDK found — installing ndk;25.2.9519653"
+            "$SDKMGR" --sdk_root="$SDK" "ndk;25.2.9519653"
+            NDK_DIR="$SDK/ndk/25.2.9519653"
+          fi
+          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "Using NDK: $NDK_DIR"
+
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
 
-      - name: Point buildozer at pre-installed SDK and NDK
+      - name: Point buildozer at SDK and NDK
         run: |
           sed -i \
             "s|^\[buildozer\]|android.sdk_path = $ANDROID_SDK_ROOT\nandroid.ndk_path = $NDK_DIR\n\n[buildozer]|" \
