@@ -32,6 +32,28 @@ jobs:
             libncurses5-dev libncursesw5-dev \
             cmake
 
+      - name: Diagnose pre-installed Android SDK
+        run: |
+          echo "=== ANDROID_SDK_ROOT ===" && echo "${ANDROID_SDK_ROOT:-not set}"
+          echo "=== All sdkmanager binaries on this runner ==="
+          find /usr /opt /home -name "sdkmanager" 2>/dev/null || true
+          echo "=== cmdline-tools dirs ==="
+          find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" \
+               -maxdepth 3 -name "sdkmanager" 2>/dev/null || true
+          echo "=== ls cmdline-tools ==="
+          ls "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/cmdline-tools/" 2>/dev/null || echo "no cmdline-tools"
+          echo "=== NDK dirs ==="
+          ls "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk/" 2>/dev/null || echo "no ndk"
+          echo "=== Test running system sdkmanager ==="
+          SDKMGR=$(find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" \
+                        -name "sdkmanager" 2>/dev/null | head -1)
+          if [ -n "$SDKMGR" ]; then
+            echo "Found: $SDKMGR"
+            "$SDKMGR" --version 2>&1 || echo "exit $?"
+          else
+            echo "sdkmanager not found anywhere"
+          fi
+
       - name: Bootstrap Android SDK under HOME
         run: |
           SDK="$HOME/android-sdk"
@@ -50,10 +72,15 @@ jobs:
           [ "$DOWNLOADED" -eq 1 ] || { echo "All cmdline-tools URLs failed"; exit 1; }
 
           unzip -q /tmp/cmdtools.zip -d /tmp/
+          echo "=== extracted to /tmp/ ==="
+          ls /tmp/cmdline-tools/ 2>/dev/null || { ls /tmp/ | head -20; echo "unexpected structure"; exit 1; }
+
           mv /tmp/cmdline-tools "$SDK/cmdline-tools/latest"
 
           SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          echo "sdkmanager: $($SDKMGR --version)"
+          echo "sdkmanager path: $SDKMGR"
+          ls -la "$SDKMGR"
+          echo "sdkmanager version: $($SDKMGR --version)"
 
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
@@ -62,15 +89,13 @@ jobs:
           "$SDKMGR" --sdk_root="$SDK" \
             "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-          # Use the exact NDK version found on ubuntu-22.04 runners
           NDK_DIR="/usr/local/lib/android/sdk/ndk/28.2.13676358"
           if [ ! -d "$NDK_DIR" ]; then
-            # Fall back: find any NDK 28.x on the runner
             NDK_DIR=$(find "/usr/local/lib/android/sdk/ndk" -maxdepth 1 \
                       -name "28.*" -type d 2>/dev/null | sort -V | tail -1)
           fi
           if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
-            echo "Installing NDK 28.2.13676358 via sdkmanager..."
+            echo "Installing NDK 28.2.13676358..."
             "$SDKMGR" --sdk_root="$SDK" "ndk;28.2.13676358"
             NDK_DIR="$SDK/ndk/28.2.13676358"
           fi
@@ -82,10 +107,13 @@ jobs:
 
       - name: Point buildozer at SDK and NDK
         run: |
+          echo "=== ANDROID_SDK_ROOT in this step: $ANDROID_SDK_ROOT ==="
+          echo "=== NDK_DIR in this step: $NDK_DIR ==="
           sed -i \
             "s|^\[buildozer\]|android.sdk_path = $ANDROID_SDK_ROOT\nandroid.ndk_path = $NDK_DIR\n\n[buildozer]|" \
             buildozer.spec
-          echo "=== injected spec lines ===" && grep -E "sdk_path|ndk_path" buildozer.spec
+          echo "=== relevant buildozer.spec lines ==="
+          grep -E "sdk_path|ndk_path|^\[" buildozer.spec
 
       - name: Cache buildozer global directory
         uses: actions/cache@v4
