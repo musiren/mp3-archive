@@ -17,15 +17,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Sets up sdkmanager in PATH and exports ANDROID_SDK_ROOT.
+      # Sets up ANDROID_SDK_ROOT and adds cmdline-tools to PATH.
       - uses: android-actions/setup-android@v3
+
+      # The runner may have cmdline-tools installed at a versioned dir
+      # (e.g. cmdline-tools/9.0) but not at the "latest" symlink that
+      # buildozer requires.  Without it buildozer falls back to the legacy
+      # tools/bin/sdkmanager which crashes on Java 17 (missing JAXB module).
+      - name: Ensure cmdline-tools/latest exists
+        run: |
+          TOOLS="$ANDROID_SDK_ROOT/cmdline-tools"
+          echo "=== cmdline-tools contents ==="
+          ls "$TOOLS" 2>/dev/null || echo "(empty)"
+          if [ ! -f "$TOOLS/latest/bin/sdkmanager" ]; then
+            EXISTING=$(ls "$TOOLS" 2>/dev/null | grep -v latest | sort -V | tail -1)
+            if [ -n "$EXISTING" ]; then
+              ln -sfn "$TOOLS/$EXISTING" "$TOOLS/latest"
+              echo "Linked cmdline-tools/$EXISTING → latest"
+            else
+              echo "ERROR: no cmdline-tools version found" && exit 1
+            fi
+          fi
+          echo "sdkmanager version: $("$TOOLS/latest/bin/sdkmanager" --version)"
 
       - name: Install build-tools and locate NDK
         run: |
-          # Ensure build-tools 33.0.2 (contains aidl) is present
           sdkmanager "build-tools;33.0.2"
 
-          # Prefer NDK 25.x; fall back to whatever the runner exposes as latest
           NDK_DIR=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "25.*" -type d \
                     2>/dev/null | sort -V | tail -1)
           if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
@@ -55,9 +73,6 @@ jobs:
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
 
-      # Inject sdk_path and ndk_path so buildozer uses the pre-installed SDK
-      # rather than downloading its own copy. p4a resolves aidl as an absolute
-      # path inside sdk_path, so this is the only reliable fix.
       - name: Point buildozer at pre-installed SDK and NDK
         run: |
           sed -i \
