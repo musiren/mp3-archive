@@ -11,9 +11,9 @@ source.include_exts = py,png,jpg,kv,atlas
 
 version = 1.0.0
 
-# Python-for-android requirements.
-# KivyMD 1.2.0 requires Kivy 2.2.1.
-requirements = python3,kivy==2.2.1,kivymd==1.2.0,plyer,mutagen
+# Kivy 2.3.0+ uses Cython 3.x which does not depend on the `cgi` module
+# (removed in Python 3.13+). KivyMD 1.2.0 requires kivy>=2.1.0 so 2.3.0 is fine.
+requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,mutagen
 
 orientation = portrait
 fullscreen = 0
