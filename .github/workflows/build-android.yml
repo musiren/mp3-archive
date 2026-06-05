@@ -17,19 +17,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Install Android SDK and make build-tools/aidl available in PATH
-      # before buildozer runs so p4a can find it regardless of which SDK
-      # directory buildozer ends up using.
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
-        run: |
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
-          echo "$ANDROID_SDK_ROOT/build-tools/33.0.2" >> "$GITHUB_PATH"
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -47,6 +34,25 @@ jobs:
 
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
+
+      - name: Ensure NDK 25.2.9519653 is present
+        run: |
+          if [ ! -d "$ANDROID_SDK_ROOT/ndk/25.2.9519653" ]; then
+            sdkmanager "ndk;25.2.9519653"
+          fi
+
+      # ubuntu-22.04 runners ship Android SDK at $ANDROID_SDK_ROOT with
+      # build-tools 33.0.2 already installed.  Injecting sdk_path/ndk_path
+      # into buildozer.spec makes buildozer (and p4a) use that SDK directly
+      # instead of downloading a separate copy — so aidl is found at the
+      # correct absolute path inside the SDK.
+      - name: Point buildozer at pre-installed SDK and NDK
+        run: |
+          SDK="$ANDROID_SDK_ROOT"
+          NDK="$ANDROID_SDK_ROOT/ndk/25.2.9519653"
+          sed -i \
+            "s|^\[buildozer\]|android.sdk_path = $SDK\nandroid.ndk_path = $NDK\n\n[buildozer]|" \
+            buildozer.spec
 
       - name: Cache buildozer global directory
         uses: actions/cache@v4
