@@ -32,49 +32,50 @@ jobs:
             libncurses5-dev libncursesw5-dev \
             cmake
 
-      # The ubuntu-22.04 runner ships an old tools/bin/sdkmanager that crashes
-      # on Java 17 (javax.xml.bind removed from JDK 11+).  android-actions/
-      # setup-android skips cmdline-tools installation when the SDK dir already
-      # exists, so we bypass it entirely: download fresh cmdline-tools from
-      # Google into $HOME/android-sdk where we have guaranteed write access.
-      - name: Set up Android SDK with Java-17-compatible sdkmanager
+      # Avoid the system SDK entirely: its tools/bin/sdkmanager crashes on
+      # Java 17 (javax.xml.bind removed).  Build a clean SDK under $HOME where
+      # we have guaranteed write access, and install a modern sdkmanager there.
+      - name: Bootstrap Android SDK under $HOME
         run: |
           SDK="$HOME/android-sdk"
           mkdir -p "$SDK/cmdline-tools"
 
-          # Try cmdline-tools 11.0 first, fall back to 9.0
-          wget -q \
-            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
-            -O /tmp/cmdtools.zip \
-          || wget -q \
-            https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip \
-            -O /tmp/cmdtools.zip
+          echo "=== Downloading Android command-line tools ==="
+          # Try three known-good versions in order; fail loudly if all miss.
+          DOWNLOADED=0
+          for BUILD in 10406996 9477386 8512546; do
+            URL="https://dl.google.com/android/repository/commandlinetools-linux-${BUILD}_latest.zip"
+            echo "Trying $URL"
+            if wget -q "$URL" -O /tmp/cmdtools.zip; then
+              echo "Downloaded build $BUILD"
+              DOWNLOADED=1
+              break
+            fi
+          done
+          [ "$DOWNLOADED" -eq 1 ] || { echo "All cmdline-tools URLs failed"; exit 1; }
 
           unzip -q /tmp/cmdtools.zip -d /tmp/
+          # The zip always extracts to a directory named "cmdline-tools"
+          ls /tmp/cmdline-tools/
           mv /tmp/cmdline-tools "$SDK/cmdline-tools/latest"
+
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          echo "sdkmanager: $($SDKMGR --version)"
 
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          echo "sdkmanager version: $("$SDKMGR" --version)"
-
-          # Accept all licenses silently
           yes | "$SDKMGR" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
-
-          # Install required SDK components
           "$SDKMGR" --sdk_root="$SDK" \
             "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-          # Locate NDK from the runner image (prefer 25.x, fall back to latest)
-          RUNNER_NDK_ROOT="/usr/local/lib/android/sdk/ndk"
-          NDK_DIR=$(find "$RUNNER_NDK_ROOT" -maxdepth 1 -name "25.*" -type d \
-                    2>/dev/null | sort -V | tail -1)
-          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
-            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
-          fi
-          if [ -z "$NDK_DIR" ]; then
-            echo "No pre-installed NDK found — installing ndk;25.2.9519653"
+          # Re-use runner's pre-installed NDK (no ~1.5 GB download needed)
+          NDK_DIR=$(find /usr/local/lib/android/sdk/ndk \
+                    -maxdepth 1 -name "25.*" -type d 2>/dev/null \
+                    | sort -V | tail -1)
+          [ -z "$NDK_DIR" ] && NDK_DIR="${ANDROID_NDK_LATEST_HOME:-}"
+          if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
+            echo "No pre-installed NDK; installing 25.2.9519653 ..."
             "$SDKMGR" --sdk_root="$SDK" "ndk;25.2.9519653"
             NDK_DIR="$SDK/ndk/25.2.9519653"
           fi
@@ -84,11 +85,12 @@ jobs:
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
 
-      - name: Point buildozer at SDK and NDK
+      - name: Point buildozer at the bootstrapped SDK and NDK
         run: |
           sed -i \
             "s|^\[buildozer\]|android.sdk_path = $ANDROID_SDK_ROOT\nandroid.ndk_path = $NDK_DIR\n\n[buildozer]|" \
             buildozer.spec
+          echo "=== buildozer.spec (tail) ===" && tail -6 buildozer.spec
 
       - name: Cache buildozer global directory
         uses: actions/cache@v4
