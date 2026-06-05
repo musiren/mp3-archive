@@ -62,18 +62,17 @@ jobs:
           "$SDKMGR" --sdk_root="$SDK" \
             "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-          # Prefer NDK 28.x (p4a recommended); fall back to any available NDK
-          RUNNER_NDK="/usr/local/lib/android/sdk/ndk"
-          NDK_DIR=$(find "$RUNNER_NDK" -maxdepth 1 -name "28.*" -type d \
-                    2>/dev/null | sort -V | tail -1)
-          if [ -z "$NDK_DIR" ]; then
-            NDK_DIR=$(find "$RUNNER_NDK" -maxdepth 1 -mindepth 1 -type d \
-                      2>/dev/null | sort -V | tail -1)
+          # Use the exact NDK version found on ubuntu-22.04 runners
+          NDK_DIR="/usr/local/lib/android/sdk/ndk/28.2.13676358"
+          if [ ! -d "$NDK_DIR" ]; then
+            # Fall back: find any NDK 28.x on the runner
+            NDK_DIR=$(find "/usr/local/lib/android/sdk/ndk" -maxdepth 1 \
+                      -name "28.*" -type d 2>/dev/null | sort -V | tail -1)
           fi
           if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
-            echo "Installing NDK 28 via sdkmanager..."
-            "$SDKMGR" --sdk_root="$SDK" "ndk;28.0.12433566"
-            NDK_DIR="$SDK/ndk/28.0.12433566"
+            echo "Installing NDK 28.2.13676358 via sdkmanager..."
+            "$SDKMGR" --sdk_root="$SDK" "ndk;28.2.13676358"
+            NDK_DIR="$SDK/ndk/28.2.13676358"
           fi
           echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
           echo "Using NDK: $NDK_DIR"
