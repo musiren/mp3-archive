@@ -25,16 +25,16 @@ except Exception:
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestAppDirectory(unittest.TestCase):
-    """Tests for Mp3ArchiveApp._app_directory static method."""
+    """Tests for Mp3ArchiveApp._storage_directory static method."""
 
     def test_fallback_to_cwd(self):
-        """Verifies _app_directory() returns cwd when android.storage is unavailable."""
+        """Verifies _storage_directory() returns cwd when android.storage is unavailable."""
         from main_window_android import Mp3ArchiveApp
-        result = Mp3ArchiveApp._app_directory()
+        result = Mp3ArchiveApp._storage_directory()
         self.assertEqual(result, os.getcwd())
 
     def test_uses_android_storage_path(self):
-        """Verifies _app_directory() calls app_storage_path() when android.storage is present."""
+        """Verifies _storage_directory() calls app_storage_path() when android.storage is present."""
         fake_android = types.ModuleType("android")
         fake_storage = types.ModuleType("android.storage")
         expected = "/data/user/0/org.musiren.mp3archive/files"
@@ -43,11 +43,17 @@ class TestAppDirectory(unittest.TestCase):
         sys.modules["android.storage"] = fake_storage
         try:
             from main_window_android import Mp3ArchiveApp
-            result = Mp3ArchiveApp._app_directory()
+            result = Mp3ArchiveApp._storage_directory()
             self.assertEqual(result, expected)
         finally:
             sys.modules.pop("android", None)
             sys.modules.pop("android.storage", None)
+
+    def test_no_app_directory_name_collision(self):
+        """Verifies the helper is not named _app_directory (Kivy App reserves it)."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertIn("_storage_directory", Mp3ArchiveApp.__dict__)
+        self.assertNotIn("_app_directory", Mp3ArchiveApp.__dict__)
 
 
 if __name__ == "__main__":

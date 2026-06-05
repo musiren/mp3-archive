@@ -127,7 +127,7 @@ class Mp3ArchiveApp(MDApp):
     def __init__(self, **kwargs) -> None:
         """Initialise the app and open the SQLite database."""
         super().__init__(**kwargs)
-        db_path = os.path.join(self._app_directory(), "mp3_archive.db")
+        db_path = os.path.join(self._storage_directory(), "mp3_archive.db")
         self._manager = Mp3Manager(db_path)
         self._selected: set[str] = set()   # selected file paths
 
@@ -335,12 +335,18 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.progress_bar.opacity = 1 if visible else 0
 
     @staticmethod
-    def _app_directory() -> str:
+    def _storage_directory() -> str:
         """
         Return a writable directory for the database file.
 
         Uses the app's private storage on Android, or the current
         working directory on desktop.
+
+        Note: must not be named ``_app_directory`` — Kivy's ``App.__init__``
+        sets an instance attribute ``self._app_directory = None`` (backing the
+        ``App.directory`` property), which would shadow this static method and
+        make ``self._app_directory()`` raise ``'NoneType' object is not
+        callable`` at startup.
         """
         try:
             from android.storage import app_storage_path  # type: ignore
