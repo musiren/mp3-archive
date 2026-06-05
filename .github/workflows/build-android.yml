@@ -35,23 +35,27 @@ jobs:
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
 
-      - name: Ensure NDK 25.2.9519653 is present
+      # ubuntu-22.04 runners ship NDK 25.x and 26.x under $ANDROID_SDK_ROOT/ndk/.
+      # sdkmanager is not on PATH, so we locate the NDK without it.
+      - name: Locate pre-installed Android NDK
         run: |
-          if [ ! -d "$ANDROID_SDK_ROOT/ndk/25.2.9519653" ]; then
-            sdkmanager "ndk;25.2.9519653"
+          # Prefer NDK 25.x to match android.ndk = 25b in buildozer.spec
+          NDK_DIR=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "25.*" -type d \
+                    2>/dev/null | sort -V | tail -1)
+          # Fall back to whichever NDK the runner exposes as "latest"
+          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
           fi
+          if [ -z "$NDK_DIR" ]; then
+            echo "Available NDKs:" && ls "$ANDROID_SDK_ROOT/ndk" && exit 1
+          fi
+          echo "Using NDK: $NDK_DIR"
+          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
 
-      # ubuntu-22.04 runners ship Android SDK at $ANDROID_SDK_ROOT with
-      # build-tools 33.0.2 already installed.  Injecting sdk_path/ndk_path
-      # into buildozer.spec makes buildozer (and p4a) use that SDK directly
-      # instead of downloading a separate copy — so aidl is found at the
-      # correct absolute path inside the SDK.
       - name: Point buildozer at pre-installed SDK and NDK
         run: |
-          SDK="$ANDROID_SDK_ROOT"
-          NDK="$ANDROID_SDK_ROOT/ndk/25.2.9519653"
           sed -i \
-            "s|^\[buildozer\]|android.sdk_path = $SDK\nandroid.ndk_path = $NDK\n\n[buildozer]|" \
+            "s|^\[buildozer\]|android.sdk_path = $ANDROID_SDK_ROOT\nandroid.ndk_path = $NDK_DIR\n\n[buildozer]|" \
             buildozer.spec
 
       - name: Cache buildozer global directory
