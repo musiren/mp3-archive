@@ -12,6 +12,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Install Android SDK and make build-tools/aidl available in PATH
+      # before buildozer runs so p4a can find it regardless of which SDK
+      # directory buildozer ends up using.
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
+          echo "$ANDROID_SDK_ROOT/build-tools/33.0.2" >> "$GITHUB_PATH"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -21,7 +39,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             git zip unzip \
-            openjdk-17-jdk \
             libffi-dev libssl-dev \
             libsqlite3-dev zlib1g-dev \
             autoconf libtool pkg-config \
