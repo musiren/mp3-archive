@@ -135,22 +135,6 @@ class Mp3ArchiveApp(MDApp):
     # Kivy lifecycle
     # ------------------------------------------------------------------
 
-    def build(self) -> None:
-        """Build the KV layout and set the Material Design theme."""
-        self.theme_cls.primary_palette = "Blue"
-        self.theme_cls.theme_style = "Light"
-        Builder.load_string(KV)
-        from kivy.uix.screenmanager import Screen, ScreenManager
-        sm = ScreenManager()
-        sm.add_widget(Screen(name="main"))
-        # Rebuild with full KV
-        from kivy.lang import Builder as B
-        return B.load_string("""
-ScreenManager:
-    Screen:
-        name: "main"
-""" + KV.split("Screen:")[1].replace('    name: "main"', '', 1))
-
     def build(self):
         """Build the UI from the KV string."""
         self.theme_cls.primary_palette = "Blue"
