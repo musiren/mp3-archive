@@ -82,6 +82,13 @@ jobs:
           ls -la "$SDKMGR"
           echo "sdkmanager version: $($SDKMGR --version)"
 
+          # p4a only checks tools/bin/sdkmanager (old location).
+          # Create a wrapper there that delegates to the real binary.
+          mkdir -p "$SDK/tools/bin"
+          printf '#!/bin/bash\nexec "%s" "$@"\n' "$SDKMGR" > "$SDK/tools/bin/sdkmanager"
+          chmod +x "$SDK/tools/bin/sdkmanager"
+          echo "wrapper created: $("$SDK/tools/bin/sdkmanager" --version)"
+
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
