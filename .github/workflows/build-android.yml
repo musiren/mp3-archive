@@ -57,13 +57,14 @@ jobs:
           "$SDKMGR" --sdk_root="$SDK" \
             "platform-tools" "platforms;android-33" "build-tools;33.0.2" >/dev/null
 
-          NDK_DIR="/usr/local/lib/android/sdk/ndk/28.2.13676358"
-          [ ! -d "$NDK_DIR" ] && \
-            NDK_DIR=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 \
-                      -name "28.*" -type d 2>/dev/null | sort -V | tail -1)
-          if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
-            "$SDKMGR" --sdk_root="$SDK" "ndk;28.2.13676358" >/dev/null
-            NDK_DIR="$SDK/ndk/28.2.13676358"
+          # p4a v2024.01.21 supports NDK major version 25 only (r25b is the
+          # recommended version). The runner image ships r27/r29, so install
+          # r25b explicitly.
+          NDK_VER="25.1.8937393"
+          NDK_DIR="/usr/local/lib/android/sdk/ndk/$NDK_VER"
+          if [ ! -d "$NDK_DIR" ]; then
+            "$SDKMGR" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
+            NDK_DIR="$SDK/ndk/$NDK_VER"
           fi
           echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
 
