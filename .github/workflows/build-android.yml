@@ -68,7 +68,7 @@ jobs:
           echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
 
       - name: Install buildozer and Cython
-        run: pip install -q buildozer cython virtualenv
+        run: pip install -q buildozer "cython==0.29.36" virtualenv
 
       - name: Point buildozer at SDK and NDK
         run: |
