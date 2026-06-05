@@ -17,6 +17,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Sets up sdkmanager in PATH and exports ANDROID_SDK_ROOT.
+      - uses: android-actions/setup-android@v3
+
+      - name: Install build-tools and locate NDK
+        run: |
+          # Ensure build-tools 33.0.2 (contains aidl) is present
+          sdkmanager "build-tools;33.0.2"
+
+          # Prefer NDK 25.x; fall back to whatever the runner exposes as latest
+          NDK_DIR=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "25.*" -type d \
+                    2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
+          fi
+          if [ -z "$NDK_DIR" ]; then
+            echo "No NDK found. Available:" && ls "$ANDROID_SDK_ROOT/ndk" 2>/dev/null && exit 1
+          fi
+          echo "Using NDK: $NDK_DIR"
+          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -35,23 +55,9 @@ jobs:
       - name: Install buildozer and Cython
         run: pip install buildozer cython virtualenv
 
-      # ubuntu-22.04 runners ship NDK 25.x and 26.x under $ANDROID_SDK_ROOT/ndk/.
-      # sdkmanager is not on PATH, so we locate the NDK without it.
-      - name: Locate pre-installed Android NDK
-        run: |
-          # Prefer NDK 25.x to match android.ndk = 25b in buildozer.spec
-          NDK_DIR=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "25.*" -type d \
-                    2>/dev/null | sort -V | tail -1)
-          # Fall back to whichever NDK the runner exposes as "latest"
-          if [ -z "$NDK_DIR" ] && [ -d "${ANDROID_NDK_LATEST_HOME:-}" ]; then
-            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
-          fi
-          if [ -z "$NDK_DIR" ]; then
-            echo "Available NDKs:" && ls "$ANDROID_SDK_ROOT/ndk" && exit 1
-          fi
-          echo "Using NDK: $NDK_DIR"
-          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
-
+      # Inject sdk_path and ndk_path so buildozer uses the pre-installed SDK
+      # rather than downloading its own copy. p4a resolves aidl as an absolute
+      # path inside sdk_path, so this is the only reliable fix.
       - name: Point buildozer at pre-installed SDK and NDK
         run: |
           sed -i \
