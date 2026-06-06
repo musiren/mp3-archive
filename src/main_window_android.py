@@ -30,7 +30,9 @@ from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.factory import Factory
 from kivy.properties import BooleanProperty, StringProperty
+from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.recycleboxlayout import RecycleBoxLayout
+from kivy.uix.recyclegridlayout import RecycleGridLayout
 from kivy.uix.recycleview import RecycleView
 from kivy.uix.recycleview.views import RecycleDataViewBehavior
 from kivy.uix.scrollview import ScrollView
@@ -144,6 +146,26 @@ KV = """
 
 <Mp3TreeRow>:
     on_release: app.tree_row_tapped(root)
+
+<Mp3Tile>:
+    orientation: "vertical"
+    padding: dp(4)
+    spacing: dp(2)
+    on_release: app.play_row(root)
+    Image:
+        source: root.art_source
+        size_hint_y: None
+        height: dp(116)
+        allow_stretch: True
+        keep_ratio: True
+    MDLabel:
+        text: root.filename
+        font_style: "Caption"
+        halign: "center"
+        shorten: True
+        shorten_from: "right"
+        size_hint_y: None
+        height: dp(36)
 
 <LyricsContent>:
     orientation: "vertical"
@@ -279,6 +301,22 @@ MDBoxLayout:
                         height: self.minimum_height
                         default_size: None, dp(72)
                         default_size_hint: 1, None
+
+                RecycleView:
+                    id: mp3_grid
+                    viewclass: "Mp3Tile"
+                    size_hint_y: None
+                    height: 0
+                    opacity: 0
+
+                    RecycleGridLayout:
+                        cols: 3
+                        size_hint_y: None
+                        height: self.minimum_height
+                        default_size: dp(124), dp(160)
+                        default_size_hint: None, None
+                        padding: dp(4)
+                        spacing: dp(4)
 
         MDBottomNavigationItem:
             name: "player"
@@ -440,10 +478,34 @@ class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem):
         return super().refresh_view_attrs(rv, index, data)
 
 
-# Register the row viewclasses so RecycleView can resolve them by name.
+class Mp3Tile(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayout):
+    """Album-art tile for the 타일 (tiles) grid view (a RecycleView viewclass)."""
+
+    filename   = StringProperty("")
+    artist     = StringProperty("")
+    title      = StringProperty("")
+    path       = StringProperty("")
+    art_source = StringProperty("")
+    index      = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the index and lazily load this tile's album art when (re)bound."""
+        self.index = index
+        result = super().refresh_view_attrs(rv, index, data)
+        app = MDApp.get_running_app()
+        self.art_source = app._album_source(self.path) if app else ""
+        return result
+
+    def on_long_touch(self, *args) -> None:
+        """Open the per-track actions menu on a long press."""
+        _open_actions_for(self)
+
+
+# Register the row/tile viewclasses so RecycleView can resolve them by name.
 Factory.register("Mp3RowDetails", cls=Mp3RowDetails)
 Factory.register("Mp3RowList", cls=Mp3RowList)
 Factory.register("Mp3TreeRow", cls=Mp3TreeRow)
+Factory.register("Mp3Tile", cls=Mp3Tile)
 
 
 class LyricsContent(MDBoxLayout):
@@ -823,7 +885,9 @@ class Mp3ArchiveApp(MDApp):
             }
             for f in files
         ]
-        if self._view_mode == "tree":
+        if self._view_mode == "tiles":
+            self.root.ids.mp3_grid.data = self._files
+        elif self._view_mode == "tree":
             self.root.ids.mp3_list.data = build_tree_rows(
                 self._files, self._last_dir or "", self._expanded
             )
@@ -917,6 +981,8 @@ class Mp3ArchiveApp(MDApp):
                  "on_release": lambda: self._set_view_mode("details")},
                 {"text": "트리", "viewclass": "OneLineListItem",
                  "on_release": lambda: self._set_view_mode("tree")},
+                {"text": "타일", "viewclass": "OneLineListItem",
+                 "on_release": lambda: self._set_view_mode("tiles")},
             ]
             self._view_menu = MDDropdownMenu(
                 caller=self.root.ids.toolbar, items=items, width_mult=3,
@@ -932,8 +998,23 @@ class Mp3ArchiveApp(MDApp):
         self._refresh_list()
 
     def _apply_view_mode(self) -> None:
-        """Point the RecycleView at the viewclass and row height for the mode."""
+        """Show the list or tile RecycleView and set its viewclass for the mode."""
         rv = self.root.ids.mp3_list
+        grid = self.root.ids.mp3_grid
+        if self._view_mode == "tiles":
+            # Show the album-art grid, collapse the list RecycleView.
+            rv.size_hint_y = None
+            rv.height = 0
+            rv.opacity = 0
+            grid.size_hint_y = 1
+            grid.opacity = 1
+            return
+        # List/details/tree all use the (box-layout) list RecycleView.
+        grid.size_hint_y = None
+        grid.height = 0
+        grid.opacity = 0
+        rv.size_hint_y = 1
+        rv.opacity = 1
         if self._view_mode == "list":
             rv.viewclass = "Mp3RowList"
             rv.layout_manager.default_size = (None, dp(48))

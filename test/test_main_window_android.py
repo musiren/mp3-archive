@@ -100,7 +100,7 @@ class TestKvLayout(unittest.TestCase):
         expected = (
             "toolbar", "bottom_nav",
             "search_field", "chk_tags", "count_label",           # 목록 search
-            "progress_bar", "status_label", "mp3_list",          # 목록 tab
+            "progress_bar", "status_label", "mp3_list", "mp3_grid",  # 목록 tab
             "now_playing", "position_bar", "play_button",        # 재생 tab
         )
         for ident in expected:
@@ -305,6 +305,9 @@ class TestRecycleList(unittest.TestCase):
         self.assertTrue(hasattr(Mp3RowDetails, "art_source"))
         self.assertTrue(hasattr(Mp3TreeRow, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3TreeRow, "is_dir"))
+        from main_window_android import Mp3Tile
+        self.assertTrue(hasattr(Mp3Tile, "refresh_view_attrs"))
+        self.assertTrue(hasattr(Mp3Tile, "art_source"))
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
