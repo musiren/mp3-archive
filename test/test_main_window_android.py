@@ -56,5 +56,22 @@ class TestAppDirectory(unittest.TestCase):
         self.assertNotIn("_app_directory", Mp3ArchiveApp.__dict__)
 
 
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestKvLayout(unittest.TestCase):
+    """Tests for the KivyMD KV layout string."""
+
+    def test_kv_indentation_multiple_of_four(self):
+        """Verifies every KV line is indented a multiple of 4 spaces (Kivy requirement)."""
+        from main_window_android import KV
+        for lineno, line in enumerate(KV.splitlines(), 1):
+            if not line.strip():
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            self.assertEqual(
+                indent % 4, 0,
+                f"KV line {lineno} indent={indent} not a multiple of 4: {line!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

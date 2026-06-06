@@ -65,11 +65,7 @@ Screen:
             id: toolbar
             title: "MP3 Archive"
             elevation: 4
-            right_action_items:
-                [
-                  ["folder-search", lambda x: app.open_folder_picker()],
-                  ["delete", lambda x: app.delete_selected()],
-                ]
+            right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["delete", lambda x: app.delete_selected()]]
 
         MDProgressBar:
             id: progress_bar
