@@ -42,12 +42,37 @@ from kivymd.uix.label import MDLabel
 from kivymd.uix.list import TwoLineAvatarIconListItem, IconRightWidget
 from kivymd.uix.progressbar import MDProgressBar
 from kivymd.uix.selectioncontrol import MDCheckbox
-from kivymd.uix.snackbar import Snackbar
+from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import get_lyrics, to_easy_tags
 from mp3_manager import Mp3Manager
+
+
+class Snackbar:
+    """
+    Compatibility shim for the removed KivyMD 1.1 ``Snackbar(text=...)`` API.
+
+    KivyMD 1.2.0 dropped ``Snackbar``'s ``text`` property in favour of an
+    ``MDSnackbar`` built from ``MDLabel`` children; the old call form crashed
+    the app with a "Properties ['text'] ... may not be existing" error. This
+    wraps the new API so existing ``Snackbar(text=msg).open()`` sites keep
+    working and show a centred bottom snackbar.
+    """
+
+    def __init__(self, text: str = "") -> None:
+        """Store the message to display when open() is called."""
+        self._text = text
+
+    def open(self) -> None:
+        """Show the stored message using the KivyMD 1.2.0 MDSnackbar API."""
+        MDSnackbar(
+            MDLabel(text=self._text, theme_text_color="Custom", text_color=(1, 1, 1, 1)),
+            y=dp(24),
+            pos_hint={"center_x": 0.5},
+            size_hint_x=0.9,
+        ).open()
 
 
 # Android system fonts that include Korean (Hangul) glyphs, in preference
@@ -305,9 +330,16 @@ class Mp3Row(TwoLineAvatarIconListItem, TouchBehavior):
     selected = BooleanProperty(False)
 
     def on_long_touch(self, *args) -> None:
-        """Open the per-track actions menu on a long press."""
+        """
+        Open the per-track actions menu on a long press.
+
+        Sets a flag so the on_release that follows the long press does not
+        also play the track (a long press fires both on_long_touch and the
+        ListItem's on_release).
+        """
         app = MDApp.get_running_app()
         if app is not None:
+            app._suppress_next_play = True
             app.open_actions(self)
 
 
@@ -342,6 +374,7 @@ class Mp3ArchiveApp(MDApp):
         self._sound = None             # current kivy Sound, or None
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._pos_event = None         # Clock event polling playback position
+        self._suppress_next_play = False  # skip play_row right after a long-press
 
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
@@ -383,7 +416,16 @@ class Mp3ArchiveApp(MDApp):
         """
         font_path = self._find_korean_font()
         if font_path:
-            LabelBase.register(name="Roboto", fn_regular=font_path)
+            # Register the Korean font for every weight/style, not just regular,
+            # so bold KivyMD styles (e.g. H6 headlines like the now-playing
+            # label) render Hangul instead of tofu boxes.
+            LabelBase.register(
+                name="Roboto",
+                fn_regular=font_path,
+                fn_bold=font_path,
+                fn_italic=font_path,
+                fn_bolditalic=font_path,
+            )
 
     @staticmethod
     def _request_android_permissions() -> None:
@@ -725,6 +767,9 @@ class Mp3ArchiveApp(MDApp):
         Args:
             row: The Mp3Row whose audio file should be played.
         """
+        if self._suppress_next_play:
+            self._suppress_next_play = False
+            return  # a long-press just opened the actions menu; don't also play
         if not row.path:
             return
         self._play(row.path, row.filename, f"{row.artist} — {row.title}")

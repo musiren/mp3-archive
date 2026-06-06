@@ -285,5 +285,15 @@ class TestAllFilesAccess(unittest.TestCase):
         Mp3ArchiveApp._request_all_files_access()  # must not raise
 
 
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestSnackbarShim(unittest.TestCase):
+    """Tests for the Snackbar compatibility shim (KivyMD 1.2.0 removed text=)."""
+
+    def test_stores_text(self):
+        """Verifies the shim stores the message for open() to display."""
+        from main_window_android import Snackbar
+        self.assertEqual(Snackbar(text="저장됨")._text, "저장됨")
+
+
 if __name__ == "__main__":
     unittest.main()
