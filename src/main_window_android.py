@@ -47,6 +47,7 @@ from kivymd.uix.list import (
     IconRightWidget,
     ImageLeftWidget,
     OneLineAvatarIconListItem,
+    OneLineListItem,
     TwoLineAvatarIconListItem,
 )
 from kivymd.uix.menu import MDDropdownMenu
@@ -58,6 +59,7 @@ from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import get_album_art, get_lyrics, to_easy_tags
 from mp3_manager import Mp3Manager
+from tree_util import build_tree_rows
 
 
 class Snackbar:
@@ -139,6 +141,9 @@ KV = """
         theme_text_color: "Custom"
         text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
         on_release: app.toggle_select(root)
+
+<Mp3TreeRow>:
+    on_release: app.tree_row_tapped(root)
 
 <LyricsContent>:
     orientation: "vertical"
@@ -421,9 +426,24 @@ class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
         _open_actions_for(self)
 
 
-# Register both row viewclasses so RecycleView can resolve them by name.
+class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem):
+    """One-line folder/file row for the 트리 (tree) view (a RecycleView viewclass)."""
+
+    is_dir = BooleanProperty(False)
+    path   = StringProperty("")
+    key    = StringProperty("")
+    index  = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the data index each time this recycled view is (re)bound."""
+        self.index = index
+        return super().refresh_view_attrs(rv, index, data)
+
+
+# Register the row viewclasses so RecycleView can resolve them by name.
 Factory.register("Mp3RowDetails", cls=Mp3RowDetails)
 Factory.register("Mp3RowList", cls=Mp3RowList)
+Factory.register("Mp3TreeRow", cls=Mp3TreeRow)
 
 
 class LyricsContent(MDBoxLayout):
@@ -470,9 +490,10 @@ class Mp3ArchiveApp(MDApp):
         self._last_dir = None          # last scanned directory (for full rescan)
         self._search_event = None      # debounce timer for live search
 
-        # View mode (목록 tab): "details" (album art) or "list" (compact)
+        # View mode (목록 tab): "details" (album art) / "list" / "tree"
         self._view_mode = "details"
         self._view_menu = None
+        self._expanded: set = set()    # expanded folder keys (트리 view)
         self._art_cache: dict = {}     # path -> album-art file path ("" if none)
         self._art_dir = os.path.join(self._storage_directory(), "art_cache")
         try:
@@ -802,7 +823,12 @@ class Mp3ArchiveApp(MDApp):
             }
             for f in files
         ]
-        self.root.ids.mp3_list.data = self._files
+        if self._view_mode == "tree":
+            self.root.ids.mp3_list.data = build_tree_rows(
+                self._files, self._last_dir or "", self._expanded
+            )
+        else:
+            self.root.ids.mp3_list.data = self._files
         self.root.ids.count_label.text = self._count_label_text(
             len(files), self._search_keyword
         )
@@ -889,6 +915,8 @@ class Mp3ArchiveApp(MDApp):
                  "on_release": lambda: self._set_view_mode("list")},
                 {"text": "자세히", "viewclass": "OneLineListItem",
                  "on_release": lambda: self._set_view_mode("details")},
+                {"text": "트리", "viewclass": "OneLineListItem",
+                 "on_release": lambda: self._set_view_mode("tree")},
             ]
             self._view_menu = MDDropdownMenu(
                 caller=self.root.ids.toolbar, items=items, width_mult=3,
@@ -908,6 +936,9 @@ class Mp3ArchiveApp(MDApp):
         rv = self.root.ids.mp3_list
         if self._view_mode == "list":
             rv.viewclass = "Mp3RowList"
+            rv.layout_manager.default_size = (None, dp(48))
+        elif self._view_mode == "tree":
+            rv.viewclass = "Mp3TreeRow"
             rv.layout_manager.default_size = (None, dp(48))
         else:
             rv.viewclass = "Mp3RowDetails"
@@ -942,6 +973,27 @@ class Mp3ArchiveApp(MDApp):
             src = ""
         self._art_cache[path] = src
         return src
+
+    def tree_row_tapped(self, row) -> None:
+        """Toggle a folder, or play a file, when a 트리 row is tapped."""
+        if row.is_dir:
+            self.toggle_tree_folder(row.key)
+        elif row.path:
+            self._play(row.path, os.path.basename(row.path), "")
+            try:
+                self.root.ids.bottom_nav.switch_tab("player")
+            except Exception:
+                pass
+
+    def toggle_tree_folder(self, key: str) -> None:
+        """Expand/collapse a tree folder and rebuild the visible tree rows."""
+        if key in self._expanded:
+            self._expanded.discard(key)
+        else:
+            self._expanded.add(key)
+        self.root.ids.mp3_list.data = build_tree_rows(
+            self._files, self._last_dir or "", self._expanded
+        )
 
     # ------------------------------------------------------------------
     # Playback (재생 tab)

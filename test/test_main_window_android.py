@@ -299,10 +299,12 @@ class TestRecycleList(unittest.TestCase):
 
     def test_mp3row_is_recycle_viewclass(self):
         """Verifies the row viewclasses implement the RecycleView data-view hook."""
-        from main_window_android import Mp3RowDetails, Mp3RowList
+        from main_window_android import Mp3RowDetails, Mp3RowList, Mp3TreeRow
         self.assertTrue(hasattr(Mp3RowDetails, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3RowList, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3RowDetails, "art_source"))
+        self.assertTrue(hasattr(Mp3TreeRow, "refresh_view_attrs"))
+        self.assertTrue(hasattr(Mp3TreeRow, "is_dir"))
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
