@@ -464,7 +464,7 @@ class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
         _open_actions_for(self)
 
 
-class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem):
+class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem, TouchBehavior):
     """One-line folder/file row for the 트리 (tree) view (a RecycleView viewclass)."""
 
     is_dir = BooleanProperty(False)
@@ -476,6 +476,11 @@ class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem):
         """Record the data index each time this recycled view is (re)bound."""
         self.index = index
         return super().refresh_view_attrs(rv, index, data)
+
+    def on_long_touch(self, *args) -> None:
+        """Long-pressing a file row opens its actions menu (folders ignored)."""
+        if not self.is_dir and self.path:
+            _open_actions_for(self)
 
 
 class Mp3Tile(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayout):
@@ -1057,6 +1062,9 @@ class Mp3ArchiveApp(MDApp):
 
     def tree_row_tapped(self, row) -> None:
         """Toggle a folder, or play a file, when a 트리 row is tapped."""
+        if self._suppress_next_play:
+            self._suppress_next_play = False
+            return  # a long-press just opened the actions menu; don't also play
         if row.is_dir:
             self.toggle_tree_folder(row.key)
         elif row.path:
@@ -1276,8 +1284,9 @@ class Mp3ArchiveApp(MDApp):
             row: The Mp3Row that was long-pressed.
         """
         self._actions_dialog = MDDialog(
-            title=row.title or row.filename,
-            text=row.artist,
+            title=(getattr(row, "title", "") or getattr(row, "filename", "")
+                   or os.path.basename(getattr(row, "path", ""))),
+            text=getattr(row, "artist", ""),
             buttons=[
                 MDFlatButton(text="자세히", on_release=lambda x: self._open_detail(row)),
                 MDFlatButton(text="가사", on_release=lambda x: self._open_lyrics(row)),
@@ -1292,7 +1301,8 @@ class Mp3ArchiveApp(MDApp):
         content = LyricsContent()
         content.ids.lyrics_label.text = get_lyrics(row.path) or "(가사 정보가 없습니다)"
         self._lyrics_dialog = MDDialog(
-            title=row.title or row.filename,
+            title=(getattr(row, "title", "") or getattr(row, "filename", "")
+                   or os.path.basename(getattr(row, "path", ""))),
             type="custom",
             content_cls=content,
             buttons=[

@@ -305,6 +305,8 @@ class TestRecycleList(unittest.TestCase):
         self.assertTrue(hasattr(Mp3RowDetails, "art_source"))
         self.assertTrue(hasattr(Mp3TreeRow, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3TreeRow, "is_dir"))
+        # Tree file rows must open the actions menu on long-press.
+        self.assertTrue(hasattr(Mp3TreeRow, "on_long_touch"))
         from main_window_android import Mp3Tile
         self.assertTrue(hasattr(Mp3Tile, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3Tile, "art_source"))
