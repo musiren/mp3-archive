@@ -92,12 +92,17 @@ class TestKvLayout(unittest.TestCase):
             )
 
     def test_kv_load_string_yields_expected_ids(self):
-        """Verifies Builder.load_string(KV) returns a widget with toolbar/progress_bar/status_label/mp3_list ids."""
+        """Verifies Builder.load_string(KV) exposes both the list and player tab ids."""
         from kivy.lang import Builder
         from main_window_android import KV
         root = Builder.load_string(KV)
         self.assertIsNotNone(root, "Builder.load_string returned None — KV has no root widget")
-        for ident in ("toolbar", "progress_bar", "status_label", "mp3_list"):
+        expected = (
+            "toolbar", "bottom_nav",
+            "progress_bar", "status_label", "mp3_list",          # 목록 tab
+            "now_playing", "position_bar", "play_button",        # 재생 tab
+        )
+        for ident in expected:
             self.assertIn(ident, root.ids, f"KV id '{ident}' missing from root.ids")
 
 
@@ -145,6 +150,30 @@ class TestPermissions(unittest.TestCase):
         """Verifies _request_android_permissions is a no-op (no exception) off-device."""
         from main_window_android import Mp3ArchiveApp
         Mp3ArchiveApp._request_android_permissions()  # must not raise
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestTimeFormat(unittest.TestCase):
+    """Tests for the player's m:ss time formatter."""
+
+    def test_formats_minutes_and_seconds(self):
+        """Verifies _format_time renders minutes and zero-padded seconds."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._format_time(0), "0:00")
+        self.assertEqual(Mp3ArchiveApp._format_time(5), "0:05")
+        self.assertEqual(Mp3ArchiveApp._format_time(95), "1:35")
+        self.assertEqual(Mp3ArchiveApp._format_time(600), "10:00")
+
+    def test_handles_none_and_negative(self):
+        """Verifies _format_time treats None and negative values as 0:00."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._format_time(None), "0:00")
+        self.assertEqual(Mp3ArchiveApp._format_time(-3), "0:00")
+
+    def test_truncates_fractional_seconds(self):
+        """Verifies _format_time truncates fractional seconds (get_pos returns float)."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._format_time(95.9), "1:35")
 
 
 if __name__ == "__main__":
