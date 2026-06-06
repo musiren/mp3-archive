@@ -28,7 +28,11 @@ from kivy.core.text import LabelBase
 from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
+from kivy.factory import Factory
 from kivy.properties import BooleanProperty, StringProperty
+from kivy.uix.recycleboxlayout import RecycleBoxLayout
+from kivy.uix.recycleview import RecycleView
+from kivy.uix.recycleview.views import RecycleDataViewBehavior
 from kivy.uix.scrollview import ScrollView
 
 from kivymd.app import MDApp
@@ -66,7 +70,22 @@ class Snackbar:
         self._text = text
 
     def open(self) -> None:
-        """Show the stored message using the KivyMD 1.2.0 MDSnackbar API."""
+        """
+        Show the stored message using the KivyMD 1.2.0 MDSnackbar API.
+
+        MDSnackbar.open() is a no-op while another MDSnackbar is still on
+        screen (it lingers ~3 s), so dismiss any visible one first to ensure
+        the latest message always appears.
+        """
+        try:
+            from kivy.core.window import Window
+            host = getattr(Window, "parent", None)
+            if host is not None:
+                for child in list(host.children):
+                    if isinstance(child, MDSnackbar):
+                        child.dismiss()
+        except Exception:
+            pass
         MDSnackbar(
             MDLabel(text=self._text, theme_text_color="Custom", text_color=(1, 1, 1, 1)),
             y=dp(24),
@@ -228,11 +247,16 @@ MDBoxLayout:
                     font_style: "Caption"
                     theme_text_color: "Secondary"
 
-                ScrollView:
-                    MDList:
-                        id: mp3_list
+                RecycleView:
+                    id: mp3_list
+                    viewclass: "Mp3Row"
+
+                    RecycleBoxLayout:
+                        orientation: "vertical"
                         size_hint_y: None
                         height: self.minimum_height
+                        default_size: None, dp(72)
+                        default_size_hint: 1, None
 
         MDBottomNavigationItem:
             name: "player"
@@ -315,11 +339,15 @@ MDBoxLayout:
 # List item widget
 # ---------------------------------------------------------------------------
 
-class Mp3Row(TwoLineAvatarIconListItem, TouchBehavior):
+class Mp3Row(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
     """
-    A single row in the MP3 list.
+    A single row in the (recycled) MP3 list.
 
-    Tap plays the track; tap the right icon selects it for deletion; a
+    Used as a RecycleView viewclass, so only the rows currently on screen are
+    instantiated and they are reused as the user scrolls — the full list is
+    never materialised. That keeps repopulating the list (e.g. clearing a
+    search, which previously rebuilt every widget) fast even for thousands of
+    songs. Tap plays the track; tap the right icon selects it for deletion; a
     long-press opens the per-track actions menu (자세히 / 가사).
     """
 
@@ -328,6 +356,12 @@ class Mp3Row(TwoLineAvatarIconListItem, TouchBehavior):
     title    = StringProperty("")
     path     = StringProperty("")
     selected = BooleanProperty(False)
+    index    = None   # data index, set by RecycleView when (re)binding this view
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the data index each time this recycled view is (re)bound."""
+        self.index = index
+        return super().refresh_view_attrs(rv, index, data)
 
     def on_long_touch(self, *args) -> None:
         """
@@ -341,6 +375,10 @@ class Mp3Row(TwoLineAvatarIconListItem, TouchBehavior):
         if app is not None:
             app._suppress_next_play = True
             app.open_actions(self)
+
+
+# Register Mp3Row so RecycleView can resolve `viewclass: "Mp3Row"` by name.
+Factory.register("Mp3Row", cls=Mp3Row)
 
 
 class LyricsContent(MDBoxLayout):
@@ -366,9 +404,10 @@ class Mp3ArchiveApp(MDApp):
     def __init__(self, **kwargs) -> None:
         """Initialise the app, open the SQLite database, and reset player state."""
         super().__init__(**kwargs)
-        db_path = os.path.join(self._storage_directory(), "mp3_archive.db")
-        self._manager = Mp3Manager(db_path)
+        self._db_path = os.path.join(self._storage_directory(), "mp3_archive.db")
+        self._manager = Mp3Manager(self._db_path)
         self._selected: set[str] = set()   # selected file paths
+        self._files: list = []             # current RecycleView data (list of dicts)
 
         # Playback state (재생 tab)
         self._sound = None             # current kivy Sound, or None
@@ -404,23 +443,31 @@ class Mp3ArchiveApp(MDApp):
         self._request_android_permissions()
         self._refresh_list()
 
+    # KivyMD 1.2.0 maps its font styles to several family names, not just
+    # "Roboto": H1/H2 use "RobotoLight" and H6/Button use "RobotoMedium" (see
+    # kivymd theming font_styles). Re-registering only "Roboto" left those
+    # styles on the bundled Latin-only fonts, so headings and button labels
+    # rendered Korean as tofu. Register the Korean font under every family.
+    _KIVYMD_FONT_FAMILIES = (
+        "Roboto", "RobotoThin", "RobotoLight", "RobotoMedium", "RobotoBlack",
+    )
+
     def _register_fonts(self) -> None:
         """
-        Register a Korean-capable font as the default so Hangul renders.
+        Register a Korean-capable font for every KivyMD font family.
 
-        Kivy and KivyMD default to the 'Roboto' font, which has no CJK glyphs,
-        so Korean text renders as empty tofu boxes. Re-registering the 'Roboto'
-        name to point at an Android system CJK font makes every default-styled
-        label render Hangul. No-op on platforms where no candidate font exists
-        (e.g. desktop), leaving the bundled Roboto in place.
+        KivyMD's font styles reference several family names (Roboto,
+        RobotoLight, RobotoMedium, …); pointing all of them at an Android
+        system CJK font makes every style — body text, H6 headings and button
+        labels — render Hangul instead of tofu boxes. No-op on platforms where
+        no candidate font exists (e.g. desktop).
         """
         font_path = self._find_korean_font()
-        if font_path:
-            # Register the Korean font for every weight/style, not just regular,
-            # so bold KivyMD styles (e.g. H6 headlines like the now-playing
-            # label) render Hangul instead of tofu boxes.
+        if not font_path:
+            return
+        for name in self._KIVYMD_FONT_FAMILIES:
             LabelBase.register(
-                name="Roboto",
+                name=name,
                 fn_regular=font_path,
                 fn_bold=font_path,
                 fn_italic=font_path,
@@ -514,7 +561,9 @@ class Mp3ArchiveApp(MDApp):
             True if the press was consumed (manager was open), else False.
         """
         if key == 27 and self._fm_open:
-            self._close_file_manager()
+            # Navigate up one directory; MDFileManager.back() tears the picker
+            # down (via exit_manager -> _close_file_manager) only at the root.
+            self._file_manager.back()
             return True
         return False
 
@@ -620,9 +669,18 @@ class Mp3ArchiveApp(MDApp):
             pct = int(current / total * 100) if total else 0
             Clock.schedule_once(lambda dt: self._set_progress(pct))
 
-        result = self._manager.scan(
-            directory, progress_callback=on_progress, force=force
-        )
+        # Scan on a DEDICATED connection so this background thread never shares
+        # the UI thread's sqlite connection — concurrent use of one connection
+        # (e.g. live search during a scan) can raise ProgrammingError /
+        # OperationalError. The UI re-reads the committed rows on its own
+        # connection in _on_scan_done.
+        scan_manager = Mp3Manager(self._db_path)
+        try:
+            result = scan_manager.scan(
+                directory, progress_callback=on_progress, force=force
+            )
+        finally:
+            scan_manager.close()
         Clock.schedule_once(lambda dt: self._on_scan_done(result))
 
     @mainthread
@@ -658,12 +716,16 @@ class Mp3ArchiveApp(MDApp):
     # ------------------------------------------------------------------
 
     def _refresh_list(self) -> None:
-        """Repopulate the MP3 list, honouring the current search keyword."""
+        """
+        Repopulate the MP3 list, honouring the current search keyword.
+
+        Assigns the RecycleView's data (a list of plain dicts) instead of
+        creating a widget per song, so repopulating stays fast no matter how
+        many songs match — only the on-screen rows are instantiated. Selection
+        state is carried in the data so it survives recycling.
+        """
         if self.root is None:
             return  # KV may fire on_text before build() returns and sets root
-        mp3_list = self.root.ids.mp3_list
-        mp3_list.clear_widgets()
-        self._selected.clear()
 
         if self._search_keyword:
             files = self._manager.search(
@@ -672,15 +734,17 @@ class Mp3ArchiveApp(MDApp):
         else:
             files = self._manager.list_files()
 
-        for f in files:
-            row = Mp3Row(
-                filename=f["filename"],
-                artist=f["artist"] or "-",
-                title=f["title"] or "-",
-                path=f["path"],
-            )
-            mp3_list.add_widget(row)
-
+        self._files = [
+            {
+                "filename": f["filename"],
+                "artist": f["artist"] or "-",
+                "title": f["title"] or "-",
+                "path": f["path"],
+                "selected": f["path"] in self._selected,
+            }
+            for f in files
+        ]
+        self.root.ids.mp3_list.data = self._files
         self.root.ids.count_label.text = self._count_label_text(
             len(files), self._search_keyword
         )
@@ -746,12 +810,14 @@ class Mp3ArchiveApp(MDApp):
         Args:
             row: The Mp3Row widget that was tapped.
         """
-        if row.path in self._selected:
-            self._selected.discard(row.path)
-            row.selected = False
-        else:
+        selected = row.path not in self._selected
+        if selected:
             self._selected.add(row.path)
-            row.selected = True
+        else:
+            self._selected.discard(row.path)
+        row.selected = selected                      # instant feedback on this view
+        if row.index is not None and 0 <= row.index < len(self._files):
+            self._files[row.index]["selected"] = selected   # persist across recycling
 
     # ------------------------------------------------------------------
     # Playback (재생 tab)
@@ -800,6 +866,8 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.now_playing.text = title
         self.root.ids.now_playing_sub.text = subtitle
         self.root.ids.position_bar.value = 0
+        self.root.ids.pos_label.text = self._format_time(0)
+        self.root.ids.dur_label.text = self._format_time(0)
         sound.play()
         self.root.ids.play_button.icon = "pause"
         self._schedule_pos()
@@ -828,13 +896,15 @@ class Mp3ArchiveApp(MDApp):
             self._schedule_pos()
 
     def stop_playback(self) -> None:
-        """Stop playback, unload the sound, and reset the player controls."""
+        """Stop playback, unload the sound, and reset the player to idle."""
         self._stop_sound()
         self._paused_pos = 0.0
         self.root.ids.play_button.icon = "play"
         self.root.ids.position_bar.value = 0
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
+        self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
+        self.root.ids.now_playing_sub.text = ""
 
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""
@@ -930,9 +1000,10 @@ class Mp3ArchiveApp(MDApp):
     def _do_delete(self) -> None:
         """Delete all selected records from the database and refresh."""
         self._confirm_dialog.dismiss()
+        count = len(self._selected)
         for path in list(self._selected):
             self._manager.delete(path)
-        count = len(self._selected)
+        self._selected.clear()
         self._refresh_list()
         Snackbar(text=f"{count}개 항목이 삭제되었습니다.").open()
 
@@ -1009,9 +1080,12 @@ class Mp3ArchiveApp(MDApp):
             "comment": c.ids.f_comment.text,
         }
         tags = to_easy_tags(form)
+        if not tags:
+            Snackbar(text="변경할 태그 내용이 없습니다.").open()
+            self._detail_dialog.dismiss()
+            return
         try:
-            if tags:
-                self._manager.update_tags(self._detail_path, tags)
+            self._manager.update_tags(self._detail_path, tags)
             Snackbar(text="태그가 저장되었습니다.").open()
         except Exception:
             Snackbar(text="태그 저장에 실패했습니다.").open()

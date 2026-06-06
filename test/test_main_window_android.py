@@ -286,6 +286,24 @@ class TestAllFilesAccess(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestRecycleList(unittest.TestCase):
+    """Tests that the MP3 list is a virtualized RecycleView (fast repopulate)."""
+
+    def test_mp3_list_is_recycleview(self):
+        """Verifies the mp3_list widget is a RecycleView, not an eager MDList."""
+        from kivy.lang import Builder
+        from kivy.uix.recycleview import RecycleView
+        from main_window_android import KV
+        root = Builder.load_string(KV)
+        self.assertIsInstance(root.ids.mp3_list, RecycleView)
+
+    def test_mp3row_is_recycle_viewclass(self):
+        """Verifies Mp3Row implements the RecycleView data-view hook."""
+        from main_window_android import Mp3Row
+        self.assertTrue(hasattr(Mp3Row, "refresh_view_attrs"))
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestSnackbarShim(unittest.TestCase):
     """Tests for the Snackbar compatibility shim (KivyMD 1.2.0 removed text=)."""
 
@@ -293,6 +311,18 @@ class TestSnackbarShim(unittest.TestCase):
         """Verifies the shim stores the message for open() to display."""
         from main_window_android import Snackbar
         self.assertEqual(Snackbar(text="저장됨")._text, "저장됨")
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestFontFamilies(unittest.TestCase):
+    """Tests that the Korean font targets every KivyMD font family, not just Roboto."""
+
+    def test_covers_medium_and_light_families(self):
+        """Verifies H6/Button (RobotoMedium) and H1/H2 (RobotoLight) families are registered."""
+        from main_window_android import Mp3ArchiveApp
+        fams = Mp3ArchiveApp._KIVYMD_FONT_FAMILIES
+        for name in ("Roboto", "RobotoLight", "RobotoMedium", "RobotoBlack"):
+            self.assertIn(name, fams)
 
 
 if __name__ == "__main__":
