@@ -193,6 +193,28 @@ class TestCountLabel(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestDialogContent(unittest.TestCase):
+    """Tests for the metadata-dialog content widgets (자세히 / 가사)."""
+
+    def test_tag_edit_content_exposes_fields(self):
+        """Verifies TagEditContent provides the six editable tag-field ids."""
+        from kivy.lang import Builder
+        from main_window_android import KV, TagEditContent
+        Builder.load_string(KV)  # register the <TagEditContent> rule
+        content = TagEditContent()
+        for fid in ("f_title", "f_artist", "f_album", "f_genre", "f_year", "f_comment"):
+            self.assertIn(fid, content.ids, f"TagEditContent missing field '{fid}'")
+
+    def test_lyrics_content_exposes_label(self):
+        """Verifies LyricsContent provides the scrollable lyrics label id."""
+        from kivy.lang import Builder
+        from main_window_android import KV, LyricsContent
+        Builder.load_string(KV)
+        content = LyricsContent()
+        self.assertIn("lyrics_label", content.ids)
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestSearchDebounce(unittest.TestCase):
     """Tests that live search is debounced (Hangul IME fires on_text per jamo)."""
 

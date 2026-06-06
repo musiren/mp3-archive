@@ -4,7 +4,8 @@ main_window_android.py - KivyMD UI for the MP3 archive manager (Android).
 Provides a Material Design interface split into two bottom-navigation tabs:
   - "목록" (List): pick a directory with the in-app file manager, scan it
     (incremental or full rescan), search by filename or tags, browse the
-    stored MP3 records, and select rows to delete.
+    stored MP3 records, select rows to delete, and long-press a row to view
+    or edit its tags (자세히) or read its lyrics (가사).
   - "재생" (Player): play a tapped track with play/pause and stop controls
     and a position indicator, backed by kivy.core.audio.SoundLoader.
 
@@ -28,10 +29,13 @@ from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.properties import BooleanProperty, StringProperty
+from kivy.uix.scrollview import ScrollView
 
 from kivymd.app import MDApp
+from kivymd.uix.behaviors import TouchBehavior
 from kivymd.uix.bottomnavigation import MDBottomNavigation
-from kivymd.uix.button import MDIconButton
+from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.button import MDIconButton, MDFlatButton
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.filemanager import MDFileManager
 from kivymd.uix.label import MDLabel
@@ -42,6 +46,7 @@ from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
+from audio_meta import get_lyrics, to_easy_tags
 from mp3_manager import Mp3Manager
 
 
@@ -73,6 +78,49 @@ KV = """
         theme_text_color: "Custom"
         text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
         on_release: app.toggle_select(root)
+
+<LyricsContent>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: dp(360)
+
+    ScrollView:
+        MDLabel:
+            id: lyrics_label
+            text: ""
+            size_hint_y: None
+            height: self.texture_size[1]
+            padding: dp(8), dp(8)
+
+<TagEditContent>:
+    orientation: "vertical"
+    spacing: dp(6)
+    size_hint_y: None
+    height: self.minimum_height
+
+    MDTextField:
+        id: f_title
+        hint_text: "제목"
+
+    MDTextField:
+        id: f_artist
+        hint_text: "아티스트"
+
+    MDTextField:
+        id: f_album
+        hint_text: "앨범"
+
+    MDTextField:
+        id: f_genre
+        hint_text: "장르"
+
+    MDTextField:
+        id: f_year
+        hint_text: "년도"
+
+    MDTextField:
+        id: f_comment
+        hint_text: "코멘트"
 
 MDBoxLayout:
     orientation: "vertical"
@@ -242,11 +290,12 @@ MDBoxLayout:
 # List item widget
 # ---------------------------------------------------------------------------
 
-class Mp3Row(TwoLineAvatarIconListItem):
+class Mp3Row(TwoLineAvatarIconListItem, TouchBehavior):
     """
     A single row in the MP3 list.
 
-    Displays filename, artist, and title with a selection indicator icon.
+    Tap plays the track; tap the right icon selects it for deletion; a
+    long-press opens the per-track actions menu (자세히 / 가사).
     """
 
     filename = StringProperty("")
@@ -254,6 +303,20 @@ class Mp3Row(TwoLineAvatarIconListItem):
     title    = StringProperty("")
     path     = StringProperty("")
     selected = BooleanProperty(False)
+
+    def on_long_touch(self, *args) -> None:
+        """Open the per-track actions menu on a long press."""
+        app = MDApp.get_running_app()
+        if app is not None:
+            app.open_actions(self)
+
+
+class LyricsContent(MDBoxLayout):
+    """Scrollable lyrics body for the 가사 dialog (laid out by its KV rule)."""
+
+
+class TagEditContent(MDBoxLayout):
+    """Editable tag-field form for the 자세히 dialog (laid out by its KV rule)."""
 
 
 # ---------------------------------------------------------------------------
@@ -827,6 +890,88 @@ class Mp3ArchiveApp(MDApp):
         count = len(self._selected)
         self._refresh_list()
         Snackbar(text=f"{count}개 항목이 삭제되었습니다.").open()
+
+    # ------------------------------------------------------------------
+    # Metadata dialogs (자세히 / 가사)
+    # ------------------------------------------------------------------
+
+    def open_actions(self, row: "Mp3Row") -> None:
+        """
+        Show the per-track actions menu for a long-pressed row.
+
+        Args:
+            row: The Mp3Row that was long-pressed.
+        """
+        self._actions_dialog = MDDialog(
+            title=row.title or row.filename,
+            text=row.artist,
+            buttons=[
+                MDFlatButton(text="자세히", on_release=lambda x: self._open_detail(row)),
+                MDFlatButton(text="가사", on_release=lambda x: self._open_lyrics(row)),
+                MDFlatButton(text="닫기", on_release=lambda x: self._actions_dialog.dismiss()),
+            ],
+        )
+        self._actions_dialog.open()
+
+    def _open_lyrics(self, row: "Mp3Row") -> None:
+        """Show the embedded lyrics for a track in a scrollable dialog."""
+        self._actions_dialog.dismiss()
+        content = LyricsContent()
+        content.ids.lyrics_label.text = get_lyrics(row.path) or "(가사 정보가 없습니다)"
+        self._lyrics_dialog = MDDialog(
+            title=row.title or row.filename,
+            type="custom",
+            content_cls=content,
+            buttons=[
+                MDFlatButton(text="닫기", on_release=lambda x: self._lyrics_dialog.dismiss()),
+            ],
+        )
+        self._lyrics_dialog.open()
+
+    def _open_detail(self, row: "Mp3Row") -> None:
+        """Show an editable tag form for a track, prefilled from the database."""
+        self._actions_dialog.dismiss()
+        info = self._manager.get_by_path(row.path) or {}
+        content = TagEditContent()
+        content.ids.f_title.text   = info.get("title")   or ""
+        content.ids.f_artist.text  = info.get("artist")  or ""
+        content.ids.f_album.text   = info.get("album")   or ""
+        content.ids.f_genre.text   = info.get("genre")   or ""
+        content.ids.f_year.text    = info.get("year")    or ""
+        content.ids.f_comment.text = info.get("comment") or ""
+        self._detail_content = content
+        self._detail_path = row.path
+        self._detail_dialog = MDDialog(
+            title="자세히",
+            type="custom",
+            content_cls=content,
+            buttons=[
+                MDFlatButton(text="저장", on_release=lambda x: self._save_detail()),
+                MDFlatButton(text="닫기", on_release=lambda x: self._detail_dialog.dismiss()),
+            ],
+        )
+        self._detail_dialog.open()
+
+    def _save_detail(self) -> None:
+        """Write the edited tag fields to the file and DB, then refresh the list."""
+        c = self._detail_content
+        form = {
+            "title":   c.ids.f_title.text,
+            "artist":  c.ids.f_artist.text,
+            "album":   c.ids.f_album.text,
+            "genre":   c.ids.f_genre.text,
+            "year":    c.ids.f_year.text,
+            "comment": c.ids.f_comment.text,
+        }
+        tags = to_easy_tags(form)
+        try:
+            if tags:
+                self._manager.update_tags(self._detail_path, tags)
+            Snackbar(text="태그가 저장되었습니다.").open()
+        except Exception:
+            Snackbar(text="태그 저장에 실패했습니다.").open()
+        self._detail_dialog.dismiss()
+        self._refresh_list()
 
     # ------------------------------------------------------------------
     # UI helpers
