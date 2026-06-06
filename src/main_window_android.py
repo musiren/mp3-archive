@@ -43,14 +43,20 @@ from kivymd.uix.button import MDIconButton, MDFlatButton
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.filemanager import MDFileManager
 from kivymd.uix.label import MDLabel
-from kivymd.uix.list import TwoLineAvatarIconListItem, IconRightWidget
+from kivymd.uix.list import (
+    IconRightWidget,
+    ImageLeftWidget,
+    OneLineAvatarIconListItem,
+    TwoLineAvatarIconListItem,
+)
+from kivymd.uix.menu import MDDropdownMenu
 from kivymd.uix.progressbar import MDProgressBar
 from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
-from audio_meta import get_lyrics, to_easy_tags
+from audio_meta import get_album_art, get_lyrics, to_easy_tags
 from mp3_manager import Mp3Manager
 
 
@@ -113,9 +119,20 @@ _KOREAN_FONT_CANDIDATES = (
 # ---------------------------------------------------------------------------
 
 KV = """
-<Mp3Row>:
+<Mp3RowDetails>:
     text: root.filename
     secondary_text: root.artist + " — " + root.title
+    on_release: app.play_row(root)
+    ImageLeftWidget:
+        source: root.art_source
+    IconRightWidget:
+        icon: "check-circle" if root.selected else "circle-outline"
+        theme_text_color: "Custom"
+        text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        on_release: app.toggle_select(root)
+
+<Mp3RowList>:
+    text: root.filename
     on_release: app.play_row(root)
     IconRightWidget:
         icon: "check-circle" if root.selected else "circle-outline"
@@ -174,7 +191,7 @@ MDBoxLayout:
         id: toolbar
         title: "MP3 Archive"
         elevation: 4
-        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["delete", lambda x: app.delete_selected()]]
+        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["view-list", lambda x: app.open_view_menu()], ["delete", lambda x: app.delete_selected()]]
 
     MDBottomNavigation:
         id: bottom_nav
@@ -249,7 +266,7 @@ MDBoxLayout:
 
                 RecycleView:
                     id: mp3_list
-                    viewclass: "Mp3Row"
+                    viewclass: "Mp3RowDetails"
 
                     RecycleBoxLayout:
                         orientation: "vertical"
@@ -339,16 +356,28 @@ MDBoxLayout:
 # List item widget
 # ---------------------------------------------------------------------------
 
-class Mp3Row(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
+def _open_actions_for(row) -> None:
     """
-    A single row in the (recycled) MP3 list.
+    Open the per-track actions menu for a long-pressed row.
 
-    Used as a RecycleView viewclass, so only the rows currently on screen are
-    instantiated and they are reused as the user scrolls — the full list is
-    never materialised. That keeps repopulating the list (e.g. clearing a
-    search, which previously rebuilt every widget) fast even for thousands of
-    songs. Tap plays the track; tap the right icon selects it for deletion; a
-    long-press opens the per-track actions menu (자세히 / 가사).
+    Sets a flag so the on_release that follows the long press does not also
+    play the track (a long press fires both on_long_touch and the list item's
+    on_release).
+    """
+    app = MDApp.get_running_app()
+    if app is not None:
+        app._suppress_next_play = True
+        app.open_actions(row)
+
+
+class Mp3RowDetails(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
+    """
+    Two-line "자세히" row with an album-art thumbnail (a RecycleView viewclass).
+
+    Only the rows on screen exist as widgets and are reused while scrolling, so
+    the list stays fast for thousands of songs. Tap plays the track; tap the
+    right icon selects it for deletion; a long-press opens the per-track
+    actions menu (자세히 / 가사).
     """
 
     filename = StringProperty("")
@@ -356,7 +385,31 @@ class Mp3Row(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
     title    = StringProperty("")
     path     = StringProperty("")
     selected = BooleanProperty(False)
-    index    = None   # data index, set by RecycleView when (re)binding this view
+    art_source = StringProperty("")   # album-art image path, "" when none
+    index    = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the index and lazily load this row's album art when (re)bound."""
+        self.index = index
+        result = super().refresh_view_attrs(rv, index, data)
+        app = MDApp.get_running_app()
+        self.art_source = app._album_source(self.path) if app else ""
+        return result
+
+    def on_long_touch(self, *args) -> None:
+        """Open the per-track actions menu on a long press."""
+        _open_actions_for(self)
+
+
+class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavior):
+    """One-line "목록" row (compact); same gestures as Mp3RowDetails."""
+
+    filename = StringProperty("")
+    artist   = StringProperty("")
+    title    = StringProperty("")
+    path     = StringProperty("")
+    selected = BooleanProperty(False)
+    index    = None
 
     def refresh_view_attrs(self, rv, index, data):
         """Record the data index each time this recycled view is (re)bound."""
@@ -364,21 +417,13 @@ class Mp3Row(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
         return super().refresh_view_attrs(rv, index, data)
 
     def on_long_touch(self, *args) -> None:
-        """
-        Open the per-track actions menu on a long press.
-
-        Sets a flag so the on_release that follows the long press does not
-        also play the track (a long press fires both on_long_touch and the
-        ListItem's on_release).
-        """
-        app = MDApp.get_running_app()
-        if app is not None:
-            app._suppress_next_play = True
-            app.open_actions(self)
+        """Open the per-track actions menu on a long press."""
+        _open_actions_for(self)
 
 
-# Register Mp3Row so RecycleView can resolve `viewclass: "Mp3Row"` by name.
-Factory.register("Mp3Row", cls=Mp3Row)
+# Register both row viewclasses so RecycleView can resolve them by name.
+Factory.register("Mp3RowDetails", cls=Mp3RowDetails)
+Factory.register("Mp3RowList", cls=Mp3RowList)
 
 
 class LyricsContent(MDBoxLayout):
@@ -424,6 +469,16 @@ class Mp3ArchiveApp(MDApp):
         self._search_tags = False      # search all tags vs filename only
         self._last_dir = None          # last scanned directory (for full rescan)
         self._search_event = None      # debounce timer for live search
+
+        # View mode (목록 tab): "details" (album art) or "list" (compact)
+        self._view_mode = "details"
+        self._view_menu = None
+        self._art_cache: dict = {}     # path -> album-art file path ("" if none)
+        self._art_dir = os.path.join(self._storage_directory(), "art_cache")
+        try:
+            os.makedirs(self._art_dir, exist_ok=True)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -806,7 +861,7 @@ class Mp3ArchiveApp(MDApp):
             return f"검색 결과: {n}곡"
         return f"전체 {n}곡"
 
-    def toggle_select(self, row: Mp3Row) -> None:
+    def toggle_select(self, row) -> None:
         """
         Toggle the selection state of a list row.
 
@@ -823,10 +878,76 @@ class Mp3ArchiveApp(MDApp):
             self._files[row.index]["selected"] = selected   # persist across recycling
 
     # ------------------------------------------------------------------
+    # View mode (목록 / 자세히)
+    # ------------------------------------------------------------------
+
+    def open_view_menu(self) -> None:
+        """Open the 보기 dropdown to choose the list view mode."""
+        if self._view_menu is None:
+            items = [
+                {"text": "목록", "viewclass": "OneLineListItem",
+                 "on_release": lambda: self._set_view_mode("list")},
+                {"text": "자세히", "viewclass": "OneLineListItem",
+                 "on_release": lambda: self._set_view_mode("details")},
+            ]
+            self._view_menu = MDDropdownMenu(
+                caller=self.root.ids.toolbar, items=items, width_mult=3,
+            )
+        self._view_menu.open()
+
+    def _set_view_mode(self, mode: str) -> None:
+        """Switch the list view mode and re-render."""
+        if self._view_menu is not None:
+            self._view_menu.dismiss()
+        self._view_mode = mode
+        self._apply_view_mode()
+        self._refresh_list()
+
+    def _apply_view_mode(self) -> None:
+        """Point the RecycleView at the viewclass and row height for the mode."""
+        rv = self.root.ids.mp3_list
+        if self._view_mode == "list":
+            rv.viewclass = "Mp3RowList"
+            rv.layout_manager.default_size = (None, dp(48))
+        else:
+            rv.viewclass = "Mp3RowDetails"
+            rv.layout_manager.default_size = (None, dp(72))
+
+    def _album_source(self, path: str) -> str:
+        """
+        Return a file path to the track's album art, caching each extraction.
+
+        Embedded art bytes are written once to the per-app art cache and the
+        path is reused; tracks without art (or on any failure) return "".
+
+        Args:
+            path: Absolute path to the audio file.
+
+        Returns:
+            A cached image file path, or "" when there is no art.
+        """
+        cached = self._art_cache.get(path)
+        if cached is not None:
+            return cached
+        src = ""
+        try:
+            data = get_album_art(path)
+            if data:
+                ext = "png" if data[:4] == b"\x89PNG" else "jpg"
+                fn = os.path.join(self._art_dir, "%x.%s" % (abs(hash(path)), ext))
+                with open(fn, "wb") as fh:
+                    fh.write(data)
+                src = fn
+        except Exception:
+            src = ""
+        self._art_cache[path] = src
+        return src
+
+    # ------------------------------------------------------------------
     # Playback (재생 tab)
     # ------------------------------------------------------------------
 
-    def play_row(self, row: "Mp3Row") -> None:
+    def play_row(self, row) -> None:
         """
         Play the track for a tapped list row and switch to the player tab.
 
@@ -1014,7 +1135,7 @@ class Mp3ArchiveApp(MDApp):
     # Metadata dialogs (자세히 / 가사)
     # ------------------------------------------------------------------
 
-    def open_actions(self, row: "Mp3Row") -> None:
+    def open_actions(self, row) -> None:
         """
         Show the per-track actions menu for a long-pressed row.
 
@@ -1032,7 +1153,7 @@ class Mp3ArchiveApp(MDApp):
         )
         self._actions_dialog.open()
 
-    def _open_lyrics(self, row: "Mp3Row") -> None:
+    def _open_lyrics(self, row) -> None:
         """Show the embedded lyrics for a track in a scrollable dialog."""
         self._actions_dialog.dismiss()
         content = LyricsContent()
@@ -1047,7 +1168,7 @@ class Mp3ArchiveApp(MDApp):
         )
         self._lyrics_dialog.open()
 
-    def _open_detail(self, row: "Mp3Row") -> None:
+    def _open_detail(self, row) -> None:
         """Show an editable tag form for a track, prefilled from the database."""
         self._actions_dialog.dismiss()
         info = self._manager.get_by_path(row.path) or {}
