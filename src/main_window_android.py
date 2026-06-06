@@ -21,6 +21,7 @@ import os
 import threading
 
 from kivy.clock import Clock, mainthread
+from kivy.core.text import LabelBase
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.uix.recycleview import RecycleView
@@ -40,6 +41,20 @@ from kivymd.uix.toolbar import MDTopAppBar
 from mp3_manager import Mp3Manager
 
 
+# Android system fonts that include Korean (Hangul) glyphs, in preference
+# order. The first that exists on the device is registered as the default
+# 'Roboto' font so the UI's Korean strings render instead of tofu boxes.
+_KOREAN_FONT_CANDIDATES = (
+    "/system/fonts/NotoSansCJK-Regular.ttc",
+    "/system/fonts/NotoSansKR-Regular.otf",
+    "/system/fonts/NotoSansKR-Regular.ttf",
+    "/system/fonts/NotoSansCJKkr-Regular.otf",
+    "/system/fonts/SECCJK-Regular.ttc",
+    "/system/fonts/SamsungKorean-Regular.ttf",
+    "/system/fonts/DroidSansFallback.ttf",
+)
+
+
 # ---------------------------------------------------------------------------
 # KV layout string
 # ---------------------------------------------------------------------------
@@ -55,38 +70,38 @@ KV = """
         text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
         on_release: app.toggle_select(root)
 
-Screen:
-    name: "main"
+MDBoxLayout:
+    orientation: "vertical"
+    md_bg_color: app.theme_cls.bg_normal
 
-    MDBoxLayout:
-        orientation: "vertical"
+    MDTopAppBar:
+        id: toolbar
+        title: "MP3 Archive"
+        elevation: 4
+        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["delete", lambda x: app.delete_selected()]]
 
-        MDTopAppBar:
-            id: toolbar
-            title: "MP3 Archive"
-            elevation: 4
-            right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["delete", lambda x: app.delete_selected()]]
+    MDProgressBar:
+        id: progress_bar
+        value: 0
+        max: 100
+        size_hint_y: None
+        height: dp(4)
+        opacity: 0
 
-        MDProgressBar:
-            id: progress_bar
-            value: 0
-            max: 100
+    MDLabel:
+        id: status_label
+        text: "준비"
+        halign: "center"
+        size_hint_y: None
+        height: dp(24)
+        font_style: "Caption"
+        theme_text_color: "Secondary"
+
+    ScrollView:
+        MDList:
+            id: mp3_list
             size_hint_y: None
-            height: dp(4)
-            opacity: 0
-
-        MDLabel:
-            id: status_label
-            text: "준비"
-            halign: "center"
-            size_hint_y: None
-            height: dp(24)
-            font_style: "Caption"
-            theme_text_color: "Secondary"
-
-        ScrollView:
-            MDList:
-                id: mp3_list
+            height: self.minimum_height
 """
 
 
@@ -132,14 +147,49 @@ class Mp3ArchiveApp(MDApp):
     # ------------------------------------------------------------------
 
     def build(self):
-        """Build the UI from the KV string."""
+        """Build the UI from the KV string, registering a Korean font first."""
+        self._register_fonts()
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
         return Builder.load_string(KV)
 
     def on_start(self) -> None:
-        """Populate the list from the database when the app starts."""
+        """Request storage permissions and populate the list at startup."""
+        self._request_android_permissions()
         self._refresh_list()
+
+    def _register_fonts(self) -> None:
+        """
+        Register a Korean-capable font as the default so Hangul renders.
+
+        Kivy and KivyMD default to the 'Roboto' font, which has no CJK glyphs,
+        so Korean text renders as empty tofu boxes. Re-registering the 'Roboto'
+        name to point at an Android system CJK font makes every default-styled
+        label render Hangul. No-op on platforms where no candidate font exists
+        (e.g. desktop), leaving the bundled Roboto in place.
+        """
+        font_path = self._find_korean_font()
+        if font_path:
+            LabelBase.register(name="Roboto", fn_regular=font_path)
+
+    @staticmethod
+    def _request_android_permissions() -> None:
+        """
+        Request runtime storage permissions on Android (no-op off-device).
+
+        Declaring permissions in the manifest is not sufficient on Android 6+
+        (API 23+); they must also be granted at runtime or directory scans
+        silently return zero files. The android module is imported lazily so
+        the method is a harmless no-op on desktop.
+        """
+        try:
+            from android.permissions import request_permissions, Permission  # type: ignore
+        except ImportError:
+            return
+        names = ("READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_AUDIO")
+        perms = [getattr(Permission, n) for n in names if hasattr(Permission, n)]
+        if perms:
+            request_permissions(perms)
 
     def on_stop(self) -> None:
         """Close the database connection when the app exits."""
@@ -215,20 +265,36 @@ class Mp3ArchiveApp(MDApp):
             pct = int(current / total * 100) if total else 0
             Clock.schedule_once(lambda dt: self._set_progress(pct))
 
-        count = self._manager.scan(directory, progress_callback=on_progress)
-        Clock.schedule_once(lambda dt: self._on_scan_done(count))
+        result = self._manager.scan(directory, progress_callback=on_progress)
+        Clock.schedule_once(lambda dt: self._on_scan_done(result))
 
     @mainthread
-    def _on_scan_done(self, count: int) -> None:
+    def _on_scan_done(self, result: tuple) -> None:
         """
         Refresh the list and reset the UI after a scan completes.
 
         Args:
-            count: Number of MP3 files that were found and saved.
+            result: The (processed, skipped, removed) tuple returned by
+                    Mp3Manager.scan().
         """
         self._set_progress_visible(False)
-        self._set_status(f"완료: {count}개 파일 저장됨")
+        self._set_status(self._format_scan_summary(*result))
         self._refresh_list()
+
+    @staticmethod
+    def _format_scan_summary(processed: int, skipped: int, removed: int) -> str:
+        """
+        Build a Korean status message summarising a scan result.
+
+        Args:
+            processed: Number of files newly read and saved.
+            skipped:   Number of unchanged files skipped.
+            removed:   Number of stale records removed.
+
+        Returns:
+            A human-readable summary string (never a raw tuple).
+        """
+        return f"완료: 추가 {processed} · 건너뜀 {skipped} · 삭제 {removed}"
 
     # ------------------------------------------------------------------
     # List management
@@ -329,6 +395,24 @@ class Mp3ArchiveApp(MDApp):
             visible: True to show, False to hide.
         """
         self.root.ids.progress_bar.opacity = 1 if visible else 0
+
+    @staticmethod
+    def _find_korean_font(exists=os.path.exists) -> str | None:
+        """
+        Return the first available Korean-capable system font path, or None.
+
+        Args:
+            exists: Predicate used to test a path's existence; injectable so
+                    tests can simulate device font layouts without a device.
+
+        Returns:
+            The first existing path from _KOREAN_FONT_CANDIDATES, or None when
+            none of the candidates are present (e.g. on desktop).
+        """
+        for path in _KOREAN_FONT_CANDIDATES:
+            if exists(path):
+                return path
+        return None
 
     @staticmethod
     def _storage_directory() -> str:

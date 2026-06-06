@@ -72,6 +72,80 @@ class TestKvLayout(unittest.TestCase):
                 f"KV line {lineno} indent={indent} not a multiple of 4: {line!r}",
             )
 
+    def test_kv_root_is_not_bare_screen(self):
+        """Verifies the KV root is not a bare ``Screen:`` (must be inside a ScreenManager).
+
+        A standalone ``Screen`` widget renders an invisible UI on Android because its
+        ``layout_children`` override (intended for ScreenManager transitions) overrides
+        children's positions and its ``transition_state`` defaults to ``'out'``.
+        """
+        from main_window_android import KV
+        toplevel = [
+            line for line in KV.splitlines()
+            if line and not line.startswith(" ") and line.rstrip().endswith(":")
+        ]
+        for line in toplevel:
+            self.assertNotEqual(
+                line.rstrip(), "Screen:",
+                "KV root must not be a bare Screen — use MDBoxLayout (or a "
+                "ScreenManager wrapper) to avoid the invisible-UI bug on Android.",
+            )
+
+    def test_kv_load_string_yields_expected_ids(self):
+        """Verifies Builder.load_string(KV) returns a widget with toolbar/progress_bar/status_label/mp3_list ids."""
+        from kivy.lang import Builder
+        from main_window_android import KV
+        root = Builder.load_string(KV)
+        self.assertIsNotNone(root, "Builder.load_string returned None — KV has no root widget")
+        for ident in ("toolbar", "progress_bar", "status_label", "mp3_list"):
+            self.assertIn(ident, root.ids, f"KV id '{ident}' missing from root.ids")
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestKoreanFont(unittest.TestCase):
+    """Tests for Korean font selection (fixes Hangul tofu boxes)."""
+
+    def test_returns_first_existing_candidate(self):
+        """Verifies _find_korean_font returns the first path the exists-predicate accepts."""
+        from main_window_android import Mp3ArchiveApp, _KOREAN_FONT_CANDIDATES
+        target = _KOREAN_FONT_CANDIDATES[1]
+        font = Mp3ArchiveApp._find_korean_font(exists=lambda p: p == target)
+        self.assertEqual(font, target)
+
+    def test_returns_none_when_no_candidate_exists(self):
+        """Verifies _find_korean_font returns None when no candidate font is present."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertIsNone(Mp3ArchiveApp._find_korean_font(exists=lambda p: False))
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestScanSummary(unittest.TestCase):
+    """Tests for the scan-result status message (fixes raw-tuple display)."""
+
+    def test_includes_all_three_counts(self):
+        """Verifies _format_scan_summary reports processed, skipped, and removed counts."""
+        from main_window_android import Mp3ArchiveApp
+        msg = Mp3ArchiveApp._format_scan_summary(3, 5, 2)
+        self.assertIn("3", msg)
+        self.assertIn("5", msg)
+        self.assertIn("2", msg)
+
+    def test_does_not_render_raw_tuple(self):
+        """Verifies _format_scan_summary never embeds a raw tuple like '(3, 5, 2)'."""
+        from main_window_android import Mp3ArchiveApp
+        msg = Mp3ArchiveApp._format_scan_summary(3, 5, 2)
+        self.assertNotIn("(3, 5, 2)", msg)
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestPermissions(unittest.TestCase):
+    """Tests for runtime permission requests."""
+
+    def test_no_raise_when_android_absent(self):
+        """Verifies _request_android_permissions is a no-op (no exception) off-device."""
+        from main_window_android import Mp3ArchiveApp
+        Mp3ArchiveApp._request_android_permissions()  # must not raise
+
 
 if __name__ == "__main__":
     unittest.main()
