@@ -45,6 +45,26 @@ def fix_mojibake(text: str | None) -> str | None:
     return repaired if _has_hangul(repaired) else text
 
 
+def _clean_lyrics(text: str | None) -> str | None:
+    """
+    Repair encoding and normalise line endings for embedded lyrics.
+
+    Lyrics frames frequently use CRLF or bare CR line endings; Kivy renders a
+    stray carriage return as a tofu box at the end of every line, so collapse
+    them to plain '\\n' (after the usual mojibake repair).
+
+    Args:
+        text: Raw lyrics string, or None.
+
+    Returns:
+        Cleaned lyrics, or None/empty unchanged.
+    """
+    text = fix_mojibake(text)
+    if not text:
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def get_album_art(path: str) -> bytes | None:
     """
     Extract embedded album art from an audio file.
@@ -95,13 +115,13 @@ def get_lyrics(path: str) -> str | None:
             for key in ("lyrics", "LYRICS"):
                 if key in audio_easy.tags:
                     val = audio_easy.tags[key]
-                    return fix_mojibake(val[0] if isinstance(val, list) else str(val))
+                    return _clean_lyrics(val[0] if isinstance(val, list) else str(val))
 
         audio_raw = MutagenFile(path, easy=False)
         if audio_raw and audio_raw.tags:
             for key in list(audio_raw.tags.keys()):
                 if key.startswith("USLT"):
-                    return fix_mojibake(audio_raw.tags[key].text)
+                    return _clean_lyrics(audio_raw.tags[key].text)
             if "\xa9lyr" in audio_raw.tags:
                 val = audio_raw.tags["\xa9lyr"]
                 return val[0] if isinstance(val, list) else str(val)

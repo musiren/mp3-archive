@@ -11,7 +11,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from audio_meta import fix_mojibake, get_album_art, get_lyrics, to_easy_tags  # noqa: E402
+from audio_meta import (  # noqa: E402
+    _clean_lyrics, fix_mojibake, get_album_art, get_lyrics, to_easy_tags,
+)
 
 
 class TestGetLyrics(unittest.TestCase):
@@ -77,6 +79,23 @@ class TestToEasyTags(unittest.TestCase):
             "title": "T", "artist": "A", "album": "Al",
             "genre": "Pop", "comment": "c",
         })
+
+
+class TestCleanLyrics(unittest.TestCase):
+    """Tests for lyrics line-ending normalization."""
+
+    def test_normalizes_crlf_and_cr(self):
+        """Verifies CRLF and bare CR line endings collapse to LF."""
+        self.assertEqual(_clean_lyrics("line1\r\nline2\rline3"), "line1\nline2\nline3")
+
+    def test_leaves_lf_unchanged(self):
+        """Verifies plain LF text is returned unchanged."""
+        self.assertEqual(_clean_lyrics("a\nb"), "a\nb")
+
+    def test_handles_none_and_empty(self):
+        """Verifies None and empty pass through untouched."""
+        self.assertIsNone(_clean_lyrics(None))
+        self.assertEqual(_clean_lyrics(""), "")
 
 
 class TestFixMojibake(unittest.TestCase):
