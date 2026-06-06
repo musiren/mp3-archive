@@ -3,8 +3,8 @@ main_window_android.py - KivyMD UI for the MP3 archive manager (Android).
 
 Provides a Material Design interface split into two bottom-navigation tabs:
   - "목록" (List): pick a directory with the in-app file manager, scan it
-    into the database, browse the stored MP3 records, and select rows to
-    delete.
+    (incremental or full rescan), search by filename or tags, browse the
+    stored MP3 records, and select rows to delete.
   - "재생" (Player): play a tapped track with play/pause and stop controls
     and a position indicator, backed by kivy.core.audio.SoundLoader.
 
@@ -37,7 +37,9 @@ from kivymd.uix.filemanager import MDFileManager
 from kivymd.uix.label import MDLabel
 from kivymd.uix.list import TwoLineAvatarIconListItem, IconRightWidget
 from kivymd.uix.progressbar import MDProgressBar
+from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.snackbar import Snackbar
+from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from mp3_manager import Mp3Manager
@@ -80,7 +82,7 @@ MDBoxLayout:
         id: toolbar
         title: "MP3 Archive"
         elevation: 4
-        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["delete", lambda x: app.delete_selected()]]
+        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["delete", lambda x: app.delete_selected()]]
 
     MDBottomNavigation:
         id: bottom_nav
@@ -92,6 +94,49 @@ MDBoxLayout:
 
             MDBoxLayout:
                 orientation: "vertical"
+
+                MDBoxLayout:
+                    size_hint_y: None
+                    height: dp(64)
+                    padding: dp(8), 0
+                    spacing: dp(4)
+
+                    MDTextField:
+                        id: search_field
+                        hint_text: "검색 (제목·아티스트·파일명)"
+                        on_text: app.on_search_text(self.text)
+
+                    MDIconButton:
+                        icon: "close"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.clear_search()
+
+                MDBoxLayout:
+                    size_hint_y: None
+                    height: dp(40)
+                    padding: dp(8), 0
+
+                    MDCheckbox:
+                        id: chk_tags
+                        size_hint_x: None
+                        width: dp(40)
+                        pos_hint: {"center_y": 0.5}
+                        on_active: app.on_search_tags(self.active)
+
+                    MDLabel:
+                        text: "태그 포함"
+                        font_style: "Caption"
+                        pos_hint: {"center_y": 0.5}
+
+                    Widget:
+
+                    MDLabel:
+                        id: count_label
+                        text: "전체 0곡"
+                        halign: "right"
+                        font_style: "Caption"
+                        theme_text_color: "Secondary"
+                        pos_hint: {"center_y": 0.5}
 
                 MDProgressBar:
                     id: progress_bar
@@ -238,6 +283,11 @@ class Mp3ArchiveApp(MDApp):
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
         self._fm_open = False          # whether the file manager is showing
+
+        # Library / search state (목록 tab)
+        self._search_keyword = ""      # current search text
+        self._search_tags = False      # search all tags vs filename only
+        self._last_dir = None          # last scanned directory (for full rescan)
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -424,36 +474,49 @@ class Mp3ArchiveApp(MDApp):
     # Scanning
     # ------------------------------------------------------------------
 
-    def _start_scan(self, directory: str) -> None:
+    def force_rescan(self) -> None:
+        """Re-scan the most recently scanned directory, re-reading every file."""
+        if not self._last_dir:
+            Snackbar(text="먼저 폴더를 선택해 스캔하세요.").open()
+            return
+        self._start_scan(self._last_dir, force=True)
+
+    def _start_scan(self, directory: str, force: bool = False) -> None:
         """
         Launch a background thread to scan the given directory.
 
         Args:
             directory: Root path to scan for MP3 files.
+            force:     When True, re-read every file and drop stale records.
         """
-        self._set_status(f"스캔 중: {os.path.basename(directory)}")
+        self._last_dir = directory
+        label = "전체 스캔 중" if force else "스캔 중"
+        self._set_status(f"{label}: {os.path.basename(directory)}")
         self._set_progress_visible(True)
         self._set_progress(0)
         thread = threading.Thread(
             target=self._scan_worker,
-            args=(directory,),
+            args=(directory, force),
             daemon=True,
         )
         thread.start()
 
-    def _scan_worker(self, directory: str) -> None:
+    def _scan_worker(self, directory: str, force: bool = False) -> None:
         """
         Run Mp3Manager.scan() in a background thread and post UI updates.
 
         Args:
             directory: Directory path passed to Mp3Manager.scan().
+            force:     Whether to force a full rescan.
         """
         def on_progress(current: int, total: int, path: str) -> None:
             """Schedule a progress bar update on the main thread."""
             pct = int(current / total * 100) if total else 0
             Clock.schedule_once(lambda dt: self._set_progress(pct))
 
-        result = self._manager.scan(directory, progress_callback=on_progress)
+        result = self._manager.scan(
+            directory, progress_callback=on_progress, force=force
+        )
         Clock.schedule_once(lambda dt: self._on_scan_done(result))
 
     @mainthread
@@ -489,12 +552,21 @@ class Mp3ArchiveApp(MDApp):
     # ------------------------------------------------------------------
 
     def _refresh_list(self) -> None:
-        """Clear and repopulate the MP3 list from the database."""
+        """Repopulate the MP3 list, honouring the current search keyword."""
+        if self.root is None:
+            return  # KV may fire on_text before build() returns and sets root
         mp3_list = self.root.ids.mp3_list
         mp3_list.clear_widgets()
         self._selected.clear()
 
-        for f in self._manager.list_files():
+        if self._search_keyword:
+            files = self._manager.search(
+                self._search_keyword, filename_only=not self._search_tags
+            )
+        else:
+            files = self._manager.list_files()
+
+        for f in files:
             row = Mp3Row(
                 filename=f["filename"],
                 artist=f["artist"] or "-",
@@ -502,6 +574,51 @@ class Mp3ArchiveApp(MDApp):
                 path=f["path"],
             )
             mp3_list.add_widget(row)
+
+        self.root.ids.count_label.text = self._count_label_text(
+            len(files), self._search_keyword
+        )
+
+    def on_search_text(self, text: str) -> None:
+        """
+        Filter the list as the search field text changes.
+
+        Args:
+            text: Current search-field text.
+        """
+        self._search_keyword = text.strip()
+        self._refresh_list()
+
+    def on_search_tags(self, active: bool) -> None:
+        """
+        Toggle searching all tag fields vs the filename only.
+
+        Args:
+            active: True to search all tags; False for filename only.
+        """
+        self._search_tags = bool(active)
+        if self._search_keyword:
+            self._refresh_list()
+
+    def clear_search(self) -> None:
+        """Clear the search field, restoring the full list."""
+        self.root.ids.search_field.text = ""
+
+    @staticmethod
+    def _count_label_text(n: int, keyword: str) -> str:
+        """
+        Build the song-count label text.
+
+        Args:
+            n:       Number of rows currently shown.
+            keyword: Active search keyword ("" when not searching).
+
+        Returns:
+            "검색 결과: N곡" when searching, else "전체 N곡".
+        """
+        if keyword:
+            return f"검색 결과: {n}곡"
+        return f"전체 {n}곡"
 
     def toggle_select(self, row: Mp3Row) -> None:
         """

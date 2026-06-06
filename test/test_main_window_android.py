@@ -99,6 +99,7 @@ class TestKvLayout(unittest.TestCase):
         self.assertIsNotNone(root, "Builder.load_string returned None — KV has no root widget")
         expected = (
             "toolbar", "bottom_nav",
+            "search_field", "chk_tags", "count_label",           # 목록 search
             "progress_bar", "status_label", "mp3_list",          # 목록 tab
             "now_playing", "position_bar", "play_button",        # 재생 tab
         )
@@ -174,6 +175,21 @@ class TestTimeFormat(unittest.TestCase):
         """Verifies _format_time truncates fractional seconds (get_pos returns float)."""
         from main_window_android import Mp3ArchiveApp
         self.assertEqual(Mp3ArchiveApp._format_time(95.9), "1:35")
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestCountLabel(unittest.TestCase):
+    """Tests for the 목록-tab song-count label text."""
+
+    def test_full_count_when_no_keyword(self):
+        """Verifies _count_label_text shows the total count when not searching."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._count_label_text(5, ""), "전체 5곡")
+
+    def test_search_count_when_keyword(self):
+        """Verifies _count_label_text shows a search-result count when searching."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._count_label_text(3, "abc"), "검색 결과: 3곡")
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
