@@ -22,8 +22,11 @@ fullscreen = 0
 android.presplash_color = #FFFFFF
 
 # READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE cover API < 33;
-# READ_MEDIA_AUDIO covers API 33+ (Android 13).
-android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO
+# READ_MEDIA_AUDIO covers API 33+ (Android 13). MANAGE_EXTERNAL_STORAGE
+# ("All files access") is required to browse and scan arbitrary directories
+# under scoped storage (Android 11+); it is granted via a settings page, not
+# a runtime prompt (see Mp3ArchiveApp._request_all_files_access).
+android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE
 
 android.api = 33
 android.minapi = 21

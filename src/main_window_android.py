@@ -2,8 +2,9 @@
 main_window_android.py - KivyMD UI for the MP3 archive manager (Android).
 
 Provides a Material Design interface split into two bottom-navigation tabs:
-  - "목록" (List): scan a storage directory via the Android file chooser
-    (plyer), browse the stored MP3 records, and select rows to delete.
+  - "목록" (List): pick a directory with the in-app file manager, scan it
+    into the database, browse the stored MP3 records, and select rows to
+    delete.
   - "재생" (Player): play a tapped track with play/pause and stop controls
     and a position indicator, backed by kivy.core.audio.SoundLoader.
 
@@ -23,6 +24,7 @@ import threading
 from kivy.clock import Clock, mainthread
 from kivy.core.audio import SoundLoader
 from kivy.core.text import LabelBase
+from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.properties import BooleanProperty, StringProperty
@@ -31,6 +33,7 @@ from kivymd.app import MDApp
 from kivymd.uix.bottomnavigation import MDBottomNavigation
 from kivymd.uix.button import MDIconButton
 from kivymd.uix.dialog import MDDialog
+from kivymd.uix.filemanager import MDFileManager
 from kivymd.uix.label import MDLabel
 from kivymd.uix.list import TwoLineAvatarIconListItem, IconRightWidget
 from kivymd.uix.progressbar import MDProgressBar
@@ -232,6 +235,10 @@ class Mp3ArchiveApp(MDApp):
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._pos_event = None         # Clock event polling playback position
 
+        # Folder picker (MDFileManager) state
+        self._file_manager = None      # lazily-created MDFileManager
+        self._fm_open = False          # whether the file manager is showing
+
     # ------------------------------------------------------------------
     # Kivy lifecycle
     # ------------------------------------------------------------------
@@ -241,7 +248,9 @@ class Mp3ArchiveApp(MDApp):
         self._register_fonts()
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
-        return Builder.load_string(KV)
+        root = Builder.load_string(KV)
+        Window.bind(on_keyboard=self._on_keyboard)
+        return root
 
     def on_start(self) -> None:
         """Request storage permissions and populate the list at startup."""
@@ -292,36 +301,124 @@ class Mp3ArchiveApp(MDApp):
 
     def open_folder_picker(self) -> None:
         """
-        Open the Android file chooser to select a music directory.
+        Let the user pick a directory to scan via the in-app file manager.
 
-        Falls back to /sdcard/Music if plyer is unavailable.
+        On Android 11+ a directory scan needs "All files access"
+        (MANAGE_EXTERNAL_STORAGE); if it has not been granted, send the user
+        to the system settings page to grant it and ask them to retry.
         """
+        if not self._has_all_files_access():
+            self._request_all_files_access()
+            Snackbar(text="'모든 파일 접근'을 허용한 뒤 다시 폴더를 선택하세요.").open()
+            return
+        self._show_file_manager()
+
+    def _show_file_manager(self) -> None:
+        """Open MDFileManager rooted at external storage, in folder-select mode."""
         try:
-            from plyer import filechooser
-            filechooser.open_file(
-                on_selection=self._on_folder_selected,
-                filters=[],
-                multiple=False,
-                preview=False,
-                title="Select music folder",
-                path="/sdcard/Music",
-            )
+            if self._file_manager is None:
+                self._file_manager = MDFileManager(
+                    select_path=self._on_dir_selected,
+                    exit_manager=self._close_file_manager,
+                    selector="folder",
+                )
+            self._fm_open = True
+            self._file_manager.show(self._storage_root())
         except Exception:
-            # Fallback: scan the default music directory directly
+            # If the manager cannot open, fall back to the default music dir.
+            self._fm_open = False
+            Snackbar(text="파일 관리자를 열 수 없어 /sdcard/Music을 스캔합니다.").open()
             self._start_scan("/sdcard/Music")
 
-    def _on_folder_selected(self, selection: list) -> None:
+    def _on_dir_selected(self, path: str) -> None:
         """
-        Handle the folder selection result from the file chooser.
+        Handle a directory chosen in the file manager: close it and scan.
 
         Args:
-            selection: List of selected paths (first element is used).
+            path: The selected directory path.
         """
-        if not selection:
-            return
-        path = selection[0]
-        directory = path if os.path.isdir(path) else os.path.dirname(path)
-        self._start_scan(directory)
+        self._close_file_manager()
+        self._start_scan(path)
+
+    def _close_file_manager(self, *args) -> None:
+        """Close the file manager if it is open."""
+        self._fm_open = False
+        if self._file_manager is not None:
+            self._file_manager.close()
+
+    def _on_keyboard(self, _window, key, *args) -> bool:
+        """
+        Route the Android back button to closing the file manager.
+
+        Args:
+            _window: The Window instance (unused).
+            key:     Key code; 27 is the Android back button.
+
+        Returns:
+            True if the press was consumed (manager was open), else False.
+        """
+        if key == 27 and self._fm_open:
+            self._close_file_manager()
+            return True
+        return False
+
+    @staticmethod
+    def _storage_root(exists=os.path.exists) -> str:
+        """
+        Return the external-storage root to start the file manager from.
+
+        Args:
+            exists: Predicate to test path existence; injectable for tests.
+
+        Returns:
+            "/storage/emulated/0" or "/sdcard" if present, else the home dir.
+        """
+        for path in ("/storage/emulated/0", "/sdcard"):
+            if exists(path):
+                return path
+        return os.path.expanduser("~")
+
+    @staticmethod
+    def _has_all_files_access() -> bool:
+        """
+        Return whether the app may read all of shared storage.
+
+        On Android 11+ (API 30+), browsing and scanning arbitrary directories
+        requires MANAGE_EXTERNAL_STORAGE. Returns True off-device or when the
+        check is unavailable, so desktop and tests are never blocked.
+        """
+        try:
+            from jnius import autoclass  # type: ignore
+            version = autoclass("android.os.Build$VERSION")
+            if version.SDK_INT < 30:
+                return True
+            environment = autoclass("android.os.Environment")
+            return bool(environment.isExternalStorageManager())
+        except Exception:
+            return True
+
+    @staticmethod
+    def _request_all_files_access() -> None:
+        """
+        Open the system "All files access" settings page for this app.
+
+        No-op off-device or when the required Android classes are unavailable.
+        """
+        try:
+            from jnius import autoclass  # type: ignore
+            version = autoclass("android.os.Build$VERSION")
+            if version.SDK_INT < 30:
+                return
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            Intent = autoclass("android.content.Intent")
+            Settings = autoclass("android.provider.Settings")
+            Uri = autoclass("android.net.Uri")
+            activity = PythonActivity.mActivity
+            intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+            intent.setData(Uri.parse("package:" + activity.getPackageName()))
+            activity.startActivity(intent)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Scanning

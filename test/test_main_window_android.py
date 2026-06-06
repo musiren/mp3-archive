@@ -176,5 +176,44 @@ class TestTimeFormat(unittest.TestCase):
         self.assertEqual(Mp3ArchiveApp._format_time(95.9), "1:35")
 
 
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestStorageRoot(unittest.TestCase):
+    """Tests for the file-manager start directory."""
+
+    def test_prefers_emulated_path(self):
+        """Verifies _storage_root returns /storage/emulated/0 when it exists."""
+        from main_window_android import Mp3ArchiveApp
+        root = Mp3ArchiveApp._storage_root(exists=lambda p: True)
+        self.assertEqual(root, "/storage/emulated/0")
+
+    def test_falls_back_to_sdcard(self):
+        """Verifies _storage_root returns /sdcard when only /sdcard exists."""
+        from main_window_android import Mp3ArchiveApp
+        root = Mp3ArchiveApp._storage_root(exists=lambda p: p == "/sdcard")
+        self.assertEqual(root, "/sdcard")
+
+    def test_falls_back_to_home(self):
+        """Verifies _storage_root returns the home dir when no android root exists."""
+        import os as _os
+        from main_window_android import Mp3ArchiveApp
+        root = Mp3ArchiveApp._storage_root(exists=lambda p: False)
+        self.assertEqual(root, _os.path.expanduser("~"))
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestAllFilesAccess(unittest.TestCase):
+    """Tests for the 'All files access' helpers (no-ops off-device)."""
+
+    def test_has_access_true_off_device(self):
+        """Verifies _has_all_files_access returns True when jnius is unavailable."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertTrue(Mp3ArchiveApp._has_all_files_access())
+
+    def test_request_access_no_raise_off_device(self):
+        """Verifies _request_all_files_access is a no-op (no exception) off-device."""
+        from main_window_android import Mp3ArchiveApp
+        Mp3ArchiveApp._request_all_files_access()  # must not raise
+
+
 if __name__ == "__main__":
     unittest.main()
