@@ -2,63 +2,101 @@
 
 Goal: bring the Android (KivyMD) app to feature parity with the desktop
 (`main_window.py`) app. The shared backend (`mp3_manager.py`,
-`itunes_fetcher.py`, `tag_fetcher.py`, lyrics helpers) is pure Python and
-reused as-is; only the UI layer differs.
+`itunes_fetcher.py`, `tag_fetcher.py`, `audio_meta.py`, `tree_util.py`) is pure
+Python and reused as-is; only the UI layer differs.
 
-## Feature inventory
+> Status as of 2026-06-07, reconciled against a full source-to-source audit of
+> `main_window.py` + dialogs vs `main_window_android.py`. The core daily
+> workflow (scan / search / four view modes / playback / tag edit / lyrics) is
+> done; the remaining work is the playlist/queue subsystem and online metadata.
 
-| # | Desktop feature | Android status | KivyMD approach |
-|---|-----------------|----------------|-----------------|
-| 1 | Pick directory + scan | ✅ done (MDFileManager) | — |
-| 2 | Incremental scan + progress | ✅ done | — |
-| 3 | **Full (force) rescan** | ❌ | toolbar overflow menu item → `scan(force=True)` |
-| 4 | **Search (filename / all tags)** | ❌ | `MDTextField` search bar + toggle on 목록 tab → `manager.search()` |
-| 5 | Delete selected | ✅ done | — |
-| 6 | Table with columns (album, genre, year, duration, size, dates) | partial (2-line rows) | richer row + a detail view |
-| 7 | **Tree view (path hierarchy) + toggle** | ❌ | optional; `MDExpansionPanel`/nested lists (low priority on mobile) |
-| 8 | Column show/hide/reorder | ❌ | N/A on mobile — **skip** |
-| 9 | **Playlist / queue** (add, reorder, remove, clear) | ❌ | in-memory queue + a queue screen; reorder via up/down buttons |
-| 10 | **Save / Load .list** | ❌ | write/read newline path file under app storage or chosen dir |
-| 11 | **Prev / Next** | ❌ | player-tab buttons honoring play mode |
-| 12 | **Seek** | ❌ (read-only bar) | interactive `MDSlider` with an update guard |
-| 13 | **Volume** | ❌ | `MDSlider` → `sound.volume` |
-| 14 | **Play modes** (sequential / repeat_one / repeat_all / shuffle) | ❌ | cycle button; drives auto-advance |
-| 15 | Auto-advance at track end per mode | ❌ | hook into the position poll / `sound.on_stop` |
-| 16 | **Album art** | ❌ | `_get_album_art` (port from desktop) → `Image`/texture on player tab |
-| 17 | **Lyrics** | ❌ | `_get_lyrics` (exists) → label/section on player tab |
-| 18 | **자세히 (tag detail view/edit)** | ❌ | `MDDialog` with `MDTextField`s → `manager.update_tags()` |
-| 19 | **태그 찾기 (iTunes fetch)** | ❌ | dialog listing `itunes_fetcher`/`tag_fetcher` candidates → apply |
-| 20 | **인터넷에서 정보 보기 (song info)** | ❌ | read-only info dialog from the same fetchers |
-| 21 | **Theme toggle (light/dark)** | ❌ (light only) | `theme_cls.theme_style` toggle in overflow menu |
-| 22 | **About (version from NEWS)** | ❌ | `MDDialog` reading the NEWS version |
-| 23 | Per-directory DB (`.mp3-archive.db`) | ❌ (single app-storage DB) | keep single DB on Android (simpler); revisit if needed |
+## Already ported (✅ done, verified on device)
+
+- Pick directory + scan (MDFileManager) with progress bar + status label.
+- **Full (force) rescan** — toolbar refresh button → `scan(force=True)`.
+- **Search** by filename, with a "태그 포함" toggle for all-tag search;
+  debounced for the Korean IME; clear-search button; "전체/검색 N곡" count.
+- **Delete selected** records (DB only; files stay on disk) with confirmation.
+- **Four view modes** — 목록 (compact) / 자세히 (2-line + album art) / 트리
+  (folder hierarchy, expand/collapse) / 타일 (album-art grid). Selector in the
+  toolbar 보기 menu. (Richer than desktop, which has no tile grid.)
+- **Album art** extraction + per-path file cache, shown in 자세히 rows + tiles.
+- **자세히 (tag detail edit)** dialog — edit title/artist/album/genre/year/
+  comment, save to file + DB.
+- **가사 (lyrics)** dialog — embedded lyrics with mojibake/line-ending repair.
+- **Per-row long-press actions** (자세히 / 가사) in list, details, tile **and
+  tree** views.
+- Playback basics: tap to play, **play/pause/stop**, elapsed/total time labels,
+  a position bar (read-only), now-playing title/subtitle.
+- Re-scanning a folder replaces the previous library (`clear()` then scan).
+
+## Remaining work (prioritized)
+
+### 🔴 P1 — Playlist / queue subsystem (largest; features are interdependent)
+
+| # | Feature | Desktop behavior | Effort |
+|---|---------|------------------|--------|
+| 1 | **Queue model** | persistent playlist; tap/drag to enqueue, remove, clear | large |
+| 2 | Auto-advance at track end | next track per play mode when a sound ends | medium |
+| 3 | **Prev / Next** buttons | move within the queue | small (needs queue) |
+| 4 | **Play modes** | sequential / repeat-one / repeat-all / shuffle cycle | medium |
+| 5 | **Save / Load `.list`** | newline path file; skip missing on load | medium |
+| 6 | Now-playing row highlight | bold/colored row for the playing track | small (needs queue) |
+
+KivyMD approach: in-memory queue backed by a RecycleView; reorder via up/down
+buttons (no touch drag-reorder in KivyMD RV); row tap = enqueue + play, while
+long-press keeps the "재생목록에 추가" (add-without-play) action.
+
+### 🟠 P2 — Online metadata (no Android entry point yet; high value)
+
+`tag_fetcher.py` / `itunes_fetcher.py` are pure Python and portable. Needs the
+`INTERNET` permission added to `buildozer.spec` and a network thread.
+
+| # | Feature | Desktop behavior | Effort |
+|---|---------|------------------|--------|
+| 7 | **Single-song info (MusicBrainz)** + apply | up to 7 ranked candidates → apply to file+DB | medium |
+| 8 | **Source select + keyword override** | MusicBrainz / iTunes / both dropdown + manual search terms | medium |
+| 9 | **Batch tag auto-completion** | step through files missing title/artist; fetch, show ranked candidates, apply/skip | large |
+
+### 🟡 P3 — Player controls + player-tab richness (mostly small)
+
+| # | Feature | Current Android | Effort |
+|---|---------|-----------------|--------|
+| 10 | **Volume** | none | small (MDSlider → `sound.volume`) |
+| 11 | **Interactive seek** | position bar is read-only | small (MDSlider → `sound.seek()`; provider caveat) |
+| 12 | **Lyrics + album art on the 재생 tab** | only via long-press dialogs | medium |
+
+### 🟢 P4 — Tag detail + polish (small)
+
+| # | Feature | Gap | Effort |
+|---|---------|-----|--------|
+| 13 | Full tag table | only 6 fields; desktop edits all easy-tags (albumartist/date/tracknumber/composer/lyrics/…) | medium |
+| 14 | File summary + stream info | no size/duration/dates/samplerate/bitrate rows in 자세히 | small |
+| 15 | Album-art thumbnail in 자세히 dialog | reuse `_album_source` | small |
+| 16 | **Incremental scan** | Android always `clear()`s; no preserve+skip-unchanged / merge-folders | medium |
+| 17 | **Sort menu** (name / artist / date) | none | small |
+| 18 | **Theme toggle** (system/light/dark) | hard-coded Light | small |
+| 19 | **About dialog** (version from NEWS) | none | small |
+
+## Not applicable on touch (skip — no user-facing gap on phones)
+
+Keyboard shortcuts, the menu bar, multi-column sortable/reorderable/hideable
+table, and mouse-hover album-art tooltips. The underlying *actions* (theme,
+about, playlist save/load) are captured above; only the desktop UI affordances
+are dropped.
 
 ## Interaction differences (touch vs desktop)
 
-- No right-click → use **long-press** or a per-row trailing **⋮ menu** for
-  자세히 / 가사 / 태그 찾기 / 재생목록에 추가.
+- No right-click → **long-press** opens the per-row actions menu (자세히 / 가사,
+  later 재생목록에 추가 / 태그 찾기). Already wired in all view modes.
 - No drag-drop reorder → **up/down buttons** in the queue screen.
-- Row tap currently plays immediately; with a queue, tap should **enqueue +
-  play**, and a long-press menu offers "재생목록에 추가" without playing.
-
-## Phased delivery (each phase = one build/test cycle)
-
-**Phase 1 — Complete the player** (highest value; builds on the 재생 tab)
-queue model, prev/next, seek, volume, play modes, auto-advance, album art,
-lyrics. Row tap enqueues + plays.
-
-**Phase 2 — Library** search bar (filename/tags), full rescan, richer rows,
-count/status label.
-
-**Phase 3 — Metadata dialogs** 자세히 (edit), 태그 찾기 (iTunes), 인터넷
-정보, 가사 — reusing the existing pure-Python fetchers.
-
-**Phase 4 — App polish** theme toggle, About, save/load playlist, optional
-tree view.
+- Row tap currently plays immediately; once a queue exists, tap should
+  **enqueue + play**, and long-press offers "재생목록에 추가" without playing.
 
 ## Testing constraint
 
-Kivy will not install on the host (Python 3.14); all KivyMD code is verified
-only by CI build + on-device run. Pure helpers (time/format/art-extraction/
-search-arg logic) get unit tests that run in CI. Therefore deliver in phases
-and validate each on-device before starting the next.
+Kivy will not install on the host (Python 3.14; PyQt6 also segfaults under a
+full `unittest discover`), so KivyMD code is verified by CI build + on-device
+run. Pure helpers (`audio_meta`, `tree_util`, `mp3_manager`, time/format/search
+logic) get unit tests that run locally and in CI. Deliver in phases and
+validate each on-device before starting the next.
