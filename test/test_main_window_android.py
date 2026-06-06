@@ -193,6 +193,38 @@ class TestCountLabel(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestSearchDebounce(unittest.TestCase):
+    """Tests that live search is debounced (Hangul IME fires on_text per jamo)."""
+
+    def test_on_search_text_debounces(self):
+        """Verifies on_search_text tracks the keyword and schedules a single timer."""
+        import tempfile
+        from main_window_android import Mp3ArchiveApp
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        os.chdir(tmp)  # app opens its DB in cwd off-device; isolate it
+        try:
+            app = Mp3ArchiveApp()
+            try:
+                app.on_search_text("ㄱ")
+                self.assertEqual(app._search_keyword, "ㄱ")
+                first = app._search_event
+                self.assertIsNotNone(first, "no debounce timer scheduled")
+
+                app.on_search_text("강")  # next keystroke before the timer fires
+                self.assertEqual(app._search_keyword, "강")
+                self.assertIsNotNone(app._search_event)
+                # The earlier timer must be cancelled, not left to also fire.
+                self.assertFalse(getattr(first, "is_triggered", False))
+            finally:
+                if app._search_event is not None:
+                    app._search_event.cancel()
+                app._manager.close()
+        finally:
+            os.chdir(cwd)
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestStorageRoot(unittest.TestCase):
     """Tests for the file-manager start directory."""
 

@@ -288,6 +288,7 @@ class Mp3ArchiveApp(MDApp):
         self._search_keyword = ""      # current search text
         self._search_tags = False      # search all tags vs filename only
         self._last_dir = None          # last scanned directory (for full rescan)
+        self._search_event = None      # debounce timer for live search
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -579,15 +580,28 @@ class Mp3ArchiveApp(MDApp):
             len(files), self._search_keyword
         )
 
+    # Live-search debounce delay (s). The Korean IME fires on_text for every
+    # intermediate jamo while composing a syllable; rebuilding the whole list
+    # on each one is slow and can wedge the UI, so coalesce rapid changes.
+    _SEARCH_DEBOUNCE = 0.35
+
     def on_search_text(self, text: str) -> None:
         """
-        Filter the list as the search field text changes.
+        Filter the list shortly after the search text stops changing.
+
+        Debounced so Hangul IME composition (which fires on_text per jamo)
+        rebuilds the list once, after typing pauses, instead of on every
+        keystroke.
 
         Args:
             text: Current search-field text.
         """
         self._search_keyword = text.strip()
-        self._refresh_list()
+        if self._search_event is not None:
+            self._search_event.cancel()
+        self._search_event = Clock.schedule_once(
+            lambda _dt: self._refresh_list(), self._SEARCH_DEBOUNCE
+        )
 
     def on_search_tags(self, active: bool) -> None:
         """
