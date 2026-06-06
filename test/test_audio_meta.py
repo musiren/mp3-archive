@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from audio_meta import get_album_art, get_lyrics, to_easy_tags  # noqa: E402
+from audio_meta import fix_mojibake, get_album_art, get_lyrics, to_easy_tags  # noqa: E402
 
 
 class TestGetLyrics(unittest.TestCase):
@@ -77,6 +77,30 @@ class TestToEasyTags(unittest.TestCase):
             "title": "T", "artist": "A", "album": "Al",
             "genre": "Pop", "comment": "c",
         })
+
+
+class TestFixMojibake(unittest.TestCase):
+    """Tests for CP949/EUC-KR-as-Latin-1 mojibake repair."""
+
+    def test_repairs_cp949_decoded_as_latin1(self):
+        """Verifies Korean read as Latin-1 from CP949 bytes is restored."""
+        original = "아주오래된연인들"
+        mojibake = original.encode("cp949").decode("latin-1")
+        self.assertEqual(fix_mojibake(mojibake), original)
+
+    def test_leaves_correct_korean_unchanged(self):
+        """Verifies already-correct Korean (Hangul) is returned unchanged."""
+        self.assertEqual(fix_mojibake("내맘이야"), "내맘이야")
+
+    def test_leaves_latin_text_unchanged(self):
+        """Verifies genuine Latin titles are not falsely 'repaired'."""
+        for s in ["Smells Like Teen Spirit", "015B", "TakeTwo", "Vlad"]:
+            self.assertEqual(fix_mojibake(s), s)
+
+    def test_handles_none_and_empty(self):
+        """Verifies None and empty string pass through untouched."""
+        self.assertIsNone(fix_mojibake(None))
+        self.assertEqual(fix_mojibake(""), "")
 
 
 if __name__ == "__main__":

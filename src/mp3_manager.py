@@ -39,6 +39,8 @@ from typing import Callable
 
 from mutagen import File as MutagenFile
 
+from audio_meta import fix_mojibake
+
 
 DB_DEFAULT = "mp3_archive.db"
 
@@ -459,7 +461,8 @@ def _first_tag(tags, key: str) -> str | None:
     if not val:
         return None
     text = str(val[0]).strip() if isinstance(val, list) else str(val).strip()
-    return text or None
+    # Repair CP949/EUC-KR tags that mutagen decoded as Latin-1 (old Korean MP3s).
+    return fix_mojibake(text) or None
 
 
 def _parse_filename_fallback(info: dict) -> None:

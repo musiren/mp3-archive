@@ -9,6 +9,42 @@ unit-testable without importing PyQt6 or Kivy.
 from mutagen import File as MutagenFile
 
 
+def _has_hangul(text: str) -> bool:
+    """Return True if the text contains any Korean (Hangul) characters."""
+    return any(
+        "가" <= ch <= "힣"     # Hangul syllables
+        or "ᄀ" <= ch <= "ᇿ"  # Hangul Jamo
+        or "㄰" <= ch <= "㆏"  # Hangul Compatibility Jamo
+        for ch in text
+    )
+
+
+def fix_mojibake(text: str | None) -> str | None:
+    """
+    Repair Korean tag/lyrics text that was decoded from CP949 bytes as Latin-1.
+
+    Older Korean MP3s store ID3 tags (and sometimes lyrics) in CP949/EUC-KR
+    with no usable encoding flag, so mutagen decodes them as Latin-1 and yields
+    mojibake such as '¾ÆÁÖ...'. If re-encoding the string to Latin-1 and
+    decoding it as CP949 produces Hangul where there was none, return the
+    repaired text; otherwise return the input unchanged so that correctly
+    decoded Korean and genuine Latin text are left alone.
+
+    Args:
+        text: The (possibly mojibake) string, or None.
+
+    Returns:
+        The repaired Korean string, or the original text unchanged.
+    """
+    if not text or _has_hangul(text):
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("cp949")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    return repaired if _has_hangul(repaired) else text
+
+
 def get_album_art(path: str) -> bytes | None:
     """
     Extract embedded album art from an audio file.
@@ -59,13 +95,13 @@ def get_lyrics(path: str) -> str | None:
             for key in ("lyrics", "LYRICS"):
                 if key in audio_easy.tags:
                     val = audio_easy.tags[key]
-                    return val[0] if isinstance(val, list) else str(val)
+                    return fix_mojibake(val[0] if isinstance(val, list) else str(val))
 
         audio_raw = MutagenFile(path, easy=False)
         if audio_raw and audio_raw.tags:
             for key in list(audio_raw.tags.keys()):
                 if key.startswith("USLT"):
-                    return audio_raw.tags[key].text
+                    return fix_mojibake(audio_raw.tags[key].text)
             if "\xa9lyr" in audio_raw.tags:
                 val = audio_raw.tags["\xa9lyr"]
                 return val[0] if isinstance(val, list) else str(val)
