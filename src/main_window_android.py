@@ -676,6 +676,9 @@ class Mp3ArchiveApp(MDApp):
         # connection in _on_scan_done.
         scan_manager = Mp3Manager(self._db_path)
         try:
+            # Re-scanning replaces the library: drop the previously scanned
+            # entries so the list shows only the chosen folder's files.
+            scan_manager.clear()
             result = scan_manager.scan(
                 directory, progress_callback=on_progress, force=force
             )

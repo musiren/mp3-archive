@@ -327,6 +327,11 @@ class Mp3Manager:
         self._conn.execute("DELETE FROM audio_files WHERE path = ?", (path,))
         self._conn.commit()
 
+    def clear(self) -> None:
+        """Delete every audio record from the database."""
+        self._conn.execute("DELETE FROM audio_files")
+        self._conn.commit()
+
     def close(self) -> None:
         """Close the underlying SQLite connection."""
         self._conn.close()

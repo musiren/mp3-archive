@@ -59,6 +59,19 @@ class TestMp3ManagerContextManager(unittest.TestCase):
             os.unlink(db_path)
 
 
+class TestClear(unittest.TestCase):
+
+    def test_clear_removes_all_records(self):
+        """Verify that clear() deletes every record so re-scanning replaces it."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/a.mp3"))
+        _save_to_db(mgr._conn, sample_info("/music/b.mp3"))
+        self.assertEqual(len(mgr.list_files()), 2)
+        mgr.clear()
+        self.assertEqual(mgr.list_files(), [])
+        mgr.close()
+
+
 class TestListFiles(unittest.TestCase):
 
     def test_list_empty_db(self):
