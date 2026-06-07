@@ -214,13 +214,120 @@ class TestDialogContent(unittest.TestCase):
         self.assertIn("lyrics_label", content.ids)
 
     def test_song_info_content_exposes_ids(self):
-        """Verifies SongInfoContent provides the header, status, and results ids."""
+        """Verifies SongInfoContent provides the header, status, results, and detail ids."""
         from kivy.lang import Builder
         from main_window_android import KV, SongInfoContent
         Builder.load_string(KV)
         content = SongInfoContent()
-        for cid in ("si_header", "si_progress", "si_status", "si_results"):
+        for cid in ("si_header", "si_progress", "si_status", "si_results", "si_detail"):
             self.assertIn(cid, content.ids, f"SongInfoContent missing id '{cid}'")
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestSongDetailText(unittest.TestCase):
+    """Tests for the 온라인 정보 dialog's per-candidate detail-text formatter."""
+
+    def test_returns_empty_for_no_selection(self):
+        """Verifies _song_detail_text returns '' when no candidate is selected."""
+        from main_window_android import Mp3ArchiveApp
+        self.assertEqual(Mp3ArchiveApp._song_detail_text(None), "")
+
+    def test_includes_album_year_length_and_disambiguation(self):
+        """Verifies the detail block lists chosen album, year, length, and qualifier."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {
+            "title": "Bohemian Rhapsody",
+            "artist": "Queen",
+            "album": "A Night at the Opera",
+            "year": "1975",
+            "length": "5:55",
+            "disambiguation": "live",
+            "releases": [],
+        }
+        text = Mp3ArchiveApp._song_detail_text(cand)
+        self.assertIn("A Night at the Opera", text)
+        self.assertIn("1975", text)
+        self.assertIn("5:55", text)
+        self.assertIn("live", text)
+
+    def test_diff_marks_changed_fields_with_arrow(self):
+        """Verifies a field whose value differs is shown as 'current → new'."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {"title": "New Title", "artist": "Queen", "album": "Album"}
+        current = {"title": "Old Title", "artist": "Queen", "album": "Album"}
+        text = Mp3ArchiveApp._song_detail_text(cand, current)
+        # Title changed -> arrow with both values.
+        self.assertIn("Old Title → New Title", text)
+        # Artist unchanged -> marked 동일, no arrow for that field.
+        self.assertIn("아티스트: Queen (동일)", text)
+
+    def test_diff_marks_empty_candidate_field_as_kept(self):
+        """Verifies a blank candidate field is reported as '(유지)' (untouched)."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {"title": "T", "artist": "", "album": "A"}
+        current = {"title": "T0", "artist": "Existing Artist", "album": "A0"}
+        text = Mp3ArchiveApp._song_detail_text(cand, current)
+        self.assertIn("아티스트: Existing Artist (유지)", text)
+
+    def test_diff_reports_no_change_when_all_identical(self):
+        """Verifies the diff says nothing changes when every field already matches."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {"title": "T", "artist": "A", "album": "B"}
+        current = {"title": "T", "artist": "A", "album": "B"}
+        text = Mp3ArchiveApp._song_detail_text(cand, current)
+        self.assertIn("바뀌는 태그가 없습니다", text)
+
+    def test_diff_shows_blank_current_as_dash(self):
+        """Verifies an absent current value renders as '-' on the left of the arrow."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {"title": "Fresh Title", "artist": "", "album": ""}
+        text = Mp3ArchiveApp._song_detail_text(cand, {})
+        self.assertIn("제목: - → Fresh Title", text)
+
+    def test_lists_alternate_releases(self):
+        """Verifies releases other than the chosen album appear under '다른 앨범'."""
+        from main_window_android import Mp3ArchiveApp
+        cand = {
+            "album": "Studio",
+            "year": "1975",
+            "length": "5:55",
+            "disambiguation": "",
+            "releases": [
+                {"title": "Studio", "year": "1975", "type": "Album"},
+                {"title": "Greatest Hits", "year": "1981", "type": "Compilation"},
+                {"title": "Live Tour", "year": "1992", "type": "Live"},
+            ],
+        }
+        text = Mp3ArchiveApp._song_detail_text(cand)
+        self.assertIn("다른 앨범", text)
+        self.assertIn("Greatest Hits", text)
+        self.assertIn("Compilation", text)
+        self.assertIn("Live Tour", text)
+        # The chosen album must not be re-listed under alternates.
+        self.assertEqual(text.count("Studio"), 1)
+
+    def test_truncates_long_alternate_release_list(self):
+        """Verifies a long alternates list is capped with a '그 외 N개' tail line."""
+        from main_window_android import Mp3ArchiveApp
+        alternates = [
+            {"title": f"Comp {i}", "year": "2000", "type": "Compilation"}
+            for i in range(10)
+        ]
+        cand = {
+            "album": "Studio",
+            "year": "1975",
+            "length": "5:55",
+            "disambiguation": "",
+            "releases": [{"title": "Studio", "year": "1975", "type": "Album"}] + alternates,
+        }
+        text = Mp3ArchiveApp._song_detail_text(cand)
+        self.assertIn("그 외 4개", text)  # 10 alternates - 6 shown = 4
+
+    def test_handles_missing_fields_gracefully(self):
+        """Verifies missing length/disambiguation/releases do not raise."""
+        from main_window_android import Mp3ArchiveApp
+        text = Mp3ArchiveApp._song_detail_text({"album": "X", "year": "2020"})
+        self.assertIn("X", text)
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")

@@ -59,6 +59,14 @@ def _recording(title, artist, album="", date="2020", score=95, mb_id="abc-123"):
     }
 
 
+def _release(title, date="2020", primary_type=""):
+    """Build a WS/2 JSON release dict including its release-group primary-type."""
+    rel = {"title": title, "date": date}
+    if primary_type:
+        rel["release-group"] = {"primary-type": primary_type}
+    return rel
+
+
 def _capture(recordings):
     """
     Return (side_effect, captured) for patching urlopen.
@@ -180,6 +188,77 @@ class TestMbFetcherSearch(unittest.TestCase):
         self.assertIn('recording:"Mystery Song"', decoded)
         self.assertNotIn('artist:"', decoded)
         self.assertEqual(results[0]["title"], "Mystery Song")
+
+    def test_length_formatted_as_minutes_seconds(self):
+        """Verify the WS/2 ``length`` (ms) is formatted as ``M:SS``."""
+        rec = _recording("Song", "Artist")
+        rec["length"] = 355000  # 5:55
+        side, _ = _capture([rec])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        self.assertEqual(results[0]["length"], "5:55")
+
+    def test_length_empty_when_missing_or_invalid(self):
+        """Verify length is "" when the field is missing, None, or non-numeric."""
+        for raw in (None, "", "abc", 0, -1):
+            rec = _recording("Song", "Artist")
+            if raw is not None:
+                rec["length"] = raw
+            side, _ = _capture([rec])
+            with patch("urllib.request.urlopen", side_effect=side):
+                results = mb_fetcher.search("Artist", "Song")
+            self.assertEqual(results[0]["length"], "", f"raw={raw!r}")
+
+    def test_disambiguation_is_returned(self):
+        """Verify the recording's ``disambiguation`` qualifier is surfaced."""
+        rec = _recording("Song", "Artist")
+        rec["disambiguation"] = "live, Wembley 1986"
+        side, _ = _capture([rec])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        self.assertEqual(results[0]["disambiguation"], "live, Wembley 1986")
+
+    def test_disambiguation_defaults_to_empty(self):
+        """Verify disambiguation is "" when absent or null in the WS/2 JSON."""
+        side, _ = _capture([_recording("Song", "Artist")])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        self.assertEqual(results[0]["disambiguation"], "")
+
+    def test_releases_summary_includes_every_release(self):
+        """Verify ``releases`` lists every release with title, year, and type."""
+        rec = _recording("Song", "Artist")
+        rec["releases"] = [
+            _release("Studio Album", "1975-11-21", "Album"),
+            _release("Greatest Hits", "1981", "Compilation"),
+            _release("Live Tour", "1992-04-01", "Live"),
+        ]
+        side, _ = _capture([rec])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        releases = results[0]["releases"]
+        self.assertEqual(len(releases), 3)
+        self.assertEqual(releases[0], {"title": "Studio Album", "year": "1975", "type": "Album"})
+        self.assertEqual(releases[1], {"title": "Greatest Hits", "year": "1981", "type": "Compilation"})
+        self.assertEqual(releases[2], {"title": "Live Tour", "year": "1992", "type": "Live"})
+
+    def test_releases_summary_tolerates_missing_release_group(self):
+        """Verify a release without ``release-group`` yields an empty type."""
+        rec = _recording("Song", "Artist")
+        rec["releases"] = [_release("Bootleg", "1980")]  # no primary_type
+        side, _ = _capture([rec])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        self.assertEqual(results[0]["releases"][0]["type"], "")
+
+    def test_releases_summary_empty_when_no_releases(self):
+        """Verify recordings with no releases produce an empty ``releases`` list."""
+        rec = _recording("Song", "Artist")
+        rec["releases"] = []
+        side, _ = _capture([rec])
+        with patch("urllib.request.urlopen", side_effect=side):
+            results = mb_fetcher.search("Artist", "Song")
+        self.assertEqual(results[0]["releases"], [])
 
 
 if __name__ == "__main__":

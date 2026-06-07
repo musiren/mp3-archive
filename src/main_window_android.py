@@ -242,7 +242,7 @@ KV = """
     orientation: "vertical"
     spacing: dp(6)
     size_hint_y: None
-    height: dp(440)
+    height: dp(540)
 
     MDLabel:
         id: si_header
@@ -276,6 +276,21 @@ KV = """
             height: self.minimum_height
             default_size: None, dp(64)
             default_size_hint: 1, None
+
+    ScrollView:
+        size_hint_y: None
+        height: dp(150)
+
+        MDLabel:
+            id: si_detail
+            text: ""
+            font_style: "Caption"
+            theme_text_color: "Secondary"
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+            valign: "top"
+            padding: dp(8), dp(4)
 
 MDBoxLayout:
     orientation: "vertical"
@@ -660,6 +675,7 @@ class Mp3ArchiveApp(MDApp):
         self._song_candidates: list = []   # fetched candidate dicts
         self._song_sel = -1            # index of the chosen candidate (-1 = none)
         self._song_info_path = ""      # path of the track being looked up
+        self._song_current: dict = {}  # current title/artist/album of that track
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -1481,6 +1497,13 @@ class Mp3ArchiveApp(MDApp):
         self._actions_dialog.dismiss()
         info = self._manager.get_by_path(row.path) or {}
         self._song_info_path = row.path
+        # Snapshot the fields that 태그 적용 can overwrite (title/artist/album),
+        # so the detail panel can show a current → proposed diff per candidate.
+        self._song_current = {
+            "title":  info.get("title")  or "",
+            "artist": info.get("artist") or "",
+            "album":  info.get("album")  or "",
+        }
         self._song_candidates = []
         self._song_sel = -1
         content = SongInfoContent()
@@ -1570,13 +1593,18 @@ class Mp3ArchiveApp(MDApp):
         self._render_song_candidates()
 
     def _render_song_candidates(self) -> None:
-        """Rebuild the candidate RecycleView data with the current selection."""
+        """Rebuild the candidate RecycleView data and refresh the detail panel."""
         if self._song_content is None:
             return
         data = []
         for i, cand in enumerate(self._song_candidates):
-            parts = [cand.get("artist", ""), cand.get("album", ""),
-                     cand.get("year", "")]
+            parts = [
+                cand.get("artist", ""),
+                cand.get("album", ""),
+                cand.get("year", ""),
+                cand.get("length", ""),
+                cand.get("disambiguation", ""),
+            ]
             sub = " · ".join(p for p in parts if p)
             score = cand.get("score", 0)
             data.append({
@@ -1585,6 +1613,79 @@ class Mp3ArchiveApp(MDApp):
                 "selected": (i == self._song_sel),
             })
         self._song_content.ids.si_results.data = data
+        self._song_content.ids.si_detail.text = self._song_detail_text(
+            self._selected_candidate(), self._song_current
+        )
+
+    def _selected_candidate(self) -> dict | None:
+        """Return the currently-selected candidate dict, or None if none picked."""
+        if 0 <= self._song_sel < len(self._song_candidates):
+            return self._song_candidates[self._song_sel]
+        return None
+
+    @staticmethod
+    def _song_detail_text(cand: dict | None, current: dict | None = None) -> str:
+        """
+        Format the detail block shown below the candidate list.
+
+        Leads with a field-by-field "what 태그 적용 will change" diff for the
+        three writable tags (title/artist/album), comparing the track's
+        current value against the selected candidate's value, so the user can
+        see exactly what each candidate would overwrite before choosing one.
+        Below the diff it lists the recording's duration, qualifier, and every
+        alternate release, which helps tell two takes of the same song apart.
+
+        Args:
+            cand:    The selected candidate dict (from mb_fetcher.search), or
+                     None when no candidate is selected.
+            current: The track's current {title, artist, album} values. When
+                     None, every candidate field is treated as a change.
+
+        Returns:
+            A newline-joined detail block. Empty string when ``cand`` is None.
+        """
+        if not cand:
+            return ""
+        current = current or {}
+        lines: list[str] = ["적용 시 변경되는 태그:"]
+
+        changed = False
+        for label, key in (("제목", "title"), ("아티스트", "artist"),
+                           ("앨범", "album")):
+            new = (cand.get(key) or "").strip()
+            cur = (current.get(key) or "").strip()
+            if not new:
+                # update_file_tags skips empty fields, so the tag is untouched.
+                lines.append(f"  · {label}: {cur or '-'} (유지)")
+            elif new == cur:
+                lines.append(f"  · {label}: {cur} (동일)")
+            else:
+                changed = True
+                lines.append(f"  ✔ {label}: {cur or '-'} → {new}")
+        if not changed:
+            lines.append("  (바뀌는 태그가 없습니다)")
+
+        year = cand.get("year", "") or "-"
+        length = cand.get("length", "") or "-"
+        disamb = cand.get("disambiguation", "") or "-"
+        lines.append("")
+        lines.append(f"발매: {year}    길이: {length}    비고: {disamb}")
+        releases = cand.get("releases") or []
+        alternates = [
+            r for r in releases
+            if (r.get("title") or "") != (cand.get("album") or "")
+        ]
+        if alternates:
+            lines.append("다른 앨범:")
+            for rel in alternates[:6]:
+                title = rel.get("title", "") or "-"
+                year = rel.get("year", "") or "-"
+                rtype = rel.get("type", "")
+                tail = f"{year}, {rtype}" if rtype else year
+                lines.append(f"  · {title} ({tail})")
+            if len(alternates) > 6:
+                lines.append(f"  · 그 외 {len(alternates) - 6}개")
+        return "\n".join(lines)
 
     def select_candidate(self, row) -> None:
         """
