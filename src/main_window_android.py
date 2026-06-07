@@ -60,6 +60,7 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import get_album_art, get_lyrics, to_easy_tags
+import mb_fetcher
 from mb_fetcher import search as mb_search
 from mp3_manager import Mp3Manager
 from online_meta import build_song_query
@@ -1555,8 +1556,10 @@ class Mp3ArchiveApp(MDApp):
         self._song_sel = 0 if candidates else -1
         if candidates:
             c.ids.si_status.text = f"{len(candidates)}개 후보 — 선택 후 태그 적용"
+        elif mb_fetcher.last_error:
+            c.ids.si_status.text = f"검색 실패: {mb_fetcher.last_error}"
         else:
-            c.ids.si_status.text = "검색 결과 없음 (네트워크 연결을 확인하세요)"
+            c.ids.si_status.text = "검색 결과 없음 (일치하는 곡이 없습니다)"
         self._render_song_candidates()
 
     def _render_song_candidates(self) -> None:

@@ -26,6 +26,10 @@ from net_util import ssl_context
 _USER_AGENT = "mp3-archive/1.0 ( https://github.com/musiren/mp3-archive )"
 _ENDPOINT = "https://musicbrainz.org/ws/2/recording"
 
+# Set to the repr() of the last network/parse exception (cleared on each call),
+# so the UI can distinguish a real failure from a genuine no-match result.
+last_error = ""
+
 
 def _artist_phrase(artist_credit: list) -> str:
     """
@@ -78,6 +82,9 @@ def search(
     if artist:
         parts.append(f'artist:"{artist}"')
 
+    global last_error
+    last_error = ""
+
     if not parts:
         return []
 
@@ -93,9 +100,10 @@ def search(
         with urllib.request.urlopen(req, timeout=10, context=ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        # Log (visible in Android logcat under the "python" tag) so a network
-        # or TLS failure is distinguishable from a genuine no-match result.
-        print(f"[mp3archive] mb_fetcher search failed: {exc!r}")
+        # Record so the UI can distinguish a TLS/network failure from a
+        # genuine no-match result (logcat alone is unreliable: p4a buffers
+        # daemon-thread stdout).
+        last_error = repr(exc)
         return []
 
     candidates = []

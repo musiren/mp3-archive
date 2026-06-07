@@ -18,6 +18,9 @@ import urllib.request
 
 from net_util import ssl_context
 
+# Set to the repr() of the last network/parse exception (cleared on each call).
+last_error = ""
+
 
 def search(
     artist: str | None,
@@ -42,6 +45,9 @@ def search(
         Returns an empty list if neither artist nor title is provided,
         or if the network request fails.
     """
+    global last_error
+    last_error = ""
+
     parts = []
     if artist:
         parts.append(artist)
@@ -66,9 +72,9 @@ def search(
         with urllib.request.urlopen(req, timeout=10, context=ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        # Log (Android logcat "python" tag) so a TLS/network failure is
-        # distinguishable from a genuine no-match result.
-        print(f"[mp3archive] itunes_fetcher search failed: {exc!r}")
+        # Record so the UI can distinguish a TLS/network failure from a
+        # genuine no-match result.
+        last_error = repr(exc)
         return []
 
     results = data.get("results", [])

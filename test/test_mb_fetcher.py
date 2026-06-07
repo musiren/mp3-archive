@@ -109,6 +109,20 @@ class TestMbFetcherSearch(unittest.TestCase):
         with patch("urllib.request.urlopen", side_effect=Exception("timeout")):
             self.assertEqual(mb_fetcher.search("Artist", "Title"), [])
 
+    def test_records_last_error_on_failure(self):
+        """Verify search() records the exception repr in last_error on failure."""
+        with patch("urllib.request.urlopen", side_effect=Exception("boom")):
+            mb_fetcher.search("Artist", "Title")
+        self.assertIn("boom", mb_fetcher.last_error)
+
+    def test_clears_last_error_on_success(self):
+        """Verify a successful search clears any previous last_error."""
+        mb_fetcher.last_error = "stale"
+        side, _ = _capture([_recording("Song", "Artist")])
+        with patch("urllib.request.urlopen", side_effect=side):
+            mb_fetcher.search("Artist", "Song")
+        self.assertEqual(mb_fetcher.last_error, "")
+
     def test_score_field_is_integer(self):
         """Verify score is coerced to int even when given as a string."""
         side, _ = _capture([_recording("Song", "Artist", score="87")])
