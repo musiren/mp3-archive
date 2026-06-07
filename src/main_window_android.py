@@ -1827,9 +1827,13 @@ class Mp3ArchiveApp(MDApp):
         enqueued in list order; otherwise just the long-pressed row.
         """
         self._actions_dialog.dismiss()
-        if self._selected:
-            paths = [f["path"] for f in self._files if f["path"] in self._selected]
-        else:
+        # Use the selection only for rows visible in the current list; if none
+        # are (a stale selection from a previous search/view), fall back to the
+        # long-pressed row so the action is never a silent no-op.
+        paths = [f["path"] for f in self._files
+                 if f["path"] in self._selected] if self._selected else []
+        used_selection = bool(paths)
+        if not paths:
             path = getattr(row, "path", "")
             paths = [path] if path else []
         if not paths:
@@ -1839,28 +1843,43 @@ class Mp3ArchiveApp(MDApp):
             if info:
                 self._queue.add(info)
         self._refresh_queue()
-        if self._selected:
+        if used_selection:
             self._selected.clear()
             self._refresh_list()   # clear the now-consumed selection checkboxes
         Snackbar(text=f"재생목록에 {len(paths)}곡 추가됨").open()
 
     def remove_from_queue(self, index: int) -> None:
-        """Remove the queued track at *index* (the row's ✕ button)."""
+        """
+        Remove the queued track at *index* (the row's ✕ button).
+
+        Removing the track that is currently playing stops playback (the sound
+        and the queue pointer would otherwise drift apart, skipping the next
+        track on auto-advance); stop_playback refreshes the list itself.
+        """
+        removing_current = (index == self._queue.current_index
+                            and self._sound is not None)
         self._queue.remove(index)
-        self._refresh_queue()
+        if removing_current:
+            self.stop_playback()
+        else:
+            self._refresh_queue()
 
     def _refresh_queue(self) -> None:
         """Repopulate the 재생목록 RecycleView, highlighting the playing track."""
         if self.root is None:
             return
-        playing = self._playing_path
+        # Highlight the single current row (by index, not path), and only while
+        # a track is actually loaded — so duplicate paths don't all light up and
+        # the highlight clears when nothing is playing.
+        current = self._queue.current_index
+        active = bool(self._playing_path)
         data = [
             {
                 "q_title": item.get("title") or item.get("filename") or "-",
                 "q_sub": item.get("artist") or "-",
-                "playing": bool(playing) and item.get("path") == playing,
+                "playing": active and index == current,
             }
-            for item in self._queue.items
+            for index, item in enumerate(self._queue.items)
         ]
         self.root.ids.queue_rv.data = data
         self.root.ids.queue_count.text = f"{len(self._queue)}곡"
@@ -1973,6 +1992,10 @@ class Mp3ArchiveApp(MDApp):
         """Enqueue loaded paths (replacing the queue first if asked); skip missing."""
         if replace:
             self._queue.clear()
+            if self._sound is not None:
+                # The replaced queue no longer contains the playing track;
+                # stop so audio, pointer, and highlight stay consistent.
+                self.stop_playback()
         added = 0
         missing = 0
         for p in paths:
