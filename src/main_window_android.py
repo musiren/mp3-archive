@@ -1779,6 +1779,26 @@ class Mp3ArchiveApp(MDApp):
         self._play(item["path"], item["filename"],
                    f"{item['artist']} — {item['title']}")
         self._refresh_queue()
+        # Bring the now-playing row into view (next frame, after the RV relays).
+        Clock.schedule_once(lambda _dt: self._scroll_queue_to_current(), 0)
+
+    def _scroll_queue_to_current(self) -> None:
+        """Scroll the 재생목록 RecycleView so the playing row is visible."""
+        if self.root is None:
+            return
+        rv = self.root.ids.queue_rv
+        count = len(self._queue)
+        current = self._queue.current_index
+        if count <= 0 or current < 0:
+            return
+        row_h = dp(60)              # matches the queue RecycleBoxLayout default_size
+        content = count * row_h
+        view = rv.height or 0
+        if content <= view:
+            rv.scroll_y = 1         # everything fits; nothing to scroll
+            return
+        offset = current * row_h    # the row's top, measured from the content top
+        rv.scroll_y = max(0.0, min(1.0, 1.0 - offset / (content - view)))
 
     def play_queue_index(self, index: int) -> None:
         """Play the queued track at *index* (tapped in the 재생목록 list)."""
