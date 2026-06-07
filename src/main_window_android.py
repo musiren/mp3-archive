@@ -73,6 +73,7 @@ from online_meta import (
     fetch_candidates,
 )
 from tree_util import build_tree_rows
+from ui_util import sort_files
 
 
 class Snackbar:
@@ -330,7 +331,7 @@ MDBoxLayout:
         id: toolbar
         title: "MP3 Archive"
         elevation: 4
-        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["view-list", lambda x: app.open_view_menu()], ["auto-fix", lambda x: app.start_batch_tag_fetch()], ["delete", lambda x: app.delete_selected()]]
+        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["view-list", lambda x: app.open_view_menu()], ["auto-fix", lambda x: app.start_batch_tag_fetch()], ["delete", lambda x: app.delete_selected()], ["dots-vertical", lambda x: app.open_more_menu()]]
 
     MDBottomNavigation:
         id: bottom_nav
@@ -691,6 +692,9 @@ class Mp3ArchiveApp(MDApp):
         # View mode (목록 tab): "details" (album art) / "list" / "tree"
         self._view_mode = "details"
         self._view_menu = None
+        self._sort_mode = "artist"     # list sort order (see ui_util.sort_files)
+        self._sort_menu = None
+        self._more_menu = None         # the ⋮ overflow menu
         self._expanded: set = set()    # expanded folder keys (트리 view)
         self._art_cache: dict = {}     # path -> album-art file path ("" if none)
         self._art_dir = os.path.join(self._storage_directory(), "art_cache")
@@ -1023,6 +1027,9 @@ class Mp3ArchiveApp(MDApp):
         else:
             files = self._manager.list_files()
 
+        # Sort the raw DB rows (they carry file_modified_at, which the trimmed
+        # RecycleView dicts below do not) before projecting to the view data.
+        files = sort_files(files, self._sort_mode)
         self._files = [
             {
                 "filename": f["filename"],
@@ -1143,6 +1150,46 @@ class Mp3ArchiveApp(MDApp):
             self._view_menu.dismiss()
         self._view_mode = mode
         self._apply_view_mode()
+        self._refresh_list()
+
+    # ------------------------------------------------------------------
+    # Overflow menu (⋮): sort / theme / about
+    # ------------------------------------------------------------------
+
+    def open_more_menu(self) -> None:
+        """Open the ⋮ overflow menu of less-frequent actions."""
+        items = [
+            {"text": "정렬", "viewclass": "OneLineListItem",
+             "on_release": self.open_sort_menu},
+        ]
+        self._more_menu = MDDropdownMenu(
+            caller=self.root.ids.toolbar, items=items, width_mult=3,
+        )
+        self._more_menu.open()
+
+    def open_sort_menu(self) -> None:
+        """Open the dropdown that chooses the list sort order."""
+        if self._more_menu is not None:
+            self._more_menu.dismiss()
+        modes = [
+            ("이름", "name"), ("아티스트", "artist"),
+            ("제목", "title"), ("날짜", "date"),
+        ]
+        items = [
+            {"text": label, "viewclass": "OneLineListItem",
+             "on_release": (lambda m=mode: self._set_sort_mode(m))}
+            for label, mode in modes
+        ]
+        self._sort_menu = MDDropdownMenu(
+            caller=self.root.ids.toolbar, items=items, width_mult=3,
+        )
+        self._sort_menu.open()
+
+    def _set_sort_mode(self, mode: str) -> None:
+        """Switch the list sort order and re-render."""
+        if self._sort_menu is not None:
+            self._sort_menu.dismiss()
+        self._sort_mode = mode
         self._refresh_list()
 
     def _apply_view_mode(self) -> None:
