@@ -59,6 +59,27 @@ class TestFilesUnderFolder(unittest.TestCase):
         out = files_under_folder(files, base, "a")
         self.assertEqual([f["path"] for f in out], [r"C:\m\a\1.mp3"])
 
+    def test_empty_base_full_paths_match(self):
+        """Verify empty base (no scan dir, e.g. after relaunch) still matches.
+
+        With base="" the tree is keyed off full paths; build_tree_rows drops
+        the leading "/" when forming keys, so files_under_folder must too.
+        """
+        files = _files("/storage/0/Music/260419/x.mp3",
+                       "/storage/0/Music/260420/y.mp3")
+        out = files_under_folder(files, "", "storage/0/Music/260419")
+        self.assertEqual([f["path"] for f in out],
+                         ["/storage/0/Music/260419/x.mp3"])
+
+    def test_empty_base_key_matches_build_tree_rows(self):
+        """Verify the folder key emitted by build_tree_rows resolves under empty base."""
+        files = _files("/storage/0/Music/260419/x.mp3",
+                       "/storage/0/Music/260419/sub/z.mp3")
+        rows = build_tree_rows(files, "", set())
+        folder_key = next(r["key"] for r in rows if r["is_dir"])
+        out = files_under_folder(files, "", folder_key)
+        self.assertEqual(len(out), 2)
+
     def test_empty_key_returns_empty(self):
         """Verify an empty folder key returns no files."""
         self.assertEqual(files_under_folder(_files("/m/a/1.mp3"), "/m", ""), [])

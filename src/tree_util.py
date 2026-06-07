@@ -98,7 +98,13 @@ def files_under_folder(files: list, base: str, key: str) -> list:
             rel = os.path.relpath(path, base) if base else path
         except ValueError:
             rel = path
-        rel = rel.replace("\\", "/")
+        # Normalise exactly like build_tree_rows (split on "/", drop empty/"."
+        # segments, rejoin) so the folder keys agree in BOTH cases: a real
+        # relative base, and an empty base where rel is the full path (e.g.
+        # after an app relaunch with no scan dir) — otherwise the leading "/"
+        # of an absolute path makes the prefix never match.
+        parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
+        rel = "/".join(parts)
         if rel.startswith(prefix):
             matched.append((rel, record))
     matched.sort(key=lambda pair: pair[0].lower())
