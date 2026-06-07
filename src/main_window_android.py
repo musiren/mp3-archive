@@ -72,7 +72,7 @@ from audio_meta import (
 import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
-from playlist import PlayQueue, next_index, prev_index
+from playlist import PlayQueue, next_index, next_play_mode, prev_index
 from online_meta import (
     SOURCE_BOTH,
     SOURCE_ITUNES,
@@ -588,6 +588,12 @@ MDBoxLayout:
                         icon: "skip-next"
                         pos_hint: {"center_y": 0.5}
                         on_release: app.play_next()
+
+                    MDIconButton:
+                        id: mode_button
+                        icon: "playlist-play"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.cycle_play_mode()
 
                     Widget:
 
@@ -1744,6 +1750,28 @@ class Mp3ArchiveApp(MDApp):
                            self._play_mode, ended=False)
         if index is not None:
             self._play_queue_index(index)
+
+    # Per-mode transport-button icon and Korean label.
+    _PLAY_MODE_ICONS = {
+        "sequential": "playlist-play",
+        "repeat_one": "repeat-once",
+        "repeat_all": "repeat",
+        "shuffle":    "shuffle",
+    }
+    _PLAY_MODE_LABELS = {
+        "sequential": "순차 재생",
+        "repeat_one": "한 곡 반복",
+        "repeat_all": "전체 반복",
+        "shuffle":    "셔플",
+    }
+
+    def cycle_play_mode(self) -> None:
+        """Advance to the next play mode and update the button icon + label."""
+        self._play_mode = next_play_mode(self._play_mode)
+        self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
+            self._play_mode, "playlist-play"
+        )
+        Snackbar(text=self._PLAY_MODE_LABELS.get(self._play_mode, "")).open()
 
     def _add_to_queue(self, row) -> None:
         """Append a track to the queue without playing it (long-press action)."""
