@@ -72,6 +72,7 @@ from audio_meta import (
 import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
+from playlist import PlayQueue
 from online_meta import (
     SOURCE_BOTH,
     SOURCE_ITUNES,
@@ -796,6 +797,9 @@ class Mp3ArchiveApp(MDApp):
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
+        self._queue = PlayQueue()      # the play queue (재생목록)
+        self._play_mode = "sequential"  # see playlist.PLAY_MODES
+        self._playing_path = ""        # path of the track currently loaded
 
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
@@ -1595,7 +1599,7 @@ class Mp3ArchiveApp(MDApp):
         if row.is_dir:
             self.toggle_tree_folder(row.key)
         elif row.path:
-            self._play(row.path, os.path.basename(row.path), "")
+            self._enqueue_and_play(self._row_info(row))
             try:
                 self.root.ids.bottom_nav.switch_tab("player")
             except Exception:
@@ -1615,12 +1619,24 @@ class Mp3ArchiveApp(MDApp):
     # Playback (재생 tab)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _row_info(row) -> dict:
+        """Build a queue item dict (path/filename/artist/title) from a row."""
+        path = getattr(row, "path", "")
+        return {
+            "path": path,
+            "filename": getattr(row, "filename", "") or os.path.basename(path),
+            "artist": getattr(row, "artist", "") or "-",
+            "title": getattr(row, "title", "") or "-",
+        }
+
     def play_row(self, row) -> None:
         """
-        Play the track for a tapped list row and switch to the player tab.
+        Enqueue a tapped list row and play it, then switch to the player tab.
 
-        Tapping the row body plays; tapping the row's right icon selects it
-        for deletion (see toggle_select).
+        Tapping the row body enqueues + plays; tapping the row's right icon
+        selects it for deletion (see toggle_select). A long-press opens the
+        actions menu and sets ``_suppress_next_play`` so this fires only once.
 
         Args:
             row: The Mp3Row whose audio file should be played.
@@ -1630,11 +1646,33 @@ class Mp3ArchiveApp(MDApp):
             return  # a long-press just opened the actions menu; don't also play
         if not row.path:
             return
-        self._play(row.path, row.filename, f"{row.artist} — {row.title}")
+        self._enqueue_and_play(self._row_info(row))
         try:
             self.root.ids.bottom_nav.switch_tab("player")
         except Exception:
             pass  # tab switch is best-effort; playback already started
+
+    def _enqueue_and_play(self, info: dict) -> None:
+        """Append an item to the queue and start playing it."""
+        index = self._queue.add(info)
+        self._play_queue_index(index)
+
+    def _play_queue_index(self, index: int) -> None:
+        """Make the queued track at *index* current and play it."""
+        self._queue.set_current(index)
+        item = self._queue.current_item()
+        if not item:
+            return
+        self._play(item["path"], item["filename"],
+                   f"{item['artist']} — {item['title']}")
+
+    def _add_to_queue(self, row) -> None:
+        """Append a track to the queue without playing it (long-press action)."""
+        self._actions_dialog.dismiss()
+        if not getattr(row, "path", ""):
+            return
+        self._queue.add(self._row_info(row))
+        Snackbar(text="재생목록에 추가됨").open()
 
     def _play(self, path: str, title: str, subtitle: str) -> None:
         """
@@ -1654,6 +1692,7 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="이 파일을 재생할 수 없습니다.").open()
             return
         self._sound = sound
+        self._playing_path = path
         self._paused_pos = 0.0
         self.root.ids.now_playing.text = title
         self.root.ids.now_playing_sub.text = subtitle
@@ -1818,6 +1857,7 @@ class Mp3ArchiveApp(MDApp):
                 MDFlatButton(text="자세히", on_release=lambda x: self._open_detail(row)),
                 MDFlatButton(text="가사", on_release=lambda x: self._open_lyrics(row)),
                 MDFlatButton(text="온라인", on_release=lambda x: self._open_song_info(row)),
+                MDFlatButton(text="추가", on_release=lambda x: self._add_to_queue(row)),
                 MDFlatButton(text="닫기", on_release=lambda x: self._actions_dialog.dismiss()),
             ],
         )
