@@ -101,6 +101,7 @@ class TestKvLayout(unittest.TestCase):
             "toolbar", "bottom_nav",
             "search_field", "chk_tags", "count_label",           # 목록 search
             "progress_bar", "status_label", "mp3_list", "mp3_grid",  # 목록 tab
+            "mp3_table", "table_header", "table_rv", "table_rv_layout",  # 표 view
             "now_playing", "position_bar", "play_button",        # 재생 tab
         )
         for ident in expected:

@@ -29,7 +29,7 @@ from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.factory import Factory
-from kivy.properties import BooleanProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, StringProperty
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.recycleboxlayout import RecycleBoxLayout
 from kivy.uix.recyclegridlayout import RecycleGridLayout
@@ -81,6 +81,7 @@ from online_meta import (
     build_song_query,
     fetch_candidates,
 )
+import table_util
 from tree_util import build_tree_rows
 from ui_util import latest_news_version, resolve_theme_style, sort_files
 
@@ -187,6 +188,11 @@ KV = """
         shorten_from: "right"
         size_hint_y: None
         height: dp(36)
+
+<TableRow>:
+    orientation: "horizontal"
+    size_hint_y: None
+    height: dp(40)
 
 <LyricsContent>:
     orientation: "vertical"
@@ -451,6 +457,45 @@ MDBoxLayout:
                         padding: dp(4)
                         spacing: dp(4)
 
+                ScrollView:
+                    id: mp3_table
+                    do_scroll_x: True
+                    do_scroll_y: False
+                    size_hint_y: None
+                    height: 0
+                    opacity: 0
+                    bar_width: dp(10)
+
+                    MDBoxLayout:
+                        id: table_body
+                        orientation: "vertical"
+                        size_hint_x: None
+                        width: dp(10)
+
+                        MDBoxLayout:
+                            id: table_header
+                            orientation: "horizontal"
+                            size_hint: None, None
+                            height: dp(44)
+                            width: dp(10)
+                            md_bg_color: app.theme_cls.primary_light
+
+                        RecycleView:
+                            id: table_rv
+                            viewclass: "TableRow"
+                            size_hint_x: None
+                            width: dp(10)
+                            bar_width: dp(8)
+
+                            RecycleBoxLayout:
+                                id: table_rv_layout
+                                orientation: "vertical"
+                                size_hint: None, None
+                                width: dp(10)
+                                height: self.minimum_height
+                                default_size: None, dp(40)
+                                default_size_hint: 1, None
+
         MDBottomNavigationItem:
             name: "player"
             text: "재생"
@@ -653,12 +698,70 @@ class CandidateRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
         return super().refresh_view_attrs(rv, index, data)
 
 
+class TableRow(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayout):
+    """
+    One data row of the 표 (table) view (a RecycleView viewclass).
+
+    The cells are rebuilt from the row's ``cells`` data (a list of
+    ``(text, width_dp)`` pairs) on every (re)bind, so the same recycled widget
+    can render whatever column set the user has currently selected. Tapping the
+    row plays the track; a long-press opens the per-track actions menu.
+    """
+
+    cells = ListProperty([])
+    path  = StringProperty("")
+    filename = StringProperty("")
+    artist   = StringProperty("")
+    title    = StringProperty("")
+    index = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Rebuild this row's cell labels for the bound data."""
+        self.index = index
+        result = super().refresh_view_attrs(rv, index, data)
+        self._render_cells()
+        return result
+
+    def _render_cells(self) -> None:
+        """Recreate one fixed-width label per column from the ``cells`` data."""
+        self.clear_widgets()
+        for text, width in self.cells:
+            label = MDLabel(
+                text=str(text),
+                font_style="Caption",
+                size_hint_x=None,
+                width=dp(width),
+                shorten=True,
+                shorten_from="right",
+                halign="left",
+                valign="center",
+                padding=(dp(6), 0),
+            )
+            label.text_size = (dp(width) - dp(10), dp(40))
+            self.add_widget(label)
+
+    def on_release(self) -> None:
+        """Play the track for this row (mirrors the list views)."""
+        app = MDApp.get_running_app()
+        if app is not None:
+            app.play_row(self)
+
+    def on_long_touch(self, *args) -> None:
+        """Open the per-track actions menu on a long press."""
+        _open_actions_for(self)
+
+
+class _HeaderCell(ButtonBehavior, MDLabel):
+    """A tappable, fixed-width 표 column header that sorts by its column."""
+
+
 # Register the row/tile viewclasses so RecycleView can resolve them by name.
 Factory.register("Mp3RowDetails", cls=Mp3RowDetails)
 Factory.register("Mp3RowList", cls=Mp3RowList)
 Factory.register("Mp3TreeRow", cls=Mp3TreeRow)
 Factory.register("Mp3Tile", cls=Mp3Tile)
 Factory.register("CandidateRow", cls=CandidateRow)
+Factory.register("TableRow", cls=TableRow)
 
 
 class LyricsContent(MDBoxLayout):
@@ -717,6 +820,11 @@ class Mp3ArchiveApp(MDApp):
         self._more_menu = None         # the ⋮ overflow menu
         self._theme_choice = "system"  # "system" / "light" / "dark"
         self._theme_menu = None
+        # 표 (table) view state
+        self._table_columns = list(table_util.DEFAULT_COLUMNS)
+        self._table_sort_key = None    # column key currently sorted, or None
+        self._table_sort_reverse = False
+        self._table_cols_dialog = None
         self._expanded: set = set()    # expanded folder keys (트리 view)
         self._art_cache: dict = {}     # path -> album-art file path ("" if none)
         self._art_dir = os.path.join(self._storage_directory(), "art_cache")
@@ -1052,6 +1160,15 @@ class Mp3ArchiveApp(MDApp):
         else:
             files = self._manager.list_files()
 
+        # The 표 (table) view renders the full DB rows (every column), with its
+        # own per-column sort, so build it from the raw rows and stop here.
+        if self._view_mode == "table":
+            self._build_table(files)
+            self.root.ids.count_label.text = self._count_label_text(
+                len(files), self._search_keyword
+            )
+            return
+
         # Sort the raw DB rows (they carry file_modified_at, which the trimmed
         # RecycleView dicts below do not) before projecting to the view data.
         files = sort_files(files, self._sort_mode)
@@ -1163,6 +1280,8 @@ class Mp3ArchiveApp(MDApp):
                  "on_release": lambda: self._set_view_mode("tree")},
                 {"text": "타일", "viewclass": "OneLineListItem",
                  "on_release": lambda: self._set_view_mode("tiles")},
+                {"text": "표", "viewclass": "OneLineListItem",
+                 "on_release": lambda: self._set_view_mode("table")},
             ]
             self._view_menu = MDDropdownMenu(
                 caller=self.root.ids.toolbar, items=items, width_mult=3,
@@ -1191,6 +1310,9 @@ class Mp3ArchiveApp(MDApp):
             {"text": "정보", "viewclass": "OneLineListItem",
              "on_release": self.show_about},
         ]
+        if self._view_mode == "table":
+            items.insert(0, {"text": "표 컬럼", "viewclass": "OneLineListItem",
+                             "on_release": self.show_table_columns})
         self._more_menu = MDDropdownMenu(
             caller=self.root.ids.toolbar, items=items, width_mult=3,
         )
@@ -1300,24 +1422,38 @@ class Mp3ArchiveApp(MDApp):
                 continue
         return "1.0.0"
 
+    @staticmethod
+    def _hide(widget) -> None:
+        """Collapse a list container so another view mode can take its place."""
+        widget.size_hint_y = None
+        widget.height = 0
+        widget.opacity = 0
+
+    @staticmethod
+    def _show(widget) -> None:
+        """Expand a list container to fill the available space."""
+        widget.size_hint_y = 1
+        widget.opacity = 1
+
     def _apply_view_mode(self) -> None:
-        """Show the list or tile RecycleView and set its viewclass for the mode."""
+        """Show the container for the active view mode and hide the others."""
         rv = self.root.ids.mp3_list
         grid = self.root.ids.mp3_grid
+        table = self.root.ids.mp3_table
         if self._view_mode == "tiles":
-            # Show the album-art grid, collapse the list RecycleView.
-            rv.size_hint_y = None
-            rv.height = 0
-            rv.opacity = 0
-            grid.size_hint_y = 1
-            grid.opacity = 1
+            self._hide(rv)
+            self._hide(table)
+            self._show(grid)
+            return
+        if self._view_mode == "table":
+            self._hide(rv)
+            self._hide(grid)
+            self._show(table)
             return
         # List/details/tree all use the (box-layout) list RecycleView.
-        grid.size_hint_y = None
-        grid.height = 0
-        grid.opacity = 0
-        rv.size_hint_y = 1
-        rv.opacity = 1
+        self._hide(grid)
+        self._hide(table)
+        self._show(rv)
         if self._view_mode == "list":
             rv.viewclass = "Mp3RowList"
             rv.layout_manager.default_size = (None, dp(48))
@@ -1327,6 +1463,108 @@ class Mp3ArchiveApp(MDApp):
         else:
             rv.viewclass = "Mp3RowDetails"
             rv.layout_manager.default_size = (None, dp(72))
+
+    # ------------------------------------------------------------------
+    # 표 (table) view
+    # ------------------------------------------------------------------
+
+    def _build_table(self, files: list) -> None:
+        """
+        Render the 표 view: size the columns, build the header, set the rows.
+
+        Args:
+            files: The raw DB rows to show (every column reads from these).
+        """
+        cols = self._table_columns
+        if self._table_sort_key:
+            files = table_util.sort_files_by(
+                files, self._table_sort_key, self._table_sort_reverse
+            )
+        total = dp(sum(table_util.column_width(k) for k in cols))
+        self.root.ids.table_body.width = total
+        self.root.ids.table_header.width = total
+        self.root.ids.table_rv.width = total
+        self.root.ids.table_rv_layout.width = total
+        self._build_table_header()
+        self.root.ids.table_rv.data = [
+            {
+                "cells": [(table_util.format_cell(k, f.get(k)),
+                           table_util.column_width(k)) for k in cols],
+                "path": f["path"],
+                "filename": f["filename"],
+                "artist": f.get("artist") or "-",
+                "title": f.get("title") or "-",
+            }
+            for f in files
+        ]
+
+    def _build_table_header(self) -> None:
+        """Rebuild the table header row: one tappable, sortable cell per column."""
+        header = self.root.ids.table_header
+        header.clear_widgets()
+        for key in self._table_columns:
+            width = table_util.column_width(key)
+            cell = _HeaderCell(
+                text=table_util.header_label(
+                    key, self._table_sort_key, self._table_sort_reverse
+                ),
+                size_hint_x=None,
+                width=dp(width),
+                halign="center",
+                valign="center",
+                bold=True,
+                font_style="Caption",
+                theme_text_color="Custom",
+                text_color=(0, 0, 0, 1),   # readable on the light-blue header
+            )
+            cell.text_size = (dp(width), dp(44))
+            cell.bind(on_release=lambda _c, k=key: self._table_sort_by(k))
+            header.add_widget(cell)
+
+    def _table_sort_by(self, key: str) -> None:
+        """Sort the table by a column (toggling direction on the active one)."""
+        self._table_sort_key, self._table_sort_reverse = table_util.next_sort(
+            self._table_sort_key, self._table_sort_reverse, key
+        )
+        self._refresh_list()
+
+    def show_table_columns(self, *args) -> None:
+        """Open a dialog of checkboxes to choose which 표 columns are shown."""
+        if self._more_menu is not None:
+            self._more_menu.dismiss()
+        box = MDBoxLayout(orientation="vertical", size_hint_y=None,
+                          spacing=dp(2), padding=dp(4))
+        box.bind(minimum_height=box.setter("height"))
+        for key, label, *_ in table_util.available_columns():
+            row = MDBoxLayout(orientation="horizontal", size_hint_y=None,
+                              height=dp(44))
+            checkbox = MDCheckbox(size_hint_x=None, width=dp(44),
+                                  active=(key in self._table_columns))
+            checkbox.bind(active=(lambda _w, _v, k=key: self._on_column_toggle(k)))
+            row.add_widget(checkbox)
+            row.add_widget(MDLabel(text=label, valign="center"))
+            box.add_widget(row)
+        scroll = ScrollView(size_hint_y=None, height=dp(380))
+        scroll.add_widget(box)
+        self._table_cols_dialog = MDDialog(
+            title="표 컬럼",
+            type="custom",
+            content_cls=scroll,
+            buttons=[
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._table_cols_dialog.dismiss()),
+            ],
+        )
+        self._table_cols_dialog.open()
+
+    def _on_column_toggle(self, key: str) -> None:
+        """Add or remove a 표 column (keeping at least one) and re-render."""
+        new = table_util.toggle_column(self._table_columns, key)
+        if not new:
+            return  # never leave the table with zero columns
+        self._table_columns = new
+        if self._view_mode == "table":
+            self._refresh_list()
 
     def _album_source(self, path: str) -> str:
         """
