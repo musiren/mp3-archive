@@ -72,7 +72,7 @@ from audio_meta import (
 import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
-from playlist import PlayQueue
+from playlist import PlayQueue, next_index, prev_index
 from online_meta import (
     SOURCE_BOTH,
     SOURCE_ITUNES,
@@ -564,9 +564,14 @@ MDBoxLayout:
                 MDBoxLayout:
                     size_hint_y: None
                     height: dp(64)
-                    spacing: dp(16)
+                    spacing: dp(8)
 
                     Widget:
+
+                    MDIconButton:
+                        icon: "skip-previous"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.play_prev()
 
                     MDIconButton:
                         id: play_button
@@ -578,6 +583,11 @@ MDBoxLayout:
                         icon: "stop"
                         pos_hint: {"center_y": 0.5}
                         on_release: app.stop_playback()
+
+                    MDIconButton:
+                        icon: "skip-next"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.play_next()
 
                     Widget:
 
@@ -1720,6 +1730,20 @@ class Mp3ArchiveApp(MDApp):
     def play_queue_index(self, index: int) -> None:
         """Play the queued track at *index* (tapped in the 재생목록 list)."""
         self._play_queue_index(index)
+
+    def play_prev(self) -> None:
+        """Play the previous track in the queue per the current play mode."""
+        index = prev_index(self._queue.current_index, len(self._queue),
+                           self._play_mode)
+        if index is not None:
+            self._play_queue_index(index)
+
+    def play_next(self) -> None:
+        """Play the next track in the queue per the current play mode."""
+        index = next_index(self._queue.current_index, len(self._queue),
+                           self._play_mode, ended=False)
+        if index is not None:
+            self._play_queue_index(index)
 
     def _add_to_queue(self, row) -> None:
         """Append a track to the queue without playing it (long-press action)."""
