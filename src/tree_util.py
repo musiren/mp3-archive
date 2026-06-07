@@ -66,3 +66,40 @@ def build_tree_rows(files: list, base: str, expanded: set) -> list:
 
     _walk(tree, 0, "")
     return rows
+
+
+def files_under_folder(files: list, base: str, key: str) -> list:
+    """
+    Return the file records that live under a tree folder, recursively.
+
+    Used by the 트리 view's "재생목록에 추가" folder action: *key* is the
+    slash-joined relative folder path emitted by build_tree_rows (e.g.
+    "260419" or "260419/live"), and this returns every record whose path is
+    inside that folder (including nested subfolders), ordered by relative path
+    so the result matches the tree's grouped display order.
+
+    Args:
+        files: Record dicts each with a "path" key.
+        base:  Absolute scanned-root path the keys are relative to (matches the
+               *base* passed to build_tree_rows). May be empty/None.
+        key:   The folder key to collect files under.
+
+    Returns:
+        The matching records, ordered by their case-folded relative path. Empty
+        when *key* is empty or no file lies under it.
+    """
+    if not key:
+        return []
+    prefix = key.replace("\\", "/") + "/"
+    matched = []
+    for record in files:
+        path = record.get("path", "")
+        try:
+            rel = os.path.relpath(path, base) if base else path
+        except ValueError:
+            rel = path
+        rel = rel.replace("\\", "/")
+        if rel.startswith(prefix):
+            matched.append((rel, record))
+    matched.sort(key=lambda pair: pair[0].lower())
+    return [record for _, record in matched]

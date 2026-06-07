@@ -10,12 +10,70 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from tree_util import build_tree_rows  # noqa: E402
+from tree_util import build_tree_rows, files_under_folder  # noqa: E402
 
 
 def _files(*paths):
     """Return record dicts for the given paths."""
     return [{"path": p} for p in paths]
+
+
+class TestFilesUnderFolder(unittest.TestCase):
+    """Tests for files_under_folder()."""
+
+    def test_collects_direct_and_nested_files(self):
+        """Verify files directly in and nested under the folder are returned."""
+        base = "/m"
+        files = _files("/m/a/1.mp3", "/m/a/sub/2.mp3", "/m/b/3.mp3")
+        out = files_under_folder(files, base, "a")
+        self.assertEqual([f["path"] for f in out],
+                         ["/m/a/1.mp3", "/m/a/sub/2.mp3"])
+
+    def test_excludes_sibling_with_shared_prefix(self):
+        """Verify a sibling folder sharing a name prefix is not matched."""
+        base = "/m"
+        files = _files("/m/260419/x.mp3", "/m/2604190/y.mp3")
+        out = files_under_folder(files, base, "260419")
+        self.assertEqual([f["path"] for f in out], ["/m/260419/x.mp3"])
+
+    def test_nested_folder_key(self):
+        """Verify a nested folder key matches only its own subtree."""
+        base = "/m"
+        files = _files("/m/a/live/1.mp3", "/m/a/2.mp3")
+        out = files_under_folder(files, base, "a/live")
+        self.assertEqual([f["path"] for f in out], ["/m/a/live/1.mp3"])
+
+    def test_ordered_by_relative_path(self):
+        """Verify results are ordered by case-folded relative path."""
+        base = "/m"
+        files = _files("/m/a/Zebra.mp3", "/m/a/apple.mp3", "/m/a/sub/0.mp3")
+        out = files_under_folder(files, base, "a")
+        # case-folded rel order: a/apple.mp3 < a/sub/0.mp3 < a/zebra.mp3
+        self.assertEqual([os.path.basename(f["path"]) for f in out],
+                         ["apple.mp3", "0.mp3", "Zebra.mp3"])
+
+    def test_backslash_paths_match(self):
+        """Verify Windows-style backslash paths are normalised and matched."""
+        base = r"C:\m"
+        files = [{"path": r"C:\m\a\1.mp3"}, {"path": r"C:\m\b\2.mp3"}]
+        out = files_under_folder(files, base, "a")
+        self.assertEqual([f["path"] for f in out], [r"C:\m\a\1.mp3"])
+
+    def test_empty_key_returns_empty(self):
+        """Verify an empty folder key returns no files."""
+        self.assertEqual(files_under_folder(_files("/m/a/1.mp3"), "/m", ""), [])
+
+    def test_no_match_returns_empty(self):
+        """Verify a folder with no files under it returns an empty list."""
+        self.assertEqual(files_under_folder(_files("/m/a/1.mp3"), "/m", "b"), [])
+
+    def test_preserves_record_objects(self):
+        """Verify the returned items are the original record dicts (with all keys)."""
+        base = "/m"
+        rec = {"path": "/m/a/1.mp3", "title": "One", "artist": "X"}
+        out = files_under_folder([rec], base, "a")
+        self.assertEqual(out[0]["title"], "One")
+        self.assertEqual(out[0]["artist"], "X")
 
 
 class TestBuildTreeRows(unittest.TestCase):

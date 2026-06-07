@@ -90,7 +90,7 @@ from online_meta import (
     fetch_candidates,
 )
 import table_util
-from tree_util import build_tree_rows
+from tree_util import build_tree_rows, files_under_folder
 from ui_util import latest_news_version, resolve_theme_style, sort_files
 
 
@@ -669,6 +669,19 @@ def _open_actions_for(row) -> None:
         app.open_actions(row)
 
 
+def _open_folder_actions_for(row) -> None:
+    """
+    Open the folder actions menu for a long-pressed 트리 directory row.
+
+    Suppresses the following on_release so the long press does not also
+    expand/collapse the folder (see tree_row_tapped).
+    """
+    app = MDApp.get_running_app()
+    if app is not None:
+        app._suppress_next_play = True
+        app.open_folder_actions(row)
+
+
 class Mp3RowDetails(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
     """
     Two-line "자세히" row with an album-art thumbnail (a RecycleView viewclass).
@@ -734,8 +747,10 @@ class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem, TouchBehavior):
         return super().refresh_view_attrs(rv, index, data)
 
     def on_long_touch(self, *args) -> None:
-        """Long-pressing a file row opens its actions menu (folders ignored)."""
-        if not self.is_dir and self.path:
+        """Long-press: a file row opens its actions; a folder its folder menu."""
+        if self.is_dir and self.key:
+            _open_folder_actions_for(self)
+        elif self.path:
             _open_actions_for(self)
 
 
@@ -2250,6 +2265,50 @@ class Mp3ArchiveApp(MDApp):
             ],
         )
         self._actions_dialog.open()
+
+    def open_folder_actions(self, row) -> None:
+        """
+        Show the actions menu for a long-pressed 트리 folder row.
+
+        Args:
+            row: The Mp3TreeRow folder that was long-pressed (its .key is the
+                 slash-joined relative folder path).
+        """
+        key = getattr(row, "key", "")
+        name = key.rsplit("/", 1)[-1] if key else "폴더"
+        content = MDBoxLayout(orientation="vertical", size_hint_y=None,
+                              height=dp(48))
+        item = OneLineListItem(text="재생목록에 추가")
+        item.bind(on_release=(lambda _w, k=key: self._add_folder_to_queue(k)))
+        content.add_widget(item)
+        self._actions_dialog = MDDialog(
+            title=name,
+            type="custom",
+            content_cls=content,
+            buttons=[
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._actions_dialog.dismiss()),
+            ],
+        )
+        self._actions_dialog.open()
+
+    def _add_folder_to_queue(self, key: str) -> None:
+        """Enqueue every track under a 트리 folder (recursively), without playing."""
+        self._actions_dialog.dismiss()
+        records = files_under_folder(self._files, self._last_dir or "", key)
+        if not records:
+            Snackbar(text="폴더에 곡이 없습니다.").open()
+            return
+        for record in records:
+            self._queue.add({
+                "path": record["path"],
+                "filename": record.get("filename")
+                            or os.path.basename(record["path"]),
+                "artist": record.get("artist") or "-",
+                "title": record.get("title") or "-",
+            })
+        self._refresh_queue()
+        Snackbar(text=f"재생목록에 {len(records)}곡 추가됨").open()
 
     def _open_lyrics(self, row) -> None:
         """Show the embedded lyrics for a track in a scrollable dialog."""
