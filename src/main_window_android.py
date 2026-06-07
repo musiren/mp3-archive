@@ -73,7 +73,7 @@ from online_meta import (
     fetch_candidates,
 )
 from tree_util import build_tree_rows
-from ui_util import resolve_theme_style, sort_files
+from ui_util import latest_news_version, resolve_theme_style, sort_files
 
 
 class Snackbar:
@@ -1167,6 +1167,8 @@ class Mp3ArchiveApp(MDApp):
              "on_release": self.open_sort_menu},
             {"text": "테마", "viewclass": "OneLineListItem",
              "on_release": self.open_theme_menu},
+            {"text": "정보", "viewclass": "OneLineListItem",
+             "on_release": self.show_about},
         ]
         self._more_menu = MDDropdownMenu(
             caller=self.root.ids.toolbar, items=items, width_mult=3,
@@ -1240,6 +1242,42 @@ class Mp3ArchiveApp(MDApp):
             return night == Configuration.UI_MODE_NIGHT_YES
         except Exception:
             return False
+
+    def show_about(self, *args) -> None:
+        """Show the About dialog with the app title and version."""
+        if self._more_menu is not None:
+            self._more_menu.dismiss()
+        self._about_dialog = MDDialog(
+            title="MP3 Archive",
+            text=f"버전 {self._app_version()}\norg.musiren.mp3archive",
+            buttons=[
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._about_dialog.dismiss()),
+            ],
+        )
+        self._about_dialog.open()
+
+    @staticmethod
+    def _app_version() -> str:
+        """
+        Return the latest NEWS release version, or a fallback.
+
+        Reads the NEWS file when it is reachable next to the bundled sources
+        (e.g. on desktop / when run from source) and returns its newest
+        ``vYYYYMMDD`` header. NEWS is not packaged into the APK, so on-device
+        this falls back to the build version string.
+        """
+        here = os.path.dirname(os.path.abspath(__file__))
+        for candidate in (os.path.join(here, "NEWS"),
+                          os.path.join(here, "..", "NEWS")):
+            try:
+                with open(candidate, encoding="utf-8") as fh:
+                    version = latest_news_version(fh.read())
+                if version:
+                    return version
+            except Exception:
+                continue
+        return "1.0.0"
 
     def _apply_view_mode(self) -> None:
         """Show the list or tile RecycleView and set its viewclass for the mode."""

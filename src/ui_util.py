@@ -6,6 +6,8 @@ file list, resolving a theme choice, reading the app version) so the logic can
 be unit-tested locally without importing Kivy or PyQt.
 """
 
+import re
+
 
 def _text_sort_key(value: str | None) -> tuple:
     """
@@ -76,3 +78,24 @@ def resolve_theme_style(choice: str, device_is_dark: bool = False) -> str:
     if choice == "light":
         return "Light"
     return "Dark" if device_is_dark else "Light"
+
+
+def latest_news_version(news_text: str | None) -> str:
+    """
+    Extract the most recent release version from NEWS file text.
+
+    The NEWS file lists releases newest-first under ``vYYYYMMDD (date)``
+    headers; this returns the first such version token found.
+
+    Args:
+        news_text: The full text of the NEWS file (may be None/empty).
+
+    Returns:
+        The first ``vYYYYMMDD`` token (e.g. "v20260420"), or "" when the text
+        is empty or contains no recognisable version header.
+    """
+    for line in (news_text or "").splitlines():
+        match = re.match(r"\s*(v\d{6,8})\b", line)
+        if match:
+            return match.group(1)
+    return ""

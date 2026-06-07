@@ -10,7 +10,11 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from ui_util import resolve_theme_style, sort_files  # noqa: E402
+from ui_util import (  # noqa: E402
+    latest_news_version,
+    resolve_theme_style,
+    sort_files,
+)
 
 
 def _f(filename="x.mp3", artist=None, title=None, modified=None):
@@ -112,6 +116,31 @@ class TestResolveThemeStyle(unittest.TestCase):
         """Verify an unknown choice falls back to following the device."""
         self.assertEqual(resolve_theme_style("", device_is_dark=True), "Dark")
         self.assertEqual(resolve_theme_style("", device_is_dark=False), "Light")
+
+
+class TestLatestNewsVersion(unittest.TestCase):
+    """Tests for latest_news_version()."""
+
+    def test_extracts_first_version_header(self):
+        """Verify the newest-first version token is returned."""
+        news = (
+            "mp3-archive NEWS\n\n"
+            "=====\n"
+            "v20260420 (2026-04-20)\n"
+            "=====\n"
+            "- something\n\n"
+            "v20260407 (2026-04-07)\n"
+        )
+        self.assertEqual(latest_news_version(news), "v20260420")
+
+    def test_empty_text_returns_empty(self):
+        """Verify empty or None input returns an empty string."""
+        self.assertEqual(latest_news_version(""), "")
+        self.assertEqual(latest_news_version(None), "")
+
+    def test_no_version_header_returns_empty(self):
+        """Verify text without a vNNNNNN header returns an empty string."""
+        self.assertEqual(latest_news_version("just some notes\nno version here"), "")
 
 
 if __name__ == "__main__":
