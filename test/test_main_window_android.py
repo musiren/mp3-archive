@@ -103,7 +103,8 @@ class TestKvLayout(unittest.TestCase):
             "progress_bar", "status_label", "mp3_list", "mp3_grid",  # 목록 tab
             "mp3_table", "table_header", "table_rv", "table_rv_layout",  # 표 view
             "now_playing", "position_bar", "play_button",        # 재생 tab
-            "queue_rv", "queue_count",                           # 재생목록
+            "now_art", "volume_slider",                          # art + volume
+            "queue_rv", "queue_count", "lower_toggle", "lyrics_view",  # 재생목록/가사
         )
         for ident in expected:
             self.assertIn(ident, root.ids, f"KV id '{ident}' missing from root.ids")

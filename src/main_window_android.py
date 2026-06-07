@@ -636,22 +636,24 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(44)
+                    height: dp(48)
                     padding: dp(4), 0
 
-                    MDLabel:
-                        text: "재생목록"
-                        font_style: "Subtitle2"
+                    MDFlatButton:
+                        id: lower_toggle
+                        text: "가사"
                         pos_hint: {"center_y": 0.5}
+                        on_release: app.toggle_lower_view()
+
+                    Widget:
 
                     MDLabel:
                         id: queue_count
                         text: "0곡"
+                        halign: "right"
                         font_style: "Caption"
                         theme_text_color: "Secondary"
                         pos_hint: {"center_y": 0.5}
-
-                    Widget:
 
                     MDIconButton:
                         icon: "content-save-outline"
@@ -678,6 +680,21 @@ MDBoxLayout:
                         height: self.minimum_height
                         default_size: None, dp(60)
                         default_size_hint: 1, None
+
+                ScrollView:
+                    id: lyrics_view
+                    size_hint_y: None
+                    height: 0
+                    opacity: 0
+
+                    MDLabel:
+                        id: lyrics_label_player
+                        text: ""
+                        size_hint_y: None
+                        height: self.texture_size[1]
+                        text_size: self.width, None
+                        valign: "top"
+                        padding: dp(8), dp(8)
 """
 
 
@@ -937,6 +954,7 @@ class Mp3ArchiveApp(MDApp):
         self._queue = PlayQueue()      # the play queue (재생목록)
         self._play_mode = "sequential"  # see playlist.PLAY_MODES
         self._playing_path = ""        # path of the track currently loaded
+        self._lower_view = "queue"     # 재생 tab lower area: "queue" or "lyrics"
         self._list_fm = None           # MDFileManager for loading .list files
         self._list_fm_open = False     # whether that file manager is showing
         self._save_dialog = None       # the "save playlist" filename dialog
@@ -2120,6 +2138,8 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.now_playing.text = title
         self.root.ids.now_playing_sub.text = subtitle
         self._show_now_art(path)
+        if self._lower_view == "lyrics":
+            self._refresh_lyrics()
         self.root.ids.position_bar.value = 0
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
@@ -2185,6 +2205,37 @@ class Mp3ArchiveApp(MDApp):
         image.source = art
         image.opacity = 1 if art else 0
         image.height = dp(180) if art else 0
+
+    def toggle_lower_view(self) -> None:
+        """Swap the 재생 tab's lower area between the 재생목록 and the 가사."""
+        self._lower_view = "lyrics" if self._lower_view == "queue" else "queue"
+        self._apply_lower_view()
+
+    def _apply_lower_view(self) -> None:
+        """Show the queue or the lyrics in the lower area per ``_lower_view``."""
+        queue = self.root.ids.queue_rv
+        lyrics = self.root.ids.lyrics_view
+        toggle = self.root.ids.lower_toggle
+        if self._lower_view == "lyrics":
+            queue.size_hint_y = None
+            queue.height = 0
+            queue.opacity = 0
+            lyrics.size_hint_y = 1
+            lyrics.opacity = 1
+            toggle.text = "재생목록"
+            self._refresh_lyrics()
+        else:
+            lyrics.size_hint_y = None
+            lyrics.height = 0
+            lyrics.opacity = 0
+            queue.size_hint_y = 1
+            queue.opacity = 1
+            toggle.text = "가사"
+
+    def _refresh_lyrics(self) -> None:
+        """Load the current track's lyrics into the player-tab lyrics view."""
+        text = get_lyrics(self._playing_path) if self._playing_path else None
+        self.root.ids.lyrics_label_player.text = text or "(가사 정보가 없습니다)"
 
     def _on_track_ended(self) -> None:
         """
