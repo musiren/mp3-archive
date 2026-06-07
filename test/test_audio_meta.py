@@ -12,9 +12,48 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from audio_meta import (  # noqa: E402
-    _clean_lyrics, fix_mojibake, format_summary_rows, get_album_art,
-    get_lyrics, get_stream_info, to_easy_tags,
+    STANDARD_EASY_KEYS, _clean_lyrics, fix_mojibake, format_summary_rows,
+    get_album_art, get_lyrics, get_stream_info, read_all_tags,
+    tag_display_label, to_easy_tags,
 )
+
+
+class TestTagDisplayLabel(unittest.TestCase):
+    """Tests for tag_display_label() and the standard-key set."""
+
+    def test_known_key_is_translated(self):
+        """Verifies a known easy-tag key maps to its Korean label."""
+        self.assertEqual(tag_display_label("albumartist"), "앨범 아티스트")
+        self.assertEqual(tag_display_label("composer"), "작곡가")
+
+    def test_unknown_key_returns_itself(self):
+        """Verifies an unrecognised key is returned unchanged."""
+        self.assertEqual(tag_display_label("mood"), "mood")
+
+    def test_standard_keys_cover_the_six_form_fields(self):
+        """Verifies the standard-key set matches the dialog's dedicated fields."""
+        self.assertEqual(
+            STANDARD_EASY_KEYS,
+            {"title", "artist", "album", "genre", "date", "comment"},
+        )
+
+
+class TestReadAllTags(unittest.TestCase):
+    """Tests for read_all_tags()."""
+
+    def test_returns_empty_for_nonexistent_file(self):
+        """Verifies read_all_tags returns [] for a missing path."""
+        self.assertEqual(read_all_tags("/no/such/file.mp3"), [])
+
+    def test_returns_empty_for_non_audio_file(self):
+        """Verifies read_all_tags returns [] for a plain text file."""
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            f.write(b"not audio")
+            path = f.name
+        try:
+            self.assertEqual(read_all_tags(path), [])
+        finally:
+            os.remove(path)
 
 
 class TestGetStreamInfo(unittest.TestCase):

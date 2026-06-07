@@ -60,10 +60,13 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import (
+    STANDARD_EASY_KEYS,
     format_summary_rows,
     get_album_art,
     get_lyrics,
     get_stream_info,
+    read_all_tags,
+    tag_display_label,
     to_easy_tags,
 )
 import itunes_fetcher
@@ -205,6 +208,7 @@ KV = """
 
     ScrollView:
         MDBoxLayout:
+            id: fields_box
             orientation: "vertical"
             spacing: dp(6)
             padding: dp(4)
@@ -1631,6 +1635,16 @@ class Mp3ArchiveApp(MDApp):
         content.ids.f_genre.text   = info.get("genre")   or ""
         content.ids.f_year.text    = info.get("year")    or ""
         content.ids.f_comment.text = info.get("comment") or ""
+        # Beyond the six dedicated fields, expose every other embedded easy-tag
+        # (albumartist, tracknumber, composer, …) as its own editable field so
+        # the full tag set can be edited, matching the desktop dialog.
+        self._detail_extra = []
+        for label, key, value in read_all_tags(row.path):
+            if key in STANDARD_EASY_KEYS:
+                continue
+            field = MDTextField(hint_text=label, text=value)
+            content.ids.fields_box.add_widget(field)
+            self._detail_extra.append((key, field))
         self._detail_content = content
         self._detail_path = row.path
         self._detail_dialog = MDDialog(
@@ -1656,6 +1670,12 @@ class Mp3ArchiveApp(MDApp):
             "comment": c.ids.f_comment.text,
         }
         tags = to_easy_tags(form)
+        # Merge any edited extra-tag fields (their keys are already easy-tag
+        # keys); blank values are skipped so they never clobber existing tags.
+        for key, field in getattr(self, "_detail_extra", []):
+            value = field.text.strip()
+            if value:
+                tags[key] = value
         if not tags:
             Snackbar(text="변경할 태그 내용이 없습니다.").open()
             self._detail_dialog.dismiss()

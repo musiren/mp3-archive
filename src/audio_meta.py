@@ -142,6 +142,76 @@ _FORM_TO_EASY = {
 }
 
 
+# Human-readable Korean labels for normalised mutagen easy-tag keys, mirroring
+# the desktop tag-detail dialog so both front-ends label tags identically.
+_EASY_TAG_LABELS: dict[str, str] = {
+    "title":        "제목",
+    "artist":       "아티스트",
+    "albumartist":  "앨범 아티스트",
+    "album":        "앨범",
+    "date":         "년도",
+    "genre":        "장르",
+    "tracknumber":  "트랙",
+    "discnumber":   "디스크",
+    "comment":      "코멘트",
+    "composer":     "작곡가",
+    "lyricist":     "작사가",
+    "lyrics":       "가사",
+    "copyright":    "저작권",
+    "encodedby":    "인코더",
+    "bpm":          "BPM",
+    "isrc":         "ISRC",
+    "language":     "언어",
+    "organization": "레이블",
+    "website":      "웹사이트",
+}
+
+# The easy-tag keys already exposed as dedicated fields in the edit form, so
+# read_all_tags' callers can present the remaining tags separately.
+STANDARD_EASY_KEYS = frozenset({"title", "artist", "album", "genre", "date",
+                                "comment"})
+
+
+def tag_display_label(key: str) -> str:
+    """
+    Return the Korean display label for a mutagen easy-tag key.
+
+    Args:
+        key: A lowercase easy-tag key (e.g. "albumartist").
+
+    Returns:
+        The mapped Korean label, or the key itself when it is unknown.
+    """
+    return _EASY_TAG_LABELS.get(key, key)
+
+
+def read_all_tags(path: str) -> list:
+    """
+    Read every easy-tag key/value pair embedded in an audio file.
+
+    Args:
+        path: Absolute path to the audio file.
+
+    Returns:
+        A list of ``(label, key, value)`` tuples sorted by key, where *label*
+        is the Korean display label, *key* is the mutagen easy-tag key, and
+        *value* is the first (mojibake-repaired) string value. Empty when the
+        file is unreadable or carries no tags.
+    """
+    rows = []
+    try:
+        audio = MutagenFile(path, easy=True)
+        if audio is not None and audio.tags:
+            for key in sorted(audio.tags.keys()):
+                val = audio.tags.get(key)
+                text = val[0] if isinstance(val, list) and val else str(val)
+                rows.append((tag_display_label(key), key,
+                             fix_mojibake(str(text)) or ""))
+    except Exception:
+        pass
+    return rows
+
+
 def get_stream_info(path: str) -> dict:
     """
     Read the audio stream properties of a file (sample rate, bitrate, etc.).
