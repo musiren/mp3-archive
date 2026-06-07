@@ -16,6 +16,8 @@ import json
 import urllib.parse
 import urllib.request
 
+from net_util import ssl_context
+
 
 def search(
     artist: str | None,
@@ -61,9 +63,12 @@ def search(
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "mp3-archive/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        # Log (Android logcat "python" tag) so a TLS/network failure is
+        # distinguishable from a genuine no-match result.
+        print(f"[mp3archive] itunes_fetcher search failed: {exc!r}")
         return []
 
     results = data.get("results", [])

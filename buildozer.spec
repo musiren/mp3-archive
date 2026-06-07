@@ -17,7 +17,9 @@ version = 1.0.0
 
 # Built against CPython 3.11.5 (pinned via p4a.branch below). kivy 2.3.0
 # compiles cleanly there with Cython 0.29.x; kivymd 1.2.0 needs kivy>=2.1.0.
-requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,mutagen
+# certifi supplies a CA bundle so HTTPS (MusicBrainz / iTunes) verifies under
+# python-for-android, where the system trust store CPython expects is absent.
+requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,mutagen,certifi,openssl
 
 orientation = portrait
 fullscreen = 0

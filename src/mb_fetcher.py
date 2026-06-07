@@ -19,6 +19,8 @@ import json
 import urllib.parse
 import urllib.request
 
+from net_util import ssl_context
+
 # MusicBrainz requires a descriptive User-Agent identifying the application
 # (requests without one are rejected). See the MusicBrainz API ToS.
 _USER_AGENT = "mp3-archive/1.0 ( https://github.com/musiren/mp3-archive )"
@@ -88,9 +90,12 @@ def search(
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        # Log (visible in Android logcat under the "python" tag) so a network
+        # or TLS failure is distinguishable from a genuine no-match result.
+        print(f"[mp3archive] mb_fetcher search failed: {exc!r}")
         return []
 
     candidates = []
