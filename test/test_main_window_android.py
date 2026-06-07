@@ -202,7 +202,7 @@ class TestDialogContent(unittest.TestCase):
         from main_window_android import KV, TagEditContent
         Builder.load_string(KV)  # register the <TagEditContent> rule
         content = TagEditContent()
-        for fid in ("f_title", "f_artist", "f_album", "f_genre", "f_year", "f_comment"):
+        for fid in ("art_image", "f_title", "f_artist", "f_album", "f_genre", "f_year", "f_comment"):
             self.assertIn(fid, content.ids, f"TagEditContent missing field '{fid}'")
 
     def test_lyrics_content_exposes_label(self):

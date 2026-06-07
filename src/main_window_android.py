@@ -188,6 +188,14 @@ KV = """
     size_hint_y: None
     height: self.minimum_height
 
+    Image:
+        id: art_image
+        source: ""
+        size_hint_y: None
+        height: dp(140)
+        allow_stretch: True
+        keep_ratio: True
+
     MDTextField:
         id: f_title
         hint_text: "제목"
@@ -1394,6 +1402,16 @@ class Mp3ArchiveApp(MDApp):
         self._actions_dialog.dismiss()
         info = self._manager.get_by_path(row.path) or {}
         content = TagEditContent()
+        # Show the embedded album art at the top when present; collapse the
+        # image area to nothing when the track has no art.
+        art = self._album_source(row.path)
+        content.ids.art_image.source = art
+        if art:
+            content.ids.art_image.opacity = 1
+            content.ids.art_image.height = dp(140)
+        else:
+            content.ids.art_image.opacity = 0
+            content.ids.art_image.height = 0
         content.ids.f_title.text   = info.get("title")   or ""
         content.ids.f_artist.text  = info.get("artist")  or ""
         content.ids.f_album.text   = info.get("album")   or ""
