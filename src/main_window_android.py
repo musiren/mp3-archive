@@ -544,12 +544,14 @@ MDBoxLayout:
                     size_hint_y: None
                     height: dp(20)
 
-                MDProgressBar:
+                MDSlider:
                     id: position_bar
-                    value: 0
+                    min: 0
                     max: 100
+                    value: 0
+                    hint: False
                     size_hint_y: None
-                    height: dp(4)
+                    height: dp(32)
 
                 MDBoxLayout:
                     size_hint_y: None
@@ -920,6 +922,7 @@ class Mp3ArchiveApp(MDApp):
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._elapsed = 0.0            # played seconds (Android get_pos() is 0)
         self._volume = 1.0             # playback volume (0.0–1.0), kept across tracks
+        self._user_seeking = False     # True while the user drags the seek bar
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
@@ -990,8 +993,10 @@ class Mp3ArchiveApp(MDApp):
         return root
 
     def on_start(self) -> None:
-        """Request storage permissions and populate the list at startup."""
+        """Request storage permissions, wire the seek bar, and populate the list."""
         self._request_android_permissions()
+        seek = self.root.ids.position_bar
+        seek.bind(on_touch_down=self._on_seek_down, on_touch_up=self._on_seek_up)
         self._refresh_list()
 
     # KivyMD 1.2.0 maps its font styles to several family names, not just
@@ -2226,9 +2231,46 @@ class Mp3ArchiveApp(MDApp):
         self._elapsed += _dt
         length = sound.length or 0
         pos = min(self._elapsed, length) if length else self._elapsed
-        self.root.ids.position_bar.value = (pos / length * 100) if length else 0
+        # Don't fight the user while they drag the seek bar.
+        if not self._user_seeking:
+            self.root.ids.position_bar.value = (pos / length * 100) if length else 0
         self.root.ids.pos_label.text = self._format_time(pos)
         self.root.ids.dur_label.text = self._format_time(length)
+
+    def _on_seek_down(self, slider, touch) -> bool:
+        """Note that the user has grabbed the seek bar (pause poll updates)."""
+        if slider.collide_point(*touch.pos):
+            self._user_seeking = True
+        return False
+
+    def _on_seek_up(self, slider, touch) -> bool:
+        """Seek to the released seek-bar position."""
+        if self._user_seeking:
+            self._user_seeking = False
+            self._seek_to(slider.value)
+        return False
+
+    def _seek_to(self, value: float) -> None:
+        """
+        Seek the current track to *value* percent of its length.
+
+        Updates the elapsed counter (which drives the display) and asks the
+        provider to seek the audio — best-effort, since some Android providers
+        ignore seek.
+        """
+        sound = self._sound
+        if sound is None:
+            return
+        length = sound.length or 0
+        if not length:
+            return
+        target = max(0.0, min(length, value / 100.0 * length))
+        self._elapsed = target
+        try:
+            sound.seek(target)
+        except Exception:
+            pass
+        self.root.ids.pos_label.text = self._format_time(target)
 
     @staticmethod
     def _format_time(seconds) -> str:
