@@ -464,7 +464,8 @@ MDBoxLayout:
                     size_hint_y: None
                     height: 0
                     opacity: 0
-                    bar_width: dp(10)
+                    bar_width: dp(12)
+                    scroll_type: ["bars", "content"]
 
                     MDBoxLayout:
                         id: table_body
@@ -700,21 +701,23 @@ class CandidateRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
         return super().refresh_view_attrs(rv, index, data)
 
 
-class TableRow(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayout):
+class TableRow(RecycleDataViewBehavior, MDBoxLayout):
     """
     One data row of the 표 (table) view (a RecycleView viewclass).
 
     The cells are rebuilt from the row's ``cells`` data (a list of
     ``(text, width_dp)`` pairs) on every (re)bind, so the same recycled widget
-    can render whatever column set the user has currently selected. Tapping the
-    row plays the track; a long-press opens the per-track actions menu.
+    can render whatever column set the user has currently selected.
+
+    Deliberately NOT a button: a touch-grabbing row would swallow horizontal
+    drags before the outer horizontal ScrollView could claim them (and turn a
+    sideways swipe into a tap). Keeping the row inert lets vertical drags scroll
+    the inner RecycleView and horizontal drags fall through to the outer
+    scroller. The table is a read-only view; play/edit happen in the other
+    view modes.
     """
 
     cells = ListProperty([])
-    path  = StringProperty("")
-    filename = StringProperty("")
-    artist   = StringProperty("")
-    title    = StringProperty("")
     index = None
 
     def refresh_view_attrs(self, rv, index, data):
@@ -741,16 +744,6 @@ class TableRow(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayo
             )
             label.text_size = (dp(width) - dp(10), dp(40))
             self.add_widget(label)
-
-    def on_release(self) -> None:
-        """Play the track for this row (mirrors the list views)."""
-        app = MDApp.get_running_app()
-        if app is not None:
-            app.play_row(self)
-
-    def on_long_touch(self, *args) -> None:
-        """Open the per-track actions menu on a long press."""
-        _open_actions_for(self)
 
 
 class _HeaderCell(ButtonBehavior, MDLabel):
@@ -1492,10 +1485,6 @@ class Mp3ArchiveApp(MDApp):
             {
                 "cells": [(table_util.format_cell(k, f.get(k)),
                            table_util.column_width(k)) for k in cols],
-                "path": f["path"],
-                "filename": f["filename"],
-                "artist": f.get("artist") or "-",
-                "title": f.get("title") or "-",
             }
             for f in files
         ]
