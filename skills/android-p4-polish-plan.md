@@ -1,5 +1,8 @@
 # Android P4 — Tag Detail + Polish
 
+> Status: **all six items implemented and unit-tested** (commits for #17, #18,
+> #19, #14, #13, #16). Pending the shared CI build + on-device verification.
+
 Finish the P4 "tag detail + polish" basket from the feature-parity plan. Each
 numbered item ships as its own commit; all touch the Android app, so they share
 one CI build + on-device verification at the end (push once).

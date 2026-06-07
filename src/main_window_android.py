@@ -990,9 +990,10 @@ class Mp3ArchiveApp(MDApp):
         # connection in _on_scan_done.
         scan_manager = Mp3Manager(self._db_path)
         try:
-            # Re-scanning replaces the library: drop the previously scanned
-            # entries so the list shows only the chosen folder's files.
-            scan_manager.clear()
+            # Incremental by design: keep existing records so scanning another
+            # folder merges into the library, and an unchanged file is skipped
+            # by mtime. The refresh button passes force=True to re-read every
+            # file and prune records for files now missing under this directory.
             result = scan_manager.scan(
                 directory, progress_callback=on_progress, force=force
             )

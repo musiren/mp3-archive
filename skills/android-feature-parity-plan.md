@@ -28,7 +28,13 @@ Python and reused as-is; only the UI layer differs.
   tree** views.
 - Playback basics: tap to play, **play/pause/stop**, elapsed/total time labels,
   a position bar (read-only), now-playing title/subtitle.
-- Re-scanning a folder replaces the previous library (`clear()` then scan).
+- **Incremental scan** — picking a folder merges into the library and skips
+  unchanged files (by mtime); the refresh button forces a full re-read and
+  prunes records for files missing under that directory.
+- **Sort menu** (이름/아티스트/제목/날짜) and **theme toggle** (시스템/라이트/
+  다크) and **About dialog** in the ⋮ overflow menu.
+- **자세히 dialog** also shows read-only file/stream info (size, duration,
+  dates, samplerate, channels, bitrate) and edits every embedded easy-tag.
 
 ## Remaining work (prioritized)
 
@@ -66,17 +72,17 @@ permission and a network daemon thread are wired up. All three features ship.
 | 11 | **Interactive seek** | position bar is read-only | small (MDSlider → `sound.seek()`; provider caveat) |
 | 12 | **Lyrics + album art on the 재생 tab** | only via long-press dialogs | medium |
 
-### 🟢 P4 — Tag detail + polish (small)
+### ✅ P4 — Tag detail + polish (done; on-device verification pending)
 
-| # | Feature | Gap | Effort |
-|---|---------|-----|--------|
-| 13 | Full tag table | only 6 fields; desktop edits all easy-tags (albumartist/date/tracknumber/composer/lyrics/…) | medium |
-| 14 | File summary + stream info | no size/duration/dates/samplerate/bitrate rows in 자세히 | small |
-| 15 | Album-art thumbnail in 자세히 dialog | reuse `_album_source` | small |
-| 16 | **Incremental scan** | Android always `clear()`s; no preserve+skip-unchanged / merge-folders | medium |
-| 17 | **Sort menu** (name / artist / date) | none | small |
-| 18 | **Theme toggle** (system/light/dark) | hard-coded Light | small |
-| 19 | **About dialog** (version from NEWS) | none | small |
+| # | Feature | Status |
+|---|---------|--------|
+| 13 | Full tag table — edit every embedded easy-tag, not just six | ✅ done |
+| 14 | File summary + stream info rows in 자세히 | ✅ done |
+| 15 | Album-art thumbnail in 자세히 dialog | ✅ done (earlier) |
+| 16 | **Incremental scan** — merge + skip-unchanged; refresh prunes | ✅ done |
+| 17 | **Sort menu** (name / artist / title / date) | ✅ done |
+| 18 | **Theme toggle** (system/light/dark) | ✅ done |
+| 19 | **About dialog** (version from NEWS) | ✅ done |
 
 ## Not applicable on touch (skip — no user-facing gap on phones)
 
