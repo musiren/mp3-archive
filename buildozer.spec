@@ -30,7 +30,10 @@ android.presplash_color = #FFFFFF
 # ("All files access") is required to browse and scan arbitrary directories
 # under scoped storage (Android 11+); it is granted via a settings page, not
 # a runtime prompt (see Mp3ArchiveApp._request_all_files_access).
-android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE
+#
+# INTERNET is required for online metadata lookups (MusicBrainz / iTunes tag
+# fetch). It is a normal, install-time permission with no runtime prompt.
+android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET
 
 android.api = 33
 android.minapi = 21
