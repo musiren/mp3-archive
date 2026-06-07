@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from ui_util import sort_files  # noqa: E402
+from ui_util import resolve_theme_style, sort_files  # noqa: E402
 
 
 def _f(filename="x.mp3", artist=None, title=None, modified=None):
@@ -87,6 +87,31 @@ class TestSortFiles(unittest.TestCase):
         files = [_f("b.mp3"), _f("a.mp3")]
         out = sort_files(files, "whatever")
         self.assertEqual([f["filename"] for f in out], ["b.mp3", "a.mp3"])
+
+
+class TestResolveThemeStyle(unittest.TestCase):
+    """Tests for resolve_theme_style()."""
+
+    def test_explicit_light(self):
+        """Verify an explicit light choice maps to 'Light'."""
+        self.assertEqual(resolve_theme_style("light", device_is_dark=True), "Light")
+
+    def test_explicit_dark(self):
+        """Verify an explicit dark choice maps to 'Dark'."""
+        self.assertEqual(resolve_theme_style("dark", device_is_dark=False), "Dark")
+
+    def test_system_follows_device_dark(self):
+        """Verify 'system' returns 'Dark' when the device is in night mode."""
+        self.assertEqual(resolve_theme_style("system", device_is_dark=True), "Dark")
+
+    def test_system_follows_device_light(self):
+        """Verify 'system' returns 'Light' when the device is not in night mode."""
+        self.assertEqual(resolve_theme_style("system", device_is_dark=False), "Light")
+
+    def test_unknown_choice_defaults_to_device(self):
+        """Verify an unknown choice falls back to following the device."""
+        self.assertEqual(resolve_theme_style("", device_is_dark=True), "Dark")
+        self.assertEqual(resolve_theme_style("", device_is_dark=False), "Light")
 
 
 if __name__ == "__main__":

@@ -73,7 +73,7 @@ from online_meta import (
     fetch_candidates,
 )
 from tree_util import build_tree_rows
-from ui_util import sort_files
+from ui_util import resolve_theme_style, sort_files
 
 
 class Snackbar:
@@ -695,6 +695,8 @@ class Mp3ArchiveApp(MDApp):
         self._sort_mode = "artist"     # list sort order (see ui_util.sort_files)
         self._sort_menu = None
         self._more_menu = None         # the ⋮ overflow menu
+        self._theme_choice = "system"  # "system" / "light" / "dark"
+        self._theme_menu = None
         self._expanded: set = set()    # expanded folder keys (트리 view)
         self._art_cache: dict = {}     # path -> album-art file path ("" if none)
         self._art_dir = os.path.join(self._storage_directory(), "art_cache")
@@ -723,7 +725,9 @@ class Mp3ArchiveApp(MDApp):
         """Build the UI from the KV string, registering a Korean font first."""
         self._register_fonts()
         self.theme_cls.primary_palette = "Blue"
-        self.theme_cls.theme_style = "Light"
+        self.theme_cls.theme_style = resolve_theme_style(
+            self._theme_choice, self._device_is_dark()
+        )
         root = Builder.load_string(KV)
         Window.bind(on_keyboard=self._on_keyboard)
         return root
@@ -1161,6 +1165,8 @@ class Mp3ArchiveApp(MDApp):
         items = [
             {"text": "정렬", "viewclass": "OneLineListItem",
              "on_release": self.open_sort_menu},
+            {"text": "테마", "viewclass": "OneLineListItem",
+             "on_release": self.open_theme_menu},
         ]
         self._more_menu = MDDropdownMenu(
             caller=self.root.ids.toolbar, items=items, width_mult=3,
@@ -1191,6 +1197,49 @@ class Mp3ArchiveApp(MDApp):
             self._sort_menu.dismiss()
         self._sort_mode = mode
         self._refresh_list()
+
+    def open_theme_menu(self) -> None:
+        """Open the dropdown that chooses the colour theme."""
+        if self._more_menu is not None:
+            self._more_menu.dismiss()
+        choices = [("시스템", "system"), ("라이트", "light"), ("다크", "dark")]
+        items = [
+            {"text": label, "viewclass": "OneLineListItem",
+             "on_release": (lambda c=choice: self._set_theme(c))}
+            for label, choice in choices
+        ]
+        self._theme_menu = MDDropdownMenu(
+            caller=self.root.ids.toolbar, items=items, width_mult=3,
+        )
+        self._theme_menu.open()
+
+    def _set_theme(self, choice: str) -> None:
+        """Apply the chosen theme to the running app."""
+        if self._theme_menu is not None:
+            self._theme_menu.dismiss()
+        self._theme_choice = choice
+        self.theme_cls.theme_style = resolve_theme_style(
+            choice, self._device_is_dark()
+        )
+
+    @staticmethod
+    def _device_is_dark() -> bool:
+        """
+        Return whether the device is currently in night (dark) mode.
+
+        Queries the Android UI-mode configuration via jnius; a harmless no-op
+        returning False off-device (desktop/tests), so "system" defaults to a
+        light theme there.
+        """
+        try:
+            from jnius import autoclass  # type: ignore
+            Configuration = autoclass("android.content.res.Configuration")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            config = PythonActivity.mActivity.getResources().getConfiguration()
+            night = config.uiMode & Configuration.UI_MODE_NIGHT_MASK
+            return night == Configuration.UI_MODE_NIGHT_YES
+        except Exception:
+            return False
 
     def _apply_view_mode(self) -> None:
         """Show the list or tile RecycleView and set its viewclass for the mode."""

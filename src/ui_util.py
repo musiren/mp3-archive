@@ -55,3 +55,24 @@ def sort_files(files: list, mode: str) -> list:
         return sorted(items, key=lambda f: (f.get("file_modified_at") or ""),
                       reverse=True)
     return items
+
+
+def resolve_theme_style(choice: str, device_is_dark: bool = False) -> str:
+    """
+    Resolve a theme *choice* to a KivyMD ``theme_style`` value.
+
+    Args:
+        choice:         "light", "dark", or "system" (follow the device).
+        device_is_dark: Whether the device is currently in night mode; only
+                        consulted when *choice* is "system".
+
+    Returns:
+        "Dark" or "Light" — the string KivyMD's ``theme_cls.theme_style``
+        expects. An explicit light/dark choice wins; "system" (or any
+        unrecognised value) follows the device, defaulting to "Light".
+    """
+    if choice == "dark":
+        return "Dark"
+    if choice == "light":
+        return "Light"
+    return "Dark" if device_is_dark else "Light"
