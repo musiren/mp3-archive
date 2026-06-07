@@ -1868,6 +1868,23 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.now_playing_sub.text = ""
         self._refresh_queue()
 
+    def _on_track_ended(self) -> None:
+        """
+        Advance to the next track when the current one finishes naturally.
+
+        Picks the next index for the active play mode (``ended=True`` so a
+        sequential queue stops after the last track) and plays it; stops when
+        there is nothing to advance to. Fires once per track end — the calling
+        poll returns False and the next track schedules its own poll.
+        """
+        self._unschedule_pos()
+        index = next_index(self._queue.current_index, len(self._queue),
+                           self._play_mode, ended=True)
+        if index is not None and not self._queue.is_empty:
+            self._play_queue_index(index)
+        else:
+            self.stop_playback()
+
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""
         self._unschedule_pos()
@@ -1904,8 +1921,10 @@ class Mp3ArchiveApp(MDApp):
         if sound is None:
             return False
         if sound.state != "play":
-            # Reached the end (or stopped externally): reset the controls.
-            self.stop_playback()
+            # The track reached its end (an explicit stop/pause already
+            # unschedules this poll, so reaching here means natural end):
+            # advance to the next track per the play mode, or stop.
+            self._on_track_ended()
             return False
         length = sound.length or 0
         pos = sound.get_pos() or 0
