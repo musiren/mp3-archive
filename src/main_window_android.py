@@ -893,6 +893,8 @@ class Mp3ArchiveApp(MDApp):
         self._list_fm = None           # MDFileManager for loading .list files
         self._list_fm_open = False     # whether that file manager is showing
         self._save_dialog = None       # the "save playlist" filename dialog
+        self._load_choice_dialog = None  # append-vs-replace prompt on load
+        self._pending_load_paths = []  # parsed paths awaiting the load choice
 
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
@@ -1803,14 +1805,44 @@ class Mp3ArchiveApp(MDApp):
         )
         Snackbar(text=self._PLAY_MODE_LABELS.get(self._play_mode, "")).open()
 
+    def _row_info_for_path(self, path: str) -> dict | None:
+        """Build a queue item dict for a path, preferring the current list data."""
+        for f in self._files:
+            if f.get("path") == path:
+                return {"path": path, "filename": f["filename"],
+                        "artist": f["artist"], "title": f["title"]}
+        info = self._manager.get_by_path(path)
+        if not info:
+            return None
+        return {"path": path,
+                "filename": info.get("filename") or os.path.basename(path),
+                "artist": info.get("artist") or "-",
+                "title": info.get("title") or "-"}
+
     def _add_to_queue(self, row) -> None:
-        """Append a track to the queue without playing it (long-press action)."""
+        """
+        Append track(s) to the queue without playing (long-press action).
+
+        When rows are selected (their checkboxes), all selected tracks are
+        enqueued in list order; otherwise just the long-pressed row.
+        """
         self._actions_dialog.dismiss()
-        if not getattr(row, "path", ""):
+        if self._selected:
+            paths = [f["path"] for f in self._files if f["path"] in self._selected]
+        else:
+            path = getattr(row, "path", "")
+            paths = [path] if path else []
+        if not paths:
             return
-        self._queue.add(self._row_info(row))
+        for path in paths:
+            info = self._row_info_for_path(path)
+            if info:
+                self._queue.add(info)
         self._refresh_queue()
-        Snackbar(text="재생목록에 추가됨").open()
+        if self._selected:
+            self._selected.clear()
+            self._refresh_list()   # clear the now-consumed selection checkboxes
+        Snackbar(text=f"재생목록에 {len(paths)}곡 추가됨").open()
 
     def remove_from_queue(self, index: int) -> None:
         """Remove the queued track at *index* (the row's ✕ button)."""
@@ -1899,7 +1931,12 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="파일 관리자를 열 수 없습니다.").open()
 
     def _on_list_selected(self, path: str) -> None:
-        """Append the tracks from a chosen ``.list`` file, skipping missing ones."""
+        """
+        Load a chosen ``.list`` file into the queue.
+
+        When the queue is empty the tracks are loaded straight away; otherwise
+        the user is asked whether to append to or replace the current queue.
+        """
         self._close_list_fm()
         try:
             with open(path, encoding="utf-8") as fh:
@@ -1907,6 +1944,35 @@ class Mp3ArchiveApp(MDApp):
         except Exception:
             Snackbar(text="재생목록을 읽을 수 없습니다.").open()
             return
+        if self._queue.is_empty:
+            self._apply_loaded_paths(paths, replace=False)
+            return
+        self._pending_load_paths = paths
+        self._load_choice_dialog = MDDialog(
+            title="재생목록 불러오기",
+            text="기존 재생목록에 추가할까요, 교체할까요?",
+            buttons=[
+                MDFlatButton(text="추가",
+                             on_release=lambda x: self._finish_load(False)),
+                MDFlatButton(text="교체",
+                             on_release=lambda x: self._finish_load(True)),
+                MDFlatButton(text="취소",
+                             on_release=lambda x: self._load_choice_dialog.dismiss()),
+            ],
+        )
+        self._load_choice_dialog.open()
+
+    def _finish_load(self, replace: bool) -> None:
+        """Apply the pending loaded paths after the append/replace choice."""
+        if self._load_choice_dialog is not None:
+            self._load_choice_dialog.dismiss()
+        self._apply_loaded_paths(self._pending_load_paths, replace=replace)
+        self._pending_load_paths = []
+
+    def _apply_loaded_paths(self, paths: list, replace: bool) -> None:
+        """Enqueue loaded paths (replacing the queue first if asked); skip missing."""
+        if replace:
+            self._queue.clear()
         added = 0
         missing = 0
         for p in paths:
@@ -2132,19 +2198,32 @@ class Mp3ArchiveApp(MDApp):
         """
         Show the per-track actions menu for a long-pressed row.
 
+        Uses a vertical list of actions (not a row of dialog buttons) so the
+        labels never clip however many actions there are.
+
         Args:
             row: The Mp3Row that was long-pressed.
         """
+        actions = [
+            ("자세히", lambda: self._open_detail(row)),
+            ("가사", lambda: self._open_lyrics(row)),
+            ("온라인 정보", lambda: self._open_song_info(row)),
+            ("재생목록에 추가", lambda: self._add_to_queue(row)),
+        ]
+        content = MDBoxLayout(orientation="vertical", size_hint_y=None,
+                              height=dp(48) * len(actions))
+        for label, handler in actions:
+            item = OneLineListItem(text=label)
+            item.bind(on_release=(lambda _w, fn=handler: fn()))
+            content.add_widget(item)
         self._actions_dialog = MDDialog(
             title=(getattr(row, "title", "") or getattr(row, "filename", "")
                    or os.path.basename(getattr(row, "path", ""))),
-            text=getattr(row, "artist", ""),
+            type="custom",
+            content_cls=content,
             buttons=[
-                MDFlatButton(text="자세히", on_release=lambda x: self._open_detail(row)),
-                MDFlatButton(text="가사", on_release=lambda x: self._open_lyrics(row)),
-                MDFlatButton(text="온라인", on_release=lambda x: self._open_song_info(row)),
-                MDFlatButton(text="추가", on_release=lambda x: self._add_to_queue(row)),
-                MDFlatButton(text="닫기", on_release=lambda x: self._actions_dialog.dismiss()),
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._actions_dialog.dismiss()),
             ],
         )
         self._actions_dialog.open()
