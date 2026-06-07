@@ -66,6 +66,35 @@ def load_mp3(file_path: str) -> dict:
 
 ---
 
+## Android App Rules
+
+### **[MANDATORY] Android On-Device Verification Routine**
+
+Whenever a change affects the Android app — i.e. `buildozer.spec`,
+`.github/workflows/build-android.yml`, `src/main_window_android.py`, or any
+`src/` module bundled into the APK — **always** run this full routine after the
+change is pushed (push itself still requires explicit user approval per the Git
+Rules):
+
+1. **Watch the build.** Monitor the `Build Android APK` GitHub Actions run for
+   the pushed commit until it finishes (e.g. `gh run watch <run-id>`).
+2. **Install on the connected device.** When the build succeeds, download the
+   `mp3-archive-debug` artifact (`bin/*.apk`) and install it on the
+   ADB-connected phone:
+   ```bash
+   gh run download <run-id> -n mp3-archive-debug -D build/ci-apk
+   adb install -r build/ci-apk/*.apk
+   ```
+3. **Test on the device.** Launch the app (`org.musiren.mp3archive`) and verify
+   the change is actually reflected on-device — not just that unit tests pass.
+   Capture a screenshot of the relevant screen as evidence.
+
+Unit tests passing is **never** a substitute for this on-device check: the Kivy
+UI tests are skipped off-device, so the APK is the only place the Android UI is
+exercised.
+
+---
+
 ## Git Rules
 
 ### **[MANDATORY] Git Rules**
