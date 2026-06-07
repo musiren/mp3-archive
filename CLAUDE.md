@@ -88,6 +88,10 @@ Rules):
 3. **Test on the device.** Launch the app (`org.musiren.mp3archive`) and verify
    the change is actually reflected on-device — not just that unit tests pass.
    Capture a screenshot of the relevant screen as evidence.
+   - **List/scan tests:** use the real library at
+     `/storage/emulated/0/MyMusic/Single` (≈244 real mp3 files). Pick this
+     folder in the in-app file manager rather than creating throwaway stub
+     files.
 
 Unit tests passing is **never** a substitute for this on-device check: the Kivy
 UI tests are skipped off-device, so the APK is the only place the Android UI is
