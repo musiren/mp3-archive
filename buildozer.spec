@@ -9,6 +9,10 @@ package.domain = org.musiren
 source.dir = src
 source.include_exts = py,png,jpg,kv,atlas
 
+# Launcher icon: reuse the desktop app icon (square 1024x1024 PNG).
+# Path is resolved relative to this spec file's directory.
+icon.filename = %(source.dir)s/../assets/icon.png
+
 version = 1.0.0
 
 # Built against CPython 3.11.5 (pinned via p4a.branch below). kivy 2.3.0
