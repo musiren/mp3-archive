@@ -622,6 +622,7 @@ MDBoxLayout:
                     spacing: dp(4)
 
                     MDIconButton:
+                        id: volume_icon
                         icon: "volume-high"
                         pos_hint: {"center_y": 0.5}
                         on_release: app.toggle_mute()
@@ -1838,8 +1839,8 @@ class Mp3ArchiveApp(MDApp):
 
     def _scroll_queue_to_current(self) -> None:
         """Scroll the 재생목록 RecycleView so the playing row is visible."""
-        if self.root is None:
-            return
+        if self.root is None or self._lower_view != "queue":
+            return  # nothing to do while the queue is hidden (lyrics showing)
         rv = self.root.ids.queue_rv
         count = len(self._queue)
         current = self._queue.current_index
@@ -2180,11 +2181,19 @@ class Mp3ArchiveApp(MDApp):
                 self._sound.volume = self._volume
             except Exception:
                 pass
+        self.root.ids.volume_icon.icon = (
+            "volume-off" if value <= 0
+            else "volume-medium" if value < 60 else "volume-high"
+        )
 
     def toggle_mute(self) -> None:
-        """Toggle the volume slider between muted and full (the volume icon)."""
+        """Mute the volume (remembering the level) or restore it (volume icon)."""
         slider = self.root.ids.volume_slider
-        slider.value = 0 if slider.value > 0 else 100
+        if slider.value > 0:
+            self._pre_mute_volume = slider.value
+            slider.value = 0
+        else:
+            slider.value = self._pre_mute_volume or 100
 
     def stop_playback(self) -> None:
         """Stop playback, unload the sound, and reset the player to idle."""
@@ -2198,6 +2207,7 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
         self.root.ids.now_playing_sub.text = ""
         self._show_now_art("")
+        self._refresh_lyrics()   # clear stale lyrics when the lyrics view is shown
         self._refresh_queue()
 
     def _show_now_art(self, path: str) -> None:
@@ -2233,6 +2243,8 @@ class Mp3ArchiveApp(MDApp):
             queue.size_hint_y = 1
             queue.opacity = 1
             toggle.text = "가사"
+            # The queue's height was 0 while hidden, so scroll once it relays.
+            Clock.schedule_once(lambda _dt: self._scroll_queue_to_current(), 0)
 
     def _refresh_lyrics(self) -> None:
         """Load the current track's lyrics into the player-tab lyrics view."""
