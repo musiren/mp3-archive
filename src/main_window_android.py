@@ -60,7 +60,9 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import get_album_art, get_lyrics, to_easy_tags
+from mb_fetcher import search as mb_search
 from mp3_manager import Mp3Manager
+from online_meta import build_song_query
 from tree_util import build_tree_rows
 
 
@@ -209,6 +211,55 @@ KV = """
     MDTextField:
         id: f_comment
         hint_text: "코멘트"
+
+<CandidateRow>:
+    text: root.cand_title
+    secondary_text: root.cand_sub
+    on_release: app.select_candidate(root)
+    IconRightWidget:
+        icon: "check-circle" if root.selected else "circle-outline"
+        theme_text_color: "Custom"
+        text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        on_release: app.select_candidate(root)
+
+<SongInfoContent>:
+    orientation: "vertical"
+    spacing: dp(6)
+    size_hint_y: None
+    height: dp(440)
+
+    MDLabel:
+        id: si_header
+        text: ""
+        font_style: "Caption"
+        theme_text_color: "Secondary"
+        size_hint_y: None
+        height: dp(48)
+
+    MDProgressBar:
+        id: si_progress
+        size_hint_y: None
+        height: dp(4)
+        opacity: 0
+
+    MDLabel:
+        id: si_status
+        text: ""
+        font_style: "Caption"
+        halign: "center"
+        size_hint_y: None
+        height: dp(24)
+
+    RecycleView:
+        id: si_results
+        viewclass: "CandidateRow"
+
+        RecycleBoxLayout:
+            orientation: "vertical"
+            size_hint_y: None
+            height: self.minimum_height
+            default_size: None, dp(64)
+            default_size_hint: 1, None
 
 MDBoxLayout:
     orientation: "vertical"
@@ -506,11 +557,26 @@ class Mp3Tile(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayou
         _open_actions_for(self)
 
 
+class CandidateRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
+    """A tappable online-search candidate row (a RecycleView viewclass)."""
+
+    cand_title = StringProperty("")
+    cand_sub   = StringProperty("")
+    selected   = BooleanProperty(False)
+    index      = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the data index each time this recycled view is (re)bound."""
+        self.index = index
+        return super().refresh_view_attrs(rv, index, data)
+
+
 # Register the row/tile viewclasses so RecycleView can resolve them by name.
 Factory.register("Mp3RowDetails", cls=Mp3RowDetails)
 Factory.register("Mp3RowList", cls=Mp3RowList)
 Factory.register("Mp3TreeRow", cls=Mp3TreeRow)
 Factory.register("Mp3Tile", cls=Mp3Tile)
+Factory.register("CandidateRow", cls=CandidateRow)
 
 
 class LyricsContent(MDBoxLayout):
@@ -519,6 +585,10 @@ class LyricsContent(MDBoxLayout):
 
 class TagEditContent(MDBoxLayout):
     """Editable tag-field form for the 자세히 dialog (laid out by its KV rule)."""
+
+
+class SongInfoContent(MDBoxLayout):
+    """Online-info dialog body: header, progress, status, candidate list."""
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +637,13 @@ class Mp3ArchiveApp(MDApp):
             os.makedirs(self._art_dir, exist_ok=True)
         except Exception:
             pass
+
+        # Online-info (온라인 정보) dialog state
+        self._song_content = None      # the open SongInfoContent, or None
+        self._song_dialog = None       # the open MDDialog, or None
+        self._song_candidates: list = []   # fetched candidate dicts
+        self._song_sel = -1            # index of the chosen candidate (-1 = none)
+        self._song_info_path = ""      # path of the track being looked up
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -1290,6 +1367,7 @@ class Mp3ArchiveApp(MDApp):
             buttons=[
                 MDFlatButton(text="자세히", on_release=lambda x: self._open_detail(row)),
                 MDFlatButton(text="가사", on_release=lambda x: self._open_lyrics(row)),
+                MDFlatButton(text="온라인", on_release=lambda x: self._open_song_info(row)),
                 MDFlatButton(text="닫기", on_release=lambda x: self._actions_dialog.dismiss()),
             ],
         )
@@ -1357,6 +1435,160 @@ class Mp3ArchiveApp(MDApp):
         except Exception:
             Snackbar(text="태그 저장에 실패했습니다.").open()
         self._detail_dialog.dismiss()
+        self._refresh_list()
+
+    # ------------------------------------------------------------------
+    # Online metadata (온라인 정보)
+    # ------------------------------------------------------------------
+
+    def _open_song_info(self, row) -> None:
+        """
+        Open the online-info dialog for a track and start a MusicBrainz search.
+
+        Shows the track's current tags read-only, then fetches up to seven
+        ranked candidates on a background thread. The user picks one and
+        applies it to the file + DB.
+
+        Args:
+            row: The long-pressed row whose .path identifies the track.
+        """
+        self._actions_dialog.dismiss()
+        info = self._manager.get_by_path(row.path) or {}
+        self._song_info_path = row.path
+        self._song_candidates = []
+        self._song_sel = -1
+        content = SongInfoContent()
+        self._song_content = content
+        filename = os.path.basename(row.path)
+        cur_artist = info.get("artist") or "-"
+        cur_title = info.get("title") or "-"
+        content.ids.si_header.text = (
+            f"{filename}\n현재: {cur_artist} — {cur_title}"
+        )
+        self._song_dialog = MDDialog(
+            title="온라인 정보",
+            type="custom",
+            content_cls=content,
+            buttons=[
+                MDFlatButton(text="태그 적용",
+                             on_release=lambda x: self._apply_song_candidate()),
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._close_song_dialog()),
+            ],
+        )
+        self._song_dialog.open()
+        artist, title = build_song_query(info)
+        self._start_song_search(artist, title)
+
+    def _close_song_dialog(self) -> None:
+        """Dismiss the online-info dialog and clear its state."""
+        if self._song_dialog is not None:
+            self._song_dialog.dismiss()
+        self._song_content = None
+
+    def _start_song_search(self, artist: str | None, title: str | None) -> None:
+        """
+        Kick off a MusicBrainz search on a daemon thread.
+
+        Args:
+            artist: Cleaned artist query term, or None.
+            title:  Cleaned title query term, or None.
+        """
+        c = self._song_content
+        if c is None:
+            return
+        c.ids.si_status.text = "검색 중..."
+        c.ids.si_progress.opacity = 1
+        c.ids.si_results.data = []
+        thread = threading.Thread(
+            target=self._song_search_worker,
+            args=(artist, title),
+            daemon=True,
+        )
+        thread.start()
+
+    def _song_search_worker(self, artist: str | None, title: str | None) -> None:
+        """
+        Run the network search off the UI thread and post results back.
+
+        Args:
+            artist: Artist query term (may be None).
+            title:  Title query term (may be None).
+        """
+        try:
+            candidates = mb_search(artist, title)
+        except Exception:
+            candidates = []
+        Clock.schedule_once(lambda dt: self._on_song_results(candidates))
+
+    @mainthread
+    def _on_song_results(self, candidates: list) -> None:
+        """
+        Display fetched candidates in the dialog (runs on the UI thread).
+
+        Args:
+            candidates: Candidate dicts from mb_fetcher.search (possibly empty).
+        """
+        if self._song_content is None:
+            return  # dialog was closed before the search returned
+        c = self._song_content
+        c.ids.si_progress.opacity = 0
+        self._song_candidates = candidates
+        self._song_sel = 0 if candidates else -1
+        if candidates:
+            c.ids.si_status.text = f"{len(candidates)}개 후보 — 선택 후 태그 적용"
+        else:
+            c.ids.si_status.text = "검색 결과 없음 (네트워크 연결을 확인하세요)"
+        self._render_song_candidates()
+
+    def _render_song_candidates(self) -> None:
+        """Rebuild the candidate RecycleView data with the current selection."""
+        if self._song_content is None:
+            return
+        data = []
+        for i, cand in enumerate(self._song_candidates):
+            parts = [cand.get("artist", ""), cand.get("album", ""),
+                     cand.get("year", "")]
+            sub = " · ".join(p for p in parts if p)
+            score = cand.get("score", 0)
+            data.append({
+                "cand_title": cand.get("title", "") or "(제목 없음)",
+                "cand_sub": f"{sub}   ★{score}" if sub else f"★{score}",
+                "selected": (i == self._song_sel),
+            })
+        self._song_content.ids.si_results.data = data
+
+    def select_candidate(self, row) -> None:
+        """
+        Mark the tapped candidate as the chosen one and re-render the list.
+
+        Args:
+            row: The CandidateRow that was tapped (its .index is the position).
+        """
+        if row.index is None:
+            return
+        self._song_sel = row.index
+        self._render_song_candidates()
+
+    def _apply_song_candidate(self) -> None:
+        """Write the selected candidate's tags to the file + DB, then refresh."""
+        if not self._song_candidates or self._song_sel < 0:
+            Snackbar(text="선택된 후보가 없습니다.").open()
+            return
+        cand = self._song_candidates[self._song_sel]
+        try:
+            self._manager.update_file_tags(
+                self._song_info_path,
+                cand.get("title") or None,
+                cand.get("artist") or None,
+                cand.get("album") or None,
+            )
+            Snackbar(text="태그가 적용되었습니다.").open()
+        except Exception:
+            Snackbar(text="태그 적용에 실패했습니다.").open()
+        if self._song_dialog is not None:
+            self._song_dialog.dismiss()
+        self._song_content = None
         self._refresh_list()
 
     # ------------------------------------------------------------------

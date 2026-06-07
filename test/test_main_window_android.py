@@ -213,6 +213,15 @@ class TestDialogContent(unittest.TestCase):
         content = LyricsContent()
         self.assertIn("lyrics_label", content.ids)
 
+    def test_song_info_content_exposes_ids(self):
+        """Verifies SongInfoContent provides the header, status, and results ids."""
+        from kivy.lang import Builder
+        from main_window_android import KV, SongInfoContent
+        Builder.load_string(KV)
+        content = SongInfoContent()
+        for cid in ("si_header", "si_progress", "si_status", "si_results"):
+            self.assertIn(cid, content.ids, f"SongInfoContent missing id '{cid}'")
+
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestSearchDebounce(unittest.TestCase):
@@ -310,6 +319,10 @@ class TestRecycleList(unittest.TestCase):
         from main_window_android import Mp3Tile
         self.assertTrue(hasattr(Mp3Tile, "refresh_view_attrs"))
         self.assertTrue(hasattr(Mp3Tile, "art_source"))
+        from main_window_android import CandidateRow
+        self.assertTrue(hasattr(CandidateRow, "refresh_view_attrs"))
+        self.assertTrue(hasattr(CandidateRow, "cand_title"))
+        self.assertTrue(hasattr(CandidateRow, "selected"))
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
