@@ -1,5 +1,13 @@
 # Android P1 — Playlist / Queue Subsystem
 
+> Status as of 2026-06-07: **done and verified on-device** (commits 5bd12c2 →
+> 506515d on origin/main). Confirmed on the SM-S928N: 추가/tap enqueue, queue
+> list with now-playing highlight, ✕ remove (no stray play), prev, play-mode
+> cycle, and `.list` save → clear → load round-trip. Auto-advance is
+> unit-tested and shares the verified play path but was not wall-clock-observed
+> (needs a full track to end). Touch drag-reorder is not implemented (KivyMD RV
+> limitation) — up/down buttons remain a possible follow-up.
+
 Port the desktop playlist/queue to the Android (KivyMD) app. Delivered in small
 commits; pure logic is unit-tested locally, KivyMD UI is verified on-device.
 Each user action must fire exactly once (no double play / double advance).

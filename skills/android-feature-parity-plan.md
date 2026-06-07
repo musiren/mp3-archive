@@ -38,16 +38,20 @@ Python and reused as-is; only the UI layer differs.
 
 ## Remaining work (prioritized)
 
-### 🔴 P1 — Playlist / queue subsystem (largest; features are interdependent)
+### ✅ P1 — Playlist / queue subsystem (done; verified on-device)
 
-| # | Feature | Desktop behavior | Effort |
-|---|---------|------------------|--------|
-| 1 | **Queue model** | persistent playlist; tap/drag to enqueue, remove, clear | large |
-| 2 | Auto-advance at track end | next track per play mode when a sound ends | medium |
-| 3 | **Prev / Next** buttons | move within the queue | small (needs queue) |
-| 4 | **Play modes** | sequential / repeat-one / repeat-all / shuffle cycle | medium |
-| 5 | **Save / Load `.list`** | newline path file; skip missing on load | medium |
-| 6 | Now-playing row highlight | bold/colored row for the playing track | small (needs queue) |
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | **Queue model** — tap = enqueue+play, long-press 추가 = enqueue, ✕ = remove, clear | ✅ done |
+| 2 | Auto-advance at track end (per play mode) | ✅ done (unit-tested + wired; not wall-clock-observed) |
+| 3 | **Prev / Next** buttons | ✅ done |
+| 4 | **Play modes** (순차/한곡반복/전체반복/셔플) | ✅ done |
+| 5 | **Save / Load `.list`** (skip missing on load) | ✅ done |
+| 6 | Now-playing row highlight (matched by path) | ✅ done |
+
+Implemented in `src/playlist.py` (pure, tested) + the 재생 tab queue UI. See
+`skills/android-playlist-plan.md`. Touch drag-reorder was not added (KivyMD RV
+limitation); up/down reorder buttons remain a possible follow-up.
 
 KivyMD approach: in-memory queue backed by a RecycleView; reorder via up/down
 buttons (no touch drag-reorder in KivyMD RV); row tap = enqueue + play, while
