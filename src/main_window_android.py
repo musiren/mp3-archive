@@ -485,6 +485,8 @@ MDBoxLayout:
                             viewclass: "TableRow"
                             size_hint_x: None
                             width: dp(10)
+                            do_scroll_x: False
+                            do_scroll_y: True
                             bar_width: dp(8)
 
                             RecycleBoxLayout:
