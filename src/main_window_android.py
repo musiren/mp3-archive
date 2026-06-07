@@ -185,41 +185,48 @@ KV = """
 
 <TagEditContent>:
     orientation: "vertical"
-    spacing: dp(6)
     size_hint_y: None
-    height: self.minimum_height
+    height: dp(420)
 
-    Image:
-        id: art_image
-        source: ""
-        size_hint_y: None
-        height: dp(140)
-        allow_stretch: True
-        keep_ratio: True
+    ScrollView:
+        MDBoxLayout:
+            orientation: "vertical"
+            spacing: dp(6)
+            padding: dp(4)
+            size_hint_y: None
+            height: self.minimum_height
 
-    MDTextField:
-        id: f_title
-        hint_text: "제목"
+            Image:
+                id: art_image
+                source: ""
+                size_hint_y: None
+                height: dp(140)
+                allow_stretch: True
+                keep_ratio: True
 
-    MDTextField:
-        id: f_artist
-        hint_text: "아티스트"
+            MDTextField:
+                id: f_title
+                hint_text: "제목"
 
-    MDTextField:
-        id: f_album
-        hint_text: "앨범"
+            MDTextField:
+                id: f_artist
+                hint_text: "아티스트"
 
-    MDTextField:
-        id: f_genre
-        hint_text: "장르"
+            MDTextField:
+                id: f_album
+                hint_text: "앨범"
 
-    MDTextField:
-        id: f_year
-        hint_text: "년도"
+            MDTextField:
+                id: f_genre
+                hint_text: "장르"
 
-    MDTextField:
-        id: f_comment
-        hint_text: "코멘트"
+            MDTextField:
+                id: f_year
+                hint_text: "년도"
+
+            MDTextField:
+                id: f_comment
+                hint_text: "코멘트"
 
 <CandidateRow>:
     text: root.cand_title
