@@ -948,7 +948,7 @@ class Mp3ArchiveApp(MDApp):
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._elapsed = 0.0            # played seconds (Android get_pos() is 0)
         self._volume = 1.0             # playback volume (0.0–1.0), kept across tracks
-        self._user_seeking = False     # True while the user drags the seek bar
+        self._pre_mute_volume = 100    # slider level to restore when unmuting
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
@@ -1022,8 +1022,10 @@ class Mp3ArchiveApp(MDApp):
     def on_start(self) -> None:
         """Request storage permissions, wire the seek bar, and populate the list."""
         self._request_android_permissions()
-        seek = self.root.ids.position_bar
-        seek.bind(on_touch_down=self._on_seek_down, on_touch_up=self._on_seek_up)
+        # MDSlider.active is True while the thumb is being dragged; seek on
+        # release. This is framework-managed, so it can't get stuck the way a
+        # hand-rolled touch flag could (e.g. a drag straddling a track change).
+        self.root.ids.position_bar.bind(active=self._on_seek_active)
         self._refresh_list()
 
     # KivyMD 1.2.0 maps its font styles to several family names, not just
@@ -2302,23 +2304,15 @@ class Mp3ArchiveApp(MDApp):
         length = sound.length or 0
         pos = min(self._elapsed, length) if length else self._elapsed
         # Don't fight the user while they drag the seek bar.
-        if not self._user_seeking:
+        if not getattr(self.root.ids.position_bar, "active", False):
             self.root.ids.position_bar.value = (pos / length * 100) if length else 0
         self.root.ids.pos_label.text = self._format_time(pos)
         self.root.ids.dur_label.text = self._format_time(length)
 
-    def _on_seek_down(self, slider, touch) -> bool:
-        """Note that the user has grabbed the seek bar (pause poll updates)."""
-        if slider.collide_point(*touch.pos):
-            self._user_seeking = True
-        return False
-
-    def _on_seek_up(self, slider, touch) -> bool:
-        """Seek to the released seek-bar position."""
-        if self._user_seeking:
-            self._user_seeking = False
+    def _on_seek_active(self, slider, active: bool) -> None:
+        """Seek when the user releases the seek bar (active goes False)."""
+        if not active:
             self._seek_to(slider.value)
-        return False
 
     def _seek_to(self, value: float) -> None:
         """
