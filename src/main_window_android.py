@@ -884,6 +884,7 @@ class Mp3ArchiveApp(MDApp):
         # Playback state (재생 tab)
         self._sound = None             # current kivy Sound, or None
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
+        self._elapsed = 0.0            # played seconds (Android get_pos() is 0)
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
@@ -1953,6 +1954,7 @@ class Mp3ArchiveApp(MDApp):
         self._sound = sound
         self._playing_path = path
         self._paused_pos = 0.0
+        self._elapsed = 0.0
         self.root.ids.now_playing.text = title
         self.root.ids.now_playing_sub.text = subtitle
         self.root.ids.position_bar.value = 0
@@ -1974,7 +1976,7 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
             return
         if sound.state == "play":
-            self._paused_pos = sound.get_pos() or 0.0
+            self._paused_pos = self._elapsed
             sound.stop()
             self.root.ids.play_button.icon = "play"
             self._unschedule_pos()
@@ -2056,8 +2058,12 @@ class Mp3ArchiveApp(MDApp):
             # advance to the next track per the play mode, or stop.
             self._on_track_ended()
             return False
+        # The Android audio provider's get_pos() stays at 0, so accumulate the
+        # elapsed time from the poll interval instead; length (duration) is
+        # reliable and bounds it.
+        self._elapsed += _dt
         length = sound.length or 0
-        pos = sound.get_pos() or 0
+        pos = min(self._elapsed, length) if length else self._elapsed
         self.root.ids.position_bar.value = (pos / length * 100) if length else 0
         self.root.ids.pos_label.text = self._format_time(pos)
         self.root.ids.dur_label.text = self._format_time(length)
