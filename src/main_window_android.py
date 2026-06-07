@@ -195,6 +195,16 @@ KV = """
     size_hint_y: None
     height: dp(40)
 
+<QueueRow>:
+    text: root.q_title
+    secondary_text: root.q_sub
+    theme_text_color: "Custom"
+    text_color: app.theme_cls.primary_color if root.playing else app.theme_cls.text_color
+    on_release: app.play_queue_index(root.index)
+    IconRightWidget:
+        icon: "close"
+        on_release: app.remove_from_queue(root.index)
+
 <LyricsContent>:
     orientation: "vertical"
     size_hint_y: None
@@ -507,10 +517,8 @@ MDBoxLayout:
 
             MDBoxLayout:
                 orientation: "vertical"
-                padding: dp(16)
-                spacing: dp(12)
-
-                Widget:
+                padding: dp(12)
+                spacing: dp(8)
 
                 MDLabel:
                     id: now_playing
@@ -555,8 +563,8 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(72)
-                    spacing: dp(24)
+                    height: dp(64)
+                    spacing: dp(16)
 
                     Widget:
 
@@ -573,7 +581,34 @@ MDBoxLayout:
 
                     Widget:
 
-                Widget:
+                MDBoxLayout:
+                    size_hint_y: None
+                    height: dp(32)
+                    padding: dp(4), 0
+
+                    MDLabel:
+                        text: "재생목록"
+                        font_style: "Subtitle2"
+                        pos_hint: {"center_y": 0.5}
+
+                    MDLabel:
+                        id: queue_count
+                        text: "0곡"
+                        halign: "right"
+                        font_style: "Caption"
+                        theme_text_color: "Secondary"
+                        pos_hint: {"center_y": 0.5}
+
+                RecycleView:
+                    id: queue_rv
+                    viewclass: "QueueRow"
+
+                    RecycleBoxLayout:
+                        orientation: "vertical"
+                        size_hint_y: None
+                        height: self.minimum_height
+                        default_size: None, dp(60)
+                        default_size_hint: 1, None
 """
 
 
@@ -747,6 +782,20 @@ class TableRow(RecycleDataViewBehavior, MDBoxLayout):
             self.add_widget(label)
 
 
+class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
+    """A queue (재생목록) row: tap to play that track, ✕ to remove it."""
+
+    q_title  = StringProperty("")
+    q_sub    = StringProperty("")
+    playing  = BooleanProperty(False)
+    index    = None
+
+    def refresh_view_attrs(self, rv, index, data):
+        """Record the data index each time this recycled view is (re)bound."""
+        self.index = index
+        return super().refresh_view_attrs(rv, index, data)
+
+
 class _HeaderCell(ButtonBehavior, MDLabel):
     """A tappable, fixed-width 표 column header that sorts by its column."""
 
@@ -757,6 +806,7 @@ Factory.register("Mp3RowList", cls=Mp3RowList)
 Factory.register("Mp3TreeRow", cls=Mp3TreeRow)
 Factory.register("Mp3Tile", cls=Mp3Tile)
 Factory.register("CandidateRow", cls=CandidateRow)
+Factory.register("QueueRow", cls=QueueRow)
 Factory.register("TableRow", cls=TableRow)
 
 
@@ -1658,13 +1708,18 @@ class Mp3ArchiveApp(MDApp):
         self._play_queue_index(index)
 
     def _play_queue_index(self, index: int) -> None:
-        """Make the queued track at *index* current and play it."""
+        """Make the queued track at *index* current, play it, refresh the list."""
         self._queue.set_current(index)
         item = self._queue.current_item()
         if not item:
             return
         self._play(item["path"], item["filename"],
                    f"{item['artist']} — {item['title']}")
+        self._refresh_queue()
+
+    def play_queue_index(self, index: int) -> None:
+        """Play the queued track at *index* (tapped in the 재생목록 list)."""
+        self._play_queue_index(index)
 
     def _add_to_queue(self, row) -> None:
         """Append a track to the queue without playing it (long-press action)."""
@@ -1672,7 +1727,29 @@ class Mp3ArchiveApp(MDApp):
         if not getattr(row, "path", ""):
             return
         self._queue.add(self._row_info(row))
+        self._refresh_queue()
         Snackbar(text="재생목록에 추가됨").open()
+
+    def remove_from_queue(self, index: int) -> None:
+        """Remove the queued track at *index* (the row's ✕ button)."""
+        self._queue.remove(index)
+        self._refresh_queue()
+
+    def _refresh_queue(self) -> None:
+        """Repopulate the 재생목록 RecycleView, highlighting the playing track."""
+        if self.root is None:
+            return
+        playing = self._playing_path
+        data = [
+            {
+                "q_title": item.get("title") or item.get("filename") or "-",
+                "q_sub": item.get("artist") or "-",
+                "playing": bool(playing) and item.get("path") == playing,
+            }
+            for item in self._queue.items
+        ]
+        self.root.ids.queue_rv.data = data
+        self.root.ids.queue_count.text = f"{len(self._queue)}곡"
 
     def _play(self, path: str, title: str, subtitle: str) -> None:
         """
@@ -1730,12 +1807,14 @@ class Mp3ArchiveApp(MDApp):
         """Stop playback, unload the sound, and reset the player to idle."""
         self._stop_sound()
         self._paused_pos = 0.0
+        self._playing_path = ""
         self.root.ids.play_button.icon = "play"
         self.root.ids.position_bar.value = 0
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
         self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
         self.root.ids.now_playing_sub.text = ""
+        self._refresh_queue()
 
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""
