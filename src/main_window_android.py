@@ -527,6 +527,15 @@ MDBoxLayout:
                 padding: dp(12)
                 spacing: dp(8)
 
+                Image:
+                    id: now_art
+                    source: ""
+                    size_hint_y: None
+                    height: 0
+                    opacity: 0
+                    allow_stretch: True
+                    keep_ratio: True
+
                 MDLabel:
                     id: now_playing
                     text: "재생 중인 곡이 없습니다"
@@ -2110,6 +2119,7 @@ class Mp3ArchiveApp(MDApp):
         self._elapsed = 0.0
         self.root.ids.now_playing.text = title
         self.root.ids.now_playing_sub.text = subtitle
+        self._show_now_art(path)
         self.root.ids.position_bar.value = 0
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
@@ -2165,7 +2175,16 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.dur_label.text = self._format_time(0)
         self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
         self.root.ids.now_playing_sub.text = ""
+        self._show_now_art("")
         self._refresh_queue()
+
+    def _show_now_art(self, path: str) -> None:
+        """Show the track's album art on the player tab, collapsing when none."""
+        art = self._album_source(path) if path else ""
+        image = self.root.ids.now_art
+        image.source = art
+        image.opacity = 1 if art else 0
+        image.height = dp(180) if art else 0
 
     def _on_track_ended(self) -> None:
         """
