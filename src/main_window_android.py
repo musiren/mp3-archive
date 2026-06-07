@@ -72,7 +72,14 @@ from audio_meta import (
 import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
-from playlist import PlayQueue, next_index, next_play_mode, prev_index
+from playlist import (
+    PlayQueue,
+    next_index,
+    next_play_mode,
+    parse_playlist,
+    prev_index,
+    serialize_playlist,
+)
 from online_meta import (
     SOURCE_BOTH,
     SOURCE_ITUNES,
@@ -599,7 +606,7 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(32)
+                    height: dp(44)
                     padding: dp(4), 0
 
                     MDLabel:
@@ -610,10 +617,26 @@ MDBoxLayout:
                     MDLabel:
                         id: queue_count
                         text: "0곡"
-                        halign: "right"
                         font_style: "Caption"
                         theme_text_color: "Secondary"
                         pos_hint: {"center_y": 0.5}
+
+                    Widget:
+
+                    MDIconButton:
+                        icon: "content-save-outline"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.save_playlist()
+
+                    MDIconButton:
+                        icon: "folder-open-outline"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.load_playlist()
+
+                    MDIconButton:
+                        icon: "delete-sweep-outline"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.clear_queue()
 
                 RecycleView:
                     id: queue_rv
@@ -866,6 +889,9 @@ class Mp3ArchiveApp(MDApp):
         self._queue = PlayQueue()      # the play queue (재생목록)
         self._play_mode = "sequential"  # see playlist.PLAY_MODES
         self._playing_path = ""        # path of the track currently loaded
+        self._list_fm = None           # MDFileManager for loading .list files
+        self._list_fm_open = False     # whether that file manager is showing
+        self._save_dialog = None       # the "save playlist" filename dialog
 
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
@@ -1051,6 +1077,9 @@ class Mp3ArchiveApp(MDApp):
             # Navigate up one directory; MDFileManager.back() tears the picker
             # down (via exit_manager -> _close_file_manager) only at the root.
             self._file_manager.back()
+            return True
+        if key == 27 and self._list_fm_open:
+            self._list_fm.back()
             return True
         return False
 
@@ -1802,6 +1831,107 @@ class Mp3ArchiveApp(MDApp):
         ]
         self.root.ids.queue_rv.data = data
         self.root.ids.queue_count.text = f"{len(self._queue)}곡"
+
+    def clear_queue(self) -> None:
+        """Empty the 재생목록 (the sound already playing keeps playing)."""
+        if self._queue.is_empty:
+            Snackbar(text="재생목록이 비어 있습니다.").open()
+            return
+        self._queue.clear()
+        self._refresh_queue()
+        Snackbar(text="재생목록을 비웠습니다.").open()
+
+    def save_playlist(self) -> None:
+        """Prompt for a name and save the queue's paths to a ``.list`` file."""
+        if self._queue.is_empty:
+            Snackbar(text="재생목록이 비어 있습니다.").open()
+            return
+        box = MDBoxLayout(orientation="vertical", size_hint_y=None,
+                          height=dp(72), padding=dp(8))
+        field = MDTextField(text="재생목록", hint_text="파일 이름")
+        box.add_widget(field)
+        self._save_dialog = MDDialog(
+            title="재생목록 저장",
+            type="custom",
+            content_cls=box,
+            buttons=[
+                MDFlatButton(text="저장",
+                             on_release=lambda x: self._do_save_playlist(field.text)),
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._save_dialog.dismiss()),
+            ],
+        )
+        self._save_dialog.open()
+
+    def _do_save_playlist(self, name: str) -> None:
+        """Write the queue to ``<scan dir>/<name>.list``."""
+        if self._save_dialog is not None:
+            self._save_dialog.dismiss()
+        name = (name or "").strip() or "재생목록"
+        if not name.endswith(".list"):
+            name += ".list"
+        directory = self._last_dir or self._storage_root()
+        dest = os.path.join(directory, name)
+        paths = [item.get("path", "") for item in self._queue.items
+                 if item.get("path")]
+        try:
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(serialize_playlist(paths))
+            Snackbar(text=f"저장됨: {dest}").open()
+        except Exception:
+            Snackbar(text="재생목록 저장에 실패했습니다.").open()
+
+    def load_playlist(self) -> None:
+        """Open the file manager to pick a ``.list`` file to append to the queue."""
+        try:
+            if self._list_fm is None:
+                self._list_fm = MDFileManager(
+                    select_path=self._on_list_selected,
+                    exit_manager=self._close_list_fm,
+                    selector="file",
+                    ext=[".list"],
+                )
+            self._list_fm_open = True
+            self._list_fm.show(self._last_dir or self._storage_root())
+        except Exception:
+            self._list_fm_open = False
+            Snackbar(text="파일 관리자를 열 수 없습니다.").open()
+
+    def _on_list_selected(self, path: str) -> None:
+        """Append the tracks from a chosen ``.list`` file, skipping missing ones."""
+        self._close_list_fm()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                paths = parse_playlist(fh.read())
+        except Exception:
+            Snackbar(text="재생목록을 읽을 수 없습니다.").open()
+            return
+        added = 0
+        missing = 0
+        for p in paths:
+            if os.path.isfile(p):
+                info = self._manager.get_by_path(p) or {}
+                stem = os.path.splitext(os.path.basename(p))[0]
+                self._queue.add({
+                    "path": p,
+                    "filename": os.path.basename(p),
+                    "artist": info.get("artist") or "-",
+                    "title": info.get("title") or stem,
+                })
+                added += 1
+            else:
+                missing += 1
+        self._refresh_queue()
+        msg = f"{added}곡 불러옴"
+        if missing:
+            msg += f" · {missing}개 누락"
+        Snackbar(text=msg).open()
+
+    def _close_list_fm(self, *args) -> None:
+        """Close the .list file manager if it is open."""
+        self._list_fm_open = False
+        if self._list_fm is not None:
+            self._list_fm.close()
 
     def _play(self, path: str, title: str, subtitle: str) -> None:
         """
