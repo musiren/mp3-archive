@@ -1,5 +1,15 @@
 # Android: Table (표) View Mode
 
+> Status as of 2026-06-07: **done and verified on-device** (commit `14ae15f`,
+> on origin/main). Implementation = horizontal `ScrollView` wrapping a fixed
+> header row + a vertically-virtualised `RecycleView` (sticky header, scales to
+> any library size). **Horizontal scroll is done by dragging the header row**
+> (dragging a data row scrolls vertically); header tap sorts (▲/▼); ⋮ → 표 컬럼
+> selects columns. All three confirmed on the SM-S928N against MyMusic/Single.
+> (An alternative single 2-D ScrollView — drag-anywhere but non-virtualised /
+> non-sticky header / read-only — was prototyped and discarded in favour of
+> this.)
+
 Add a fifth list view mode, **표 (table)**, alongside 목록 / 자세히 / 트리 / 타일.
 It shows the library as a multi-column tag table with:
 
