@@ -59,7 +59,13 @@ from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
-from audio_meta import get_album_art, get_lyrics, to_easy_tags
+from audio_meta import (
+    format_summary_rows,
+    get_album_art,
+    get_lyrics,
+    get_stream_info,
+    to_easy_tags,
+)
 import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
@@ -195,7 +201,7 @@ KV = """
 <TagEditContent>:
     orientation: "vertical"
     size_hint_y: None
-    height: dp(420)
+    height: dp(460)
 
     ScrollView:
         MDBoxLayout:
@@ -212,6 +218,16 @@ KV = """
                 height: dp(140)
                 allow_stretch: True
                 keep_ratio: True
+
+            MDLabel:
+                id: tag_info
+                text: ""
+                font_style: "Caption"
+                theme_text_color: "Secondary"
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                padding: dp(4), dp(4)
 
             MDTextField:
                 id: f_title
@@ -1604,6 +1620,11 @@ class Mp3ArchiveApp(MDApp):
         else:
             content.ids.art_image.opacity = 0
             content.ids.art_image.height = 0
+        # Read-only file + stream summary (size/duration/dates/samplerate/…).
+        rows = format_summary_rows(info, get_stream_info(row.path))
+        content.ids.tag_info.text = "\n".join(
+            f"{label}: {value}" for label, value in rows
+        )
         content.ids.f_title.text   = info.get("title")   or ""
         content.ids.f_artist.text  = info.get("artist")  or ""
         content.ids.f_album.text   = info.get("album")   or ""

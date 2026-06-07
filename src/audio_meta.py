@@ -142,6 +142,94 @@ _FORM_TO_EASY = {
 }
 
 
+def get_stream_info(path: str) -> dict:
+    """
+    Read the audio stream properties of a file (sample rate, bitrate, etc.).
+
+    Args:
+        path: Absolute path to the audio file.
+
+    Returns:
+        A dict with any of the keys ``sample_rate``, ``channels``,
+        ``bitrate`` (bits/s), and ``length`` (seconds) that mutagen exposes
+        for the file. Empty when the file is unreadable or has no stream info.
+    """
+    stream = {}
+    try:
+        audio = MutagenFile(path)
+        info = getattr(audio, "info", None)
+        if info is not None:
+            for attr in ("sample_rate", "channels", "bitrate", "length"):
+                value = getattr(info, attr, None)
+                if value:
+                    stream[attr] = value
+    except Exception:
+        pass
+    return stream
+
+
+def _format_filesize(num) -> str:
+    """Format a byte count as B / KB / MB (e.g. 1536 -> '1.5 KB'); '-' if unknown."""
+    try:
+        num = int(num)
+    except (TypeError, ValueError):
+        return "-"
+    if num < 0:
+        return "-"
+    if num < 1024:
+        return f"{num} B"
+    if num < 1024 ** 2:
+        return f"{num / 1024:.1f} KB"
+    return f"{num / 1024 ** 2:.1f} MB"
+
+
+def _format_seconds(seconds) -> str:
+    """Format a duration in seconds as 'M:SS'; '-' when missing or non-positive."""
+    try:
+        total = int(float(seconds))
+    except (TypeError, ValueError):
+        return "-"
+    if total <= 0:
+        return "-"
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def format_summary_rows(info: dict, stream: dict | None = None) -> list:
+    """
+    Build read-only (label, value) summary rows for a file-detail view.
+
+    Combines the file-level facts stored in the DB row (size, duration,
+    created/modified timestamps) with live stream properties read from the
+    file, formatting each for display. Stream rows are omitted when the value
+    is unavailable.
+
+    Args:
+        info:   A DB row dict (as from Mp3Manager.get_by_path) — uses
+                ``filesize``, ``duration``, ``file_created_at``,
+                ``file_modified_at``.
+        stream: Optional stream dict from get_stream_info(); when omitted, only
+                the file-level rows are produced.
+
+    Returns:
+        A list of ``(label, value)`` string tuples, ready to render.
+    """
+    info = info or {}
+    stream = stream or {}
+    rows = [
+        ("크기", _format_filesize(info.get("filesize"))),
+        ("길이", _format_seconds(info.get("duration") or stream.get("length"))),
+        ("생성일시", info.get("file_created_at") or "-"),
+        ("수정일시", info.get("file_modified_at") or "-"),
+    ]
+    if stream.get("sample_rate"):
+        rows.append(("샘플레이트", f"{stream['sample_rate']} Hz"))
+    if stream.get("channels"):
+        rows.append(("채널", str(stream["channels"])))
+    if stream.get("bitrate"):
+        rows.append(("비트레이트", f"{stream['bitrate'] // 1000} kbps"))
+    return rows
+
+
 def to_easy_tags(form: dict) -> dict:
     """
     Map a tag-edit form dict to mutagen easy-tag keys, dropping blank values.

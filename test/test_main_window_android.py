@@ -197,12 +197,13 @@ class TestDialogContent(unittest.TestCase):
     """Tests for the metadata-dialog content widgets (자세히 / 가사)."""
 
     def test_tag_edit_content_exposes_fields(self):
-        """Verifies TagEditContent provides the six editable tag-field ids."""
+        """Verifies TagEditContent provides the editable tag fields and info label."""
         from kivy.lang import Builder
         from main_window_android import KV, TagEditContent
         Builder.load_string(KV)  # register the <TagEditContent> rule
         content = TagEditContent()
-        for fid in ("art_image", "f_title", "f_artist", "f_album", "f_genre", "f_year", "f_comment"):
+        for fid in ("art_image", "tag_info", "f_title", "f_artist", "f_album",
+                    "f_genre", "f_year", "f_comment"):
             self.assertIn(fid, content.ids, f"TagEditContent missing field '{fid}'")
 
     def test_lyrics_content_exposes_label(self):

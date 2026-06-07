@@ -12,8 +12,76 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from audio_meta import (  # noqa: E402
-    _clean_lyrics, fix_mojibake, get_album_art, get_lyrics, to_easy_tags,
+    _clean_lyrics, fix_mojibake, format_summary_rows, get_album_art,
+    get_lyrics, get_stream_info, to_easy_tags,
 )
+
+
+class TestGetStreamInfo(unittest.TestCase):
+    """Tests for get_stream_info()."""
+
+    def test_returns_empty_for_nonexistent_file(self):
+        """Verifies get_stream_info returns {} for a missing path."""
+        self.assertEqual(get_stream_info("/no/such/file.mp3"), {})
+
+    def test_returns_empty_for_non_audio_file(self):
+        """Verifies get_stream_info returns {} for a plain text file."""
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            f.write(b"not audio")
+            path = f.name
+        try:
+            self.assertEqual(get_stream_info(path), {})
+        finally:
+            os.remove(path)
+
+
+class TestFormatSummaryRows(unittest.TestCase):
+    """Tests for format_summary_rows()."""
+
+    def test_file_level_rows_always_present(self):
+        """Verifies size/duration/created/modified rows are produced from the DB info."""
+        info = {
+            "filesize": 1536,
+            "duration": 95,
+            "file_created_at": "2026-01-01 10:00:00",
+            "file_modified_at": "2026-02-02 11:00:00",
+        }
+        rows = dict(format_summary_rows(info))
+        self.assertEqual(rows["크기"], "1.5 KB")
+        self.assertEqual(rows["길이"], "1:35")
+        self.assertEqual(rows["생성일시"], "2026-01-01 10:00:00")
+        self.assertEqual(rows["수정일시"], "2026-02-02 11:00:00")
+
+    def test_missing_fields_render_as_dash(self):
+        """Verifies absent size/duration/timestamps degrade to '-'."""
+        rows = dict(format_summary_rows({}))
+        self.assertEqual(rows["크기"], "-")
+        self.assertEqual(rows["길이"], "-")
+        self.assertEqual(rows["생성일시"], "-")
+
+    def test_stream_rows_included_when_present(self):
+        """Verifies sample rate / channels / bitrate rows appear from stream info."""
+        stream = {"sample_rate": 44100, "channels": 2, "bitrate": 320000}
+        rows = dict(format_summary_rows({}, stream))
+        self.assertEqual(rows["샘플레이트"], "44100 Hz")
+        self.assertEqual(rows["채널"], "2")
+        self.assertEqual(rows["비트레이트"], "320 kbps")
+
+    def test_stream_rows_omitted_when_absent(self):
+        """Verifies no stream rows are added when stream info is empty."""
+        labels = [label for label, _ in format_summary_rows({}, {})]
+        self.assertNotIn("샘플레이트", labels)
+        self.assertNotIn("비트레이트", labels)
+
+    def test_duration_falls_back_to_stream_length(self):
+        """Verifies length is taken from stream info when the DB duration is absent."""
+        rows = dict(format_summary_rows({}, {"length": 200.0}))
+        self.assertEqual(rows["길이"], "3:20")
+
+    def test_filesize_megabytes(self):
+        """Verifies large sizes format as MB."""
+        rows = dict(format_summary_rows({"filesize": 5 * 1024 * 1024}))
+        self.assertEqual(rows["크기"], "5.0 MB")
 
 
 class TestGetLyrics(unittest.TestCase):
