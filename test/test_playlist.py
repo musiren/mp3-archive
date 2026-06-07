@@ -82,9 +82,21 @@ class TestNextIndex(unittest.TestCase):
         self.assertEqual(next_index(4, 5, "repeat_all", ended=True), 0)
         self.assertEqual(next_index(2, 5, "repeat_all"), 3)
 
-    def test_shuffle_uses_rng(self):
-        """Verify shuffle returns the injected rng's choice."""
-        self.assertEqual(next_index(0, 10, "shuffle", rng=_FakeRng(7)), 7)
+    def test_shuffle_uses_rng_excluding_current(self):
+        """Verify shuffle maps the rng pick over the other tracks (excludes current)."""
+        # current=0: rng picks among count-1 others; 7 maps past index 0 -> 8.
+        self.assertEqual(next_index(0, 10, "shuffle", rng=_FakeRng(7)), 8)
+
+    def test_shuffle_never_returns_current(self):
+        """Verify shuffle never re-picks the current index when alternatives exist."""
+        for pick in range(4):  # rng over count-1 == 4 candidates for count=5
+            result = next_index(3, 5, "shuffle", rng=_FakeRng(pick))
+            self.assertNotEqual(result, 3)
+            self.assertIn(result, range(5))
+
+    def test_shuffle_single_track_returns_zero(self):
+        """Verify shuffle returns 0 for a one-track queue."""
+        self.assertEqual(next_index(0, 1, "shuffle", rng=_FakeRng(0)), 0)
 
 
 class TestPrevIndex(unittest.TestCase):
@@ -108,8 +120,14 @@ class TestPrevIndex(unittest.TestCase):
         self.assertEqual(prev_index(2, 5, "repeat_one"), 2)
 
     def test_shuffle_uses_rng(self):
-        """Verify shuffle prev returns the injected rng's choice."""
+        """Verify shuffle prev returns the injected rng's choice (excluding current)."""
+        # current=3: pick 1 < 3 maps straight through to 1.
         self.assertEqual(prev_index(3, 10, "shuffle", rng=_FakeRng(1)), 1)
+
+    def test_no_current_starts_at_first_in_every_mode(self):
+        """Verify prev with current=-1 returns 0 (not repeat_all's count-2)."""
+        for mode in ("sequential", "repeat_one", "repeat_all", "shuffle"):
+            self.assertEqual(prev_index(-1, 5, mode), 0, mode)
 
 
 class TestSerializeParse(unittest.TestCase):

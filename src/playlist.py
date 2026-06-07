@@ -13,6 +13,30 @@ import random as _random
 PLAY_MODES = ["sequential", "repeat_one", "repeat_all", "shuffle"]
 
 
+def _shuffle_pick(current: int, count: int, rng) -> int:
+    """
+    Pick a random index for shuffle, avoiding the current one when possible.
+
+    Re-picking the current track makes an explicit Next/Prev look like it did
+    nothing, so exclude it when there is an alternative.
+
+    Args:
+        current: The current index (may be -1/out of range when nothing played).
+        count:   Number of tracks (assumed >= 1).
+        rng:     Random source exposing ``randrange``.
+
+    Returns:
+        A random index in ``[0, count)`` that differs from *current* whenever
+        ``count > 1`` and *current* is a valid index.
+    """
+    if count <= 1:
+        return 0
+    if not 0 <= current < count:
+        return rng.randrange(count)
+    pick = rng.randrange(count - 1)        # choose among the other tracks
+    return pick if pick < current else pick + 1
+
+
 def next_play_mode(mode: str) -> str:
     """
     Return the next play mode in the cycle.
@@ -58,7 +82,7 @@ def next_index(current: int, count: int, mode: str,
     if mode == "repeat_all":
         return (current + 1) % count
     if mode == "shuffle":
-        return rng.randrange(count)
+        return _shuffle_pick(current, count, rng)
     # sequential
     nxt = current + 1
     if nxt < count:
@@ -82,13 +106,17 @@ def prev_index(current: int, count: int, mode: str, rng=None):
     """
     if count <= 0:
         return None
+    if current < 0:
+        # Nothing has played yet — "previous" sensibly starts at the first
+        # track in every mode (avoids repeat_all's (-1-1) % count = count-2).
+        return 0
     rng = rng or _random
     if mode == "repeat_one":
-        return current if current >= 0 else 0
+        return current
     if mode == "repeat_all":
         return (current - 1) % count
     if mode == "shuffle":
-        return rng.randrange(count)
+        return _shuffle_pick(current, count, rng)
     # sequential
     return max(0, current - 1)
 
