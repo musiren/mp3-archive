@@ -68,13 +68,18 @@ permission and a network daemon thread are wired up. All three features ship.
 | 8 | **Source select + keyword override** | MusicBrainz / iTunes / both dropdown + manual search terms | ✅ done |
 | 9 | **Batch tag auto-completion** | step through files missing title/artist; fetch, show ranked candidates, apply/skip | ✅ done |
 
-### 🟡 P3 — Player controls + player-tab richness (mostly small)
+### ✅ P3 — Player controls + player-tab richness (done; on-device pending)
 
-| # | Feature | Current Android | Effort |
-|---|---------|-----------------|--------|
-| 10 | **Volume** | none | small (MDSlider → `sound.volume`) |
-| 11 | **Interactive seek** | position bar is read-only | small (MDSlider → `sound.seek()`; provider caveat) |
-| 12 | **Lyrics + album art on the 재생 tab** | only via long-press dialogs | medium |
+| # | Feature | Status |
+|---|---------|--------|
+| 10 | **Volume** slider (+ mute toggle, remembers level) | ✅ done |
+| 11 | **Interactive seek** (MDSlider, seek on release; provider caveat) | ✅ done |
+| 12 | **Album art + lyrics on the 재생 tab** (가사/재생목록 toggle) | ✅ done |
+
+Also: the 재생목록 now auto-scrolls to the playing track. With P3 done the
+desktop→Android feature parity is essentially complete (only the deliberately
+dropped desktop-only affordances remain). Player time/progress uses a manual
+elapsed counter since the Android audio provider's get_pos() returns 0.
 
 ### ✅ P4 — Tag detail + polish (done; on-device verification pending)
 
