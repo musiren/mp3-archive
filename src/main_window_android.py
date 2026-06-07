@@ -606,6 +606,25 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
+                    height: dp(40)
+                    padding: dp(8), 0
+                    spacing: dp(4)
+
+                    MDIconButton:
+                        icon: "volume-high"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.toggle_mute()
+
+                    MDSlider:
+                        id: volume_slider
+                        min: 0
+                        max: 100
+                        value: 100
+                        hint: False
+                        on_value: app.on_volume(self.value)
+
+                MDBoxLayout:
+                    size_hint_y: None
                     height: dp(44)
                     padding: dp(4), 0
 
@@ -900,6 +919,7 @@ class Mp3ArchiveApp(MDApp):
         self._sound = None             # current kivy Sound, or None
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._elapsed = 0.0            # played seconds (Android get_pos() is 0)
+        self._volume = 1.0             # playback volume (0.0–1.0), kept across tracks
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
@@ -2076,6 +2096,10 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="이 파일을 재생할 수 없습니다.").open()
             return
         self._sound = sound
+        try:
+            sound.volume = self._volume
+        except Exception:
+            pass  # some providers expose volume read-only
         self._playing_path = path
         self._paused_pos = 0.0
         self._elapsed = 0.0
@@ -2110,6 +2134,20 @@ class Mp3ArchiveApp(MDApp):
                 sound.seek(self._paused_pos)
             self.root.ids.play_button.icon = "pause"
             self._schedule_pos()
+
+    def on_volume(self, value: float) -> None:
+        """Set the playback volume from the slider (0–100), kept across tracks."""
+        self._volume = max(0.0, min(1.0, value / 100.0))
+        if self._sound is not None:
+            try:
+                self._sound.volume = self._volume
+            except Exception:
+                pass
+
+    def toggle_mute(self) -> None:
+        """Toggle the volume slider between muted and full (the volume icon)."""
+        slider = self.root.ids.volume_slider
+        slider.value = 0 if slider.value > 0 else 100
 
     def stop_playback(self) -> None:
         """Stop playback, unload the sound, and reset the player to idle."""
