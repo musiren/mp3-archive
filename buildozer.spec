@@ -13,6 +13,11 @@ source.include_exts = py,png,jpg,kv,atlas
 # Path is resolved relative to this spec file's directory.
 icon.filename = %(source.dir)s/../assets/icon.png
 
+# Loading (presplash) screen: a white image with the app icon, name, and
+# version, centred on android.presplash_color (white) while the app loads.
+# Regenerate with: python assets/make_presplash.py (keeps the version in sync).
+presplash.filename = %(source.dir)s/../assets/presplash.png
+
 version = 1.0.0
 
 # Built against CPython 3.11.5 (pinned via p4a.branch below). kivy 2.3.0
