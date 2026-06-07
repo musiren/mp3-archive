@@ -47,16 +47,16 @@ KivyMD approach: in-memory queue backed by a RecycleView; reorder via up/down
 buttons (no touch drag-reorder in KivyMD RV); row tap = enqueue + play, while
 long-press keeps the "재생목록에 추가" (add-without-play) action.
 
-### 🟠 P2 — Online metadata (no Android entry point yet; high value)
+### ✅ P2 — Online metadata (done; on-device verification pending for #8/#9)
 
-`tag_fetcher.py` / `itunes_fetcher.py` are pure Python and portable. Needs the
-`INTERNET` permission added to `buildozer.spec` and a network thread.
+`mb_fetcher.py` / `itunes_fetcher.py` are pure Python; the `INTERNET`
+permission and a network daemon thread are wired up. All three features ship.
 
-| # | Feature | Desktop behavior | Effort |
+| # | Feature | Desktop behavior | Status |
 |---|---------|------------------|--------|
-| 7 | **Single-song info (MusicBrainz)** + apply | up to 7 ranked candidates → apply to file+DB | medium |
-| 8 | **Source select + keyword override** | MusicBrainz / iTunes / both dropdown + manual search terms | medium |
-| 9 | **Batch tag auto-completion** | step through files missing title/artist; fetch, show ranked candidates, apply/skip | large |
+| 7 | **Single-song info (MusicBrainz)** + apply | up to 7 ranked candidates → apply to file+DB | ✅ done (+ per-candidate diff) |
+| 8 | **Source select + keyword override** | MusicBrainz / iTunes / both dropdown + manual search terms | ✅ done |
+| 9 | **Batch tag auto-completion** | step through files missing title/artist; fetch, show ranked candidates, apply/skip | ✅ done |
 
 ### 🟡 P3 — Player controls + player-tab richness (mostly small)
 

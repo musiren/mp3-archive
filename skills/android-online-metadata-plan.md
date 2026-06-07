@@ -1,12 +1,17 @@
 # Android: Online Metadata (P2)
 
+> Status as of 2026-06-07: **all three phases done.** Phase 0 (`mb_fetcher`),
+> Phase 1 (single-song dialog + per-candidate diff), Phase 2 (source selection
+> + keyword override), and Phase 3 (batch tag auto-completion) are implemented
+> and unit-tested; pending the on-device verification run for Phases 2–3.
+
 Port the desktop online-metadata features to the Android (KivyMD) app:
 
 1. **Single-song online info** (MusicBrainz) → up to ~7 ranked candidates →
-   apply to file + DB.
+   apply to file + DB. ✅
 2. **Source selection** (MusicBrainz / iTunes / 둘 다) + manual keyword
-   override.
-3. **Batch tag auto-completion** stepping through files missing title/artist.
+   override. ✅
+3. **Batch tag auto-completion** stepping through files missing title/artist. ✅
 
 ## Key decisions
 

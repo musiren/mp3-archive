@@ -214,12 +214,13 @@ class TestDialogContent(unittest.TestCase):
         self.assertIn("lyrics_label", content.ids)
 
     def test_song_info_content_exposes_ids(self):
-        """Verifies SongInfoContent provides the header, status, results, and detail ids."""
+        """Verifies SongInfoContent exposes header, search, status, results, and detail ids."""
         from kivy.lang import Builder
         from main_window_android import KV, SongInfoContent
         Builder.load_string(KV)
         content = SongInfoContent()
-        for cid in ("si_header", "si_progress", "si_status", "si_results", "si_detail"):
+        for cid in ("si_header", "si_keyword", "si_source_btn", "si_progress",
+                    "si_status", "si_results", "si_detail"):
             self.assertIn(cid, content.ids, f"SongInfoContent missing id '{cid}'")
 
 

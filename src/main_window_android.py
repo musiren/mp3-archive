@@ -60,10 +60,18 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.toolbar import MDTopAppBar
 
 from audio_meta import get_album_art, get_lyrics, to_easy_tags
+import itunes_fetcher
 import mb_fetcher
-from mb_fetcher import search as mb_search
 from mp3_manager import Mp3Manager
-from online_meta import build_song_query
+from online_meta import (
+    SOURCE_BOTH,
+    SOURCE_ITUNES,
+    SOURCE_LABELS,
+    SOURCE_MB,
+    TagFetchQueue,
+    build_song_query,
+    fetch_candidates,
+)
 from tree_util import build_tree_rows
 
 
@@ -242,7 +250,7 @@ KV = """
     orientation: "vertical"
     spacing: dp(6)
     size_hint_y: None
-    height: dp(540)
+    height: dp(580)
 
     MDLabel:
         id: si_header
@@ -251,6 +259,28 @@ KV = """
         theme_text_color: "Secondary"
         size_hint_y: None
         height: dp(48)
+
+    MDBoxLayout:
+        size_hint_y: None
+        height: dp(56)
+        spacing: dp(4)
+
+        MDTextField:
+            id: si_keyword
+            hint_text: "검색어"
+
+        MDFlatButton:
+            id: si_source_btn
+            text: "iTunes"
+            size_hint_x: None
+            width: dp(96)
+            pos_hint: {"center_y": 0.5}
+            on_release: app.open_source_menu()
+
+        MDIconButton:
+            icon: "magnify"
+            pos_hint: {"center_y": 0.5}
+            on_release: app.on_song_search()
 
     MDProgressBar:
         id: si_progress
@@ -300,7 +330,7 @@ MDBoxLayout:
         id: toolbar
         title: "MP3 Archive"
         elevation: 4
-        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["view-list", lambda x: app.open_view_menu()], ["delete", lambda x: app.delete_selected()]]
+        right_action_items: [["folder-search", lambda x: app.open_folder_picker()], ["refresh", lambda x: app.force_rescan()], ["view-list", lambda x: app.open_view_menu()], ["auto-fix", lambda x: app.start_batch_tag_fetch()], ["delete", lambda x: app.delete_selected()]]
 
     MDBottomNavigation:
         id: bottom_nav
@@ -676,6 +706,10 @@ class Mp3ArchiveApp(MDApp):
         self._song_sel = -1            # index of the chosen candidate (-1 = none)
         self._song_info_path = ""      # path of the track being looked up
         self._song_current: dict = {}  # current title/artist/album of that track
+        self._song_source = SOURCE_ITUNES  # selected fetch source (default iTunes)
+        self._source_menu = None       # the source-selector MDDropdownMenu
+        self._batch_queue = None       # TagFetchQueue when in batch mode, else None
+        self._batch_stem_tried = False  # auto-retried the filename stem this file
 
     # ------------------------------------------------------------------
     # Kivy lifecycle
@@ -1485,17 +1519,19 @@ class Mp3ArchiveApp(MDApp):
 
     def _open_song_info(self, row) -> None:
         """
-        Open the online-info dialog for a track and start a MusicBrainz search.
+        Open the online-info dialog for one track and start an online search.
 
-        Shows the track's current tags read-only, then fetches up to seven
-        ranked candidates on a background thread. The user picks one and
-        applies it to the file + DB.
+        Shows the track's current tags read-only, then fetches ranked
+        candidates from the selected source on a background thread. The user
+        can change the source / search term, pick a candidate, and apply it to
+        the file + DB.
 
         Args:
             row: The long-pressed row whose .path identifies the track.
         """
         self._actions_dialog.dismiss()
         info = self._manager.get_by_path(row.path) or {}
+        self._batch_queue = None       # single-song mode
         self._song_info_path = row.path
         # Snapshot the fields that 태그 적용 can overwrite (title/artist/album),
         # so the detail panel can show a current → proposed diff per candidate.
@@ -1508,12 +1544,15 @@ class Mp3ArchiveApp(MDApp):
         self._song_sel = -1
         content = SongInfoContent()
         self._song_content = content
+        content.ids.si_source_btn.text = self._source_label(self._song_source)
         filename = os.path.basename(row.path)
         cur_artist = info.get("artist") or "-"
         cur_title = info.get("title") or "-"
         content.ids.si_header.text = (
             f"{filename}\n현재: {cur_artist} — {cur_title}"
         )
+        artist, title = build_song_query(info)
+        content.ids.si_keyword.text = " ".join(p for p in (artist, title) if p)
         self._song_dialog = MDDialog(
             title="온라인 정보",
             type="custom",
@@ -1526,18 +1565,93 @@ class Mp3ArchiveApp(MDApp):
             ],
         )
         self._song_dialog.open()
-        artist, title = build_song_query(info)
         self._start_song_search(artist, title)
 
     def _close_song_dialog(self) -> None:
-        """Dismiss the online-info dialog and clear its state."""
+        """Dismiss the online-info dialog, clear its state, and refresh if needed."""
+        if self._source_menu is not None:
+            self._source_menu.dismiss()
         if self._song_dialog is not None:
             self._song_dialog.dismiss()
         self._song_content = None
+        if self._batch_queue is not None:
+            # Batch mode may have applied tags to several files; show them.
+            self._batch_queue = None
+            self._refresh_list()
+
+    @staticmethod
+    def _source_label(source: str) -> str:
+        """
+        Return the human-readable label for a fetch-source identifier.
+
+        Args:
+            source: A SOURCE_* identifier (e.g. "itunes").
+
+        Returns:
+            The matching UI label (e.g. "iTunes"); falls back to the
+            identifier itself if it is unknown.
+        """
+        for label, ident in SOURCE_LABELS:
+            if ident == source:
+                return label
+        return source
+
+    def open_source_menu(self) -> None:
+        """Open the dropdown that selects which online source(s) to search."""
+        if self._song_content is None:
+            return
+        caller = self._song_content.ids.si_source_btn
+        items = [
+            {"text": label, "viewclass": "OneLineListItem",
+             "on_release": (lambda s=ident, l=label: self._set_song_source(s, l))}
+            for label, ident in SOURCE_LABELS
+        ]
+        self._source_menu = MDDropdownMenu(caller=caller, items=items, width_mult=3)
+        self._source_menu.open()
+
+    def _set_song_source(self, source: str, label: str) -> None:
+        """
+        Switch the active fetch source and re-run the current search.
+
+        Args:
+            source: The chosen SOURCE_* identifier.
+            label:  Its display label, shown on the source button.
+        """
+        if self._source_menu is not None:
+            self._source_menu.dismiss()
+        self._song_source = source
+        if self._song_content is not None:
+            self._song_content.ids.si_source_btn.text = label
+        self.on_song_search()
+
+    def on_song_search(self) -> None:
+        """
+        Run an online search using the keyword field, or the auto terms.
+
+        When the keyword field holds text it is searched as a free title term;
+        otherwise the track's auto-detected artist/title (or the batch queue's
+        current terms) are used.
+        """
+        c = self._song_content
+        if c is None:
+            return
+        keyword = c.ids.si_keyword.text.strip()
+        if keyword:
+            self._start_song_search(None, keyword)
+        else:
+            artist, title = self._song_auto_terms()
+            self._start_song_search(artist, title)
+
+    def _song_auto_terms(self) -> tuple:
+        """Return the (artist, title) auto-search terms for the current track."""
+        if self._batch_queue is not None and not self._batch_queue.is_done():
+            return self._batch_queue.query_terms()
+        info = self._manager.get_by_path(self._song_info_path) or {}
+        return build_song_query(info)
 
     def _start_song_search(self, artist: str | None, title: str | None) -> None:
         """
-        Kick off a MusicBrainz search on a daemon thread.
+        Kick off an online search on a daemon thread for the current source.
 
         Args:
             artist: Cleaned artist query term, or None.
@@ -1551,46 +1665,88 @@ class Mp3ArchiveApp(MDApp):
         c.ids.si_results.data = []
         thread = threading.Thread(
             target=self._song_search_worker,
-            args=(artist, title),
+            args=(artist, title, self._song_source),
             daemon=True,
         )
         thread.start()
 
-    def _song_search_worker(self, artist: str | None, title: str | None) -> None:
+    def _song_search_worker(
+        self, artist: str | None, title: str | None, source: str
+    ) -> None:
         """
         Run the network search off the UI thread and post results back.
 
         Args:
             artist: Artist query term (may be None).
             title:  Title query term (may be None).
+            source: The SOURCE_* identifier to query.
         """
         try:
-            candidates = mb_search(artist, title)
+            candidates = fetch_candidates(artist, title, source)
         except Exception:
             candidates = []
-        Clock.schedule_once(lambda dt: self._on_song_results(candidates))
+        Clock.schedule_once(
+            lambda dt: self._on_song_results(candidates, source)
+        )
 
     @mainthread
-    def _on_song_results(self, candidates: list) -> None:
+    def _on_song_results(self, candidates: list, source: str) -> None:
         """
         Display fetched candidates in the dialog (runs on the UI thread).
 
+        In batch mode a no-result search auto-retries once with the current
+        file's filename stem before reporting "no match", since a tag-based
+        query often fails where the bare filename succeeds.
+
         Args:
-            candidates: Candidate dicts from mb_fetcher.search (possibly empty).
+            candidates: Merged candidate dicts (possibly empty).
+            source:     The SOURCE_* identifier that produced them.
         """
         if self._song_content is None:
             return  # dialog was closed before the search returned
         c = self._song_content
+
+        # Batch auto-retry: if nothing matched, try the filename stem once.
+        if (not candidates and self._batch_queue is not None
+                and not self._batch_stem_tried):
+            stem = self._batch_queue.auto_retry_keyword()
+            if stem and stem != c.ids.si_keyword.text.strip():
+                self._batch_stem_tried = True
+                c.ids.si_keyword.text = stem
+                c.ids.si_status.text = f"결과 없음 — 파일명으로 재검색: {stem}"
+                self._start_song_search(None, stem)
+                return
+
         c.ids.si_progress.opacity = 0
         self._song_candidates = candidates
         self._song_sel = 0 if candidates else -1
         if candidates:
             c.ids.si_status.text = f"{len(candidates)}개 후보 — 선택 후 태그 적용"
-        elif mb_fetcher.last_error:
-            c.ids.si_status.text = f"검색 실패: {mb_fetcher.last_error}"
         else:
-            c.ids.si_status.text = "검색 결과 없음 (일치하는 곡이 없습니다)"
+            err = self._fetch_error(source)
+            if err:
+                c.ids.si_status.text = f"검색 실패: {err}"
+            else:
+                c.ids.si_status.text = "검색 결과 없음 (일치하는 곡이 없습니다)"
         self._render_song_candidates()
+
+    @staticmethod
+    def _fetch_error(source: str) -> str:
+        """
+        Return the last network error recorded by the queried source(s).
+
+        Args:
+            source: The SOURCE_* identifier that was searched.
+
+        Returns:
+            The fetcher's last_error string, or "" when the empty result was a
+            genuine no-match rather than a network/TLS failure.
+        """
+        if source in (SOURCE_ITUNES, SOURCE_BOTH) and itunes_fetcher.last_error:
+            return itunes_fetcher.last_error
+        if source in (SOURCE_MB, SOURCE_BOTH) and mb_fetcher.last_error:
+            return mb_fetcher.last_error
+        return ""
 
     def _render_song_candidates(self) -> None:
         """Rebuild the candidate RecycleView data and refresh the detail panel."""
@@ -1599,6 +1755,7 @@ class Mp3ArchiveApp(MDApp):
         data = []
         for i, cand in enumerate(self._song_candidates):
             parts = [
+                cand.get("source", ""),
                 cand.get("artist", ""),
                 cand.get("album", ""),
                 cand.get("year", ""),
@@ -1700,7 +1857,13 @@ class Mp3ArchiveApp(MDApp):
         self._render_song_candidates()
 
     def _apply_song_candidate(self) -> None:
-        """Write the selected candidate's tags to the file + DB, then refresh."""
+        """
+        Write the selected candidate's tags to the file + DB.
+
+        In single-song mode this closes the dialog and refreshes the list. In
+        batch mode it records the application and advances to the next queued
+        file, keeping the dialog open until the queue is exhausted.
+        """
         if not self._song_candidates or self._song_sel < 0:
             Snackbar(text="선택된 후보가 없습니다.").open()
             return
@@ -1712,13 +1875,101 @@ class Mp3ArchiveApp(MDApp):
                 cand.get("artist") or None,
                 cand.get("album") or None,
             )
-            Snackbar(text="태그가 적용되었습니다.").open()
         except Exception:
             Snackbar(text="태그 적용에 실패했습니다.").open()
+            return
+
+        if self._batch_queue is not None:
+            self._batch_queue.mark_applied()
+            Snackbar(text="태그가 적용되었습니다.").open()
+            self._load_batch_current()
+            return
+
+        Snackbar(text="태그가 적용되었습니다.").open()
         if self._song_dialog is not None:
             self._song_dialog.dismiss()
         self._song_content = None
         self._refresh_list()
+
+    # ------------------------------------------------------------------
+    # Batch tag auto-completion (태그 자동 완성)
+    # ------------------------------------------------------------------
+
+    def start_batch_tag_fetch(self) -> None:
+        """
+        Open the batch dialog that completes tags for files missing title/artist.
+
+        Builds a TagFetchQueue from the current library (only files missing a
+        core tag), then steps through them one at a time, reusing the online
+        search UI with 적용 / 건너뛰기 controls and an (M / N) counter.
+        """
+        queue = TagFetchQueue(self._manager.list_files())
+        if queue.is_done():
+            Snackbar(text="태그가 없는 파일이 없습니다.").open()
+            return
+        self._batch_queue = queue
+        self._song_candidates = []
+        self._song_sel = -1
+        content = SongInfoContent()
+        self._song_content = content
+        content.ids.si_source_btn.text = self._source_label(self._song_source)
+        self._song_dialog = MDDialog(
+            title="태그 자동 완성",
+            type="custom",
+            content_cls=content,
+            buttons=[
+                MDFlatButton(text="적용",
+                             on_release=lambda x: self._apply_song_candidate()),
+                MDFlatButton(text="건너뛰기",
+                             on_release=lambda x: self._batch_skip()),
+                MDFlatButton(text="닫기",
+                             on_release=lambda x: self._close_song_dialog()),
+            ],
+        )
+        self._song_dialog.open()
+        self._load_batch_current()
+
+    def _load_batch_current(self) -> None:
+        """Show the current queued file and start its search, or finish up."""
+        queue = self._batch_queue
+        c = self._song_content
+        if queue is None or c is None:
+            return
+        if queue.is_done():
+            c.ids.si_header.text = (
+                f"완료: {queue.applied_count()}개 적용 / {queue.total()}개 처리"
+            )
+            c.ids.si_status.text = "모든 파일을 처리했습니다."
+            c.ids.si_progress.opacity = 0
+            c.ids.si_results.data = []
+            c.ids.si_detail.text = ""
+            c.ids.si_keyword.text = ""
+            self._song_candidates = []
+            self._song_sel = -1
+            return
+        f = queue.current()
+        self._song_info_path = f["path"]
+        self._song_current = {
+            "title":  f.get("title")  or "",
+            "artist": f.get("artist") or "",
+            "album":  f.get("album")  or "",
+        }
+        self._batch_stem_tried = False
+        filename = f.get("filename") or os.path.basename(f["path"])
+        cur_artist = f.get("artist") or "-"
+        cur_title = f.get("title") or "-"
+        c.ids.si_header.text = (
+            f"{queue.counter_text()} {filename}\n현재: {cur_artist} — {cur_title}"
+        )
+        artist, title = queue.query_terms()
+        c.ids.si_keyword.text = " ".join(p for p in (artist, title) if p)
+        self._start_song_search(artist, title)
+
+    def _batch_skip(self) -> None:
+        """Skip the current queued file without applying any tags."""
+        if self._batch_queue is not None:
+            self._batch_queue.advance()
+            self._load_batch_current()
 
     # ------------------------------------------------------------------
     # UI helpers
