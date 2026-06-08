@@ -26,6 +26,7 @@ is not on the classloader of a python-for-android *service* process, so
 creating such a proxy throws ClassNotFoundException. Polling avoids any proxy.
 """
 
+import threading
 import time
 import traceback
 
@@ -134,7 +135,13 @@ class AudioService:
         self._auto_paused = False     # True when paused by transient focus loss
         self._ducked = False          # True while ducked for transient focus
         self._was_playing = False     # True since play() until end/stop
-        self._focus_listener = None
+        # Serialises state mutations across the OSC, tick, focus and broadcast
+        # threads. Reentrant: a focus request may synchronously re-enter.
+        self._lock = threading.RLock()
+        # Create the audio-focus proxy now, on this (classloader-pinned) thread;
+        # building a PythonJavaClass later on the OSC/broadcast thread would not
+        # see the app classloader.
+        self._focus_listener = _FocusListener(self._on_focus_change)
         self._focus_request = None    # AudioFocusRequest (API 26+)
         self._session = None          # MediaSession for lock-screen controls
         self._receiver = None         # BroadcastReceiver for notification taps
@@ -167,14 +174,15 @@ class AudioService:
             action = intent.getAction()
         except Exception:
             return
-        if action == ACTION_TOGGLE:
-            self.toggle()
-        elif action == ACTION_NEXT:
-            self.play_next()
-        elif action == ACTION_PREV:
-            self.play_prev()
-        elif action == ACTION_STOP:
-            self.stop()
+        with self._lock:
+            if action == ACTION_TOGGLE:
+                self.toggle()
+            elif action == ACTION_NEXT:
+                self.play_next()
+            elif action == ACTION_PREV:
+                self.play_prev()
+            elif action == ACTION_STOP:
+                self.stop()
 
     def _action_pi(self, action: str, request_code: int):
         """Build a broadcast PendingIntent carrying *action* back to us."""
@@ -202,9 +210,9 @@ class AudioService:
         try:
             meta = (MediaMetadataBuilder()
                     .putString(MediaMetadata.METADATA_KEY_TITLE,
-                               self._subtitle or self._title or "")
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
                                self._title or "")
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
+                               self._subtitle or "")
                     .build())
             session.setMetadata(meta)
             pos, _ = self._position_length()
@@ -224,50 +232,88 @@ class AudioService:
         except Exception:
             traceback.print_exc()
 
+    def _new_builder(self):
+        """Return a Notification.Builder bound to the channel (API 26+)."""
+        if VERSION.SDK_INT >= 26:
+            channel = NotificationChannel(
+                CHANNEL_ID, "재생", NotificationManager.IMPORTANCE_LOW)
+            nm = self._service.getSystemService(Context.NOTIFICATION_SERVICE)
+            nm.createNotificationChannel(channel)
+            return NotificationBuilder(self._service, CHANNEL_ID)
+        return NotificationBuilder(self._service)
+
     def _post_notification(self) -> None:
-        """Build the ongoing media notification and (re-)enter the foreground."""
+        """
+        Build the ongoing media notification and (re-)enter the foreground.
+
+        A foreground service MUST call startForeground() promptly (the ~5s
+        rule), so if building the rich media notification fails for any reason
+        we fall back to a minimal notification and still enter the foreground.
+        """
+        service = self._service
+        notification = None
         try:
-            service = self._service
             title = self._title or "준비 완료"
             text = self._subtitle or ("재생 중" if self._path
                                       else "재생할 곡을 선택하세요")
             playing = self._is_playing()
-            if VERSION.SDK_INT >= 26:
-                channel = NotificationChannel(
-                    CHANNEL_ID, "재생", NotificationManager.IMPORTANCE_LOW)
-                nm = service.getSystemService(Context.NOTIFICATION_SERVICE)
-                nm.createNotificationChannel(channel)
-                builder = NotificationBuilder(service, CHANNEL_ID)
-            else:
-                builder = NotificationBuilder(service)
+            builder = self._new_builder()
             builder.setContentTitle(title)
             builder.setContentText(text)
             builder.setOngoing(True)
             builder.setSmallIcon(service.getApplicationInfo().icon)
-            builder.setVisibility(1)   # Notification.VISIBILITY_PUBLIC
+            try:
+                builder.setVisibility(1)   # Notification.VISIBILITY_PUBLIC
+            except Exception:
+                traceback.print_exc()
             content = self._content_pi()
             if content is not None:
                 builder.setContentIntent(content)
-            # Transport actions: prev / play-pause / next / stop.
+            # Transport actions: prev / play-pause / next / stop. Count the
+            # ones actually added so the compact view never names a missing one.
+            added = 0
             try:
                 builder.addAction(RDrawable.ic_media_previous, "이전",
                                   self._action_pi(ACTION_PREV, 1))
+                added += 1
                 builder.addAction(
                     RDrawable.ic_media_pause if playing
                     else RDrawable.ic_media_play,
                     "일시정지" if playing else "재생",
                     self._action_pi(ACTION_TOGGLE, 2))
+                added += 1
                 builder.addAction(RDrawable.ic_media_next, "다음",
                                   self._action_pi(ACTION_NEXT, 3))
+                added += 1
                 builder.addAction(RDrawable.ic_menu_close_clear_cancel, "정지",
                                   self._action_pi(ACTION_STOP, 4))
-                style = MediaStyle().setShowActionsInCompactView(0, 1, 2)
+                added += 1
+            except Exception:
+                traceback.print_exc()
+            try:
+                style = MediaStyle()
+                if added >= 3:
+                    style = style.setShowActionsInCompactView(0, 1, 2)
                 if self._session is not None:
                     style = style.setMediaSession(self._session.getSessionToken())
                 builder.setStyle(style)
             except Exception:
                 traceback.print_exc()
-            service.startForeground(NOTIFICATION_ID, builder.build())
+            notification = builder.build()
+        except Exception:
+            traceback.print_exc()
+        if notification is None:
+            try:   # minimal fallback so we still satisfy the foreground rule
+                fb = self._new_builder()
+                fb.setContentTitle("MP3 Archive")
+                fb.setOngoing(True)
+                fb.setSmallIcon(service.getApplicationInfo().icon)
+                notification = fb.build()
+            except Exception:
+                traceback.print_exc()
+                return
+        try:
+            service.startForeground(NOTIFICATION_ID, notification)
         except Exception:
             traceback.print_exc()
 
@@ -311,6 +357,9 @@ class AudioService:
         except Exception:
             traceback.print_exc()
             self._release()
+            # Load failed: go idle so the UI doesn't show a stuck now-playing.
+            self._path = self._title = self._subtitle = ""
+            self._was_playing = False
 
     def _play_index(self, index: int) -> None:
         """Make queue item *index* current and start playing it."""
@@ -337,11 +386,23 @@ class AudioService:
         self._mode = mode if mode in PLAY_MODES else PLAY_MODES[0]
         # Re-derive the current index from the playing path so auto-advance
         # stays correct after the queue was edited (insert/remove shifts).
+        # Keep the existing index if it still points at the playing track
+        # (handles duplicate paths); otherwise locate it, or clamp into range
+        # if the playing track was removed from the queue entirely.
         if self._path:
-            for i, it in enumerate(items):
-                if it.get("path", "") == self._path:
-                    self._index = i
-                    break
+            if not (0 <= self._index < len(items)
+                    and items[self._index].get("path", "") == self._path):
+                found = -1
+                for i, it in enumerate(items):
+                    if it.get("path", "") == self._path:
+                        found = i
+                        break
+                if found >= 0:
+                    self._index = found
+                elif items:
+                    self._index = min(max(self._index, 0), len(items) - 1)
+                else:
+                    self._index = -1
         if not items:
             self._index = -1
             self.stop()
@@ -503,6 +564,7 @@ class AudioService:
 
     def _on_focus_change(self, change) -> None:
         """React to audio-focus changes (pause / duck / resume)."""
+        self._lock.acquire()
         try:
             if change == AudioManager.AUDIOFOCUS_LOSS:
                 # Permanent loss (another media app): pause, don't auto-resume.
@@ -527,6 +589,8 @@ class AudioService:
                     self.resume()
         except Exception:
             traceback.print_exc()
+        finally:
+            self._lock.release()
 
     def _advance_ended(self) -> None:
         """Auto-advance to the next track per the play mode, or stop."""
@@ -582,19 +646,20 @@ class AudioService:
         the track finished, so advance to the next track (or stop) — this runs
         in the service, so it works even when the UI is backgrounded or gone.
         """
-        player = self._player
-        if player is None:
-            return
-        try:
-            playing = bool(player.isPlaying())
-        except Exception:
-            playing = False
-        if playing:
-            self._was_playing = True
-            self.push_state()
-        elif self._was_playing and not self._paused:
-            self._was_playing = False
-            self._advance_ended()
+        with self._lock:
+            player = self._player
+            if player is None:
+                return
+            try:
+                playing = bool(player.isPlaying())
+            except Exception:
+                playing = False
+            if playing:
+                self._was_playing = True
+                self.push_state()
+            elif self._was_playing and not self._paused:
+                self._was_playing = False
+                self._advance_ended()
 
     # -- command dispatch ----------------------------------------------------
     def handle_command(self, *values) -> None:
@@ -608,19 +673,20 @@ class AudioService:
             traceback.print_exc()
             return
         op = cmd.get("op")
-        if op == ipc.OP_SYNC:
-            self.sync(cmd.get("items", []), cmd.get("index", -1),
-                      cmd.get("mode", PLAY_MODES[0]))
-        elif op == ipc.OP_TOGGLE:
-            self.toggle()
-        elif op == ipc.OP_STOP:
-            self.stop()
-        elif op == ipc.OP_SEEK:
-            self.seek(float(cmd.get("position", 0.0)))
-        elif op == ipc.OP_VOLUME:
-            self.set_volume(float(cmd.get("volume", 1.0)))
-        elif op == ipc.OP_PING:
-            self.push_state()
+        with self._lock:
+            if op == ipc.OP_SYNC:
+                self.sync(cmd.get("items", []), cmd.get("index", -1),
+                          cmd.get("mode", PLAY_MODES[0]))
+            elif op == ipc.OP_TOGGLE:
+                self.toggle()
+            elif op == ipc.OP_STOP:
+                self.stop()
+            elif op == ipc.OP_SEEK:
+                self.seek(float(cmd.get("position", 0.0)))
+            elif op == ipc.OP_VOLUME:
+                self.set_volume(float(cmd.get("volume", 1.0)))
+            elif op == ipc.OP_PING:
+                self.push_state()
 
 
 def main() -> None:

@@ -2679,6 +2679,7 @@ class Mp3ArchiveApp(MDApp):
                 "title": record.get("title") or "-",
             })
         self._refresh_queue()
+        self._sync_queue()   # push the enlarged queue to the service
         Snackbar(text=f"재생목록에 {len(records)}곡 추가됨").open()
 
     def _open_lyrics(self, row) -> None:
