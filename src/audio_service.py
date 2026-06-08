@@ -58,6 +58,8 @@ MediaMetadataBuilder = autoclass("android.media.MediaMetadata$Builder")
 MediaMetadata = autoclass("android.media.MediaMetadata")
 RDrawable = autoclass("android.R$drawable")
 JString = autoclass("java.lang.String")
+Looper = autoclass("android.os.Looper")
+Handler = autoclass("android.os.Handler")
 VERSION = autoclass("android.os.Build$VERSION")
 Intent = autoclass("android.content.Intent")
 PendingIntent = autoclass("android.app.PendingIntent")
@@ -155,6 +157,16 @@ class AudioService:
         """Create the MediaSession and register the control BroadcastReceiver."""
         try:
             self._session = MediaSession(self._service, "mp3archive")
+            # Route lock-screen / headset transport controls to us via a Java
+            # MediaSession.Callback (bundled through android.add_src) that
+            # re-broadcasts to our receiver. setCallback needs a Looper, and the
+            # service thread has none, so hand it the main looper.
+            try:
+                Callback = autoclass("org.musiren.mp3archive.MediaSessionCallback")
+                handler = Handler(Looper.getMainLooper())
+                self._session.setCallback(Callback(self._service), handler)
+            except Exception:
+                traceback.print_exc()
             self._session.setActive(True)
         except Exception:
             traceback.print_exc()

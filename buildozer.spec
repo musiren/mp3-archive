@@ -38,6 +38,11 @@ android.presplash_color = #FFFFFF
 # generated service class is org.musiren.mp3archive.ServiceAudioplayback.
 services = audioplayback:audio_service.py:foreground
 
+# A tiny Java MediaSession.Callback subclass (which pyjnius cannot implement,
+# as it is an abstract class) forwards lock-screen / headset transport events
+# to the service as broadcasts. Source lives under java/<package path>/.
+android.add_src = java
+
 # READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE cover API < 33;
 # READ_MEDIA_AUDIO covers API 33+ (Android 13). MANAGE_EXTERNAL_STORAGE
 # ("All files access") is required to browse and scan arbitrary directories
