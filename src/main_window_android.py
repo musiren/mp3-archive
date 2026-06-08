@@ -89,6 +89,8 @@ from online_meta import (
     build_song_query,
     fetch_candidates,
 )
+import service_ipc as ipc
+from service_bridge import ServiceBridge
 import table_util
 from tree_util import build_tree_rows, files_under_folder
 from ui_util import latest_news_version, resolve_theme_style, sort_files
@@ -945,7 +947,9 @@ class Mp3ArchiveApp(MDApp):
         self._files: list = []             # current RecycleView data (list of dicts)
 
         # Playback state (재생 tab)
-        self._sound = None             # current kivy Sound, or None
+        self._sound = None             # current kivy Sound (local fallback), or None
+        self._player_svc = None        # ServiceBridge when the bg service is up
+        self._svc_length = 0.0         # last track length from the service (s)
         self._paused_pos = 0.0         # remembered position for pause/resume (s)
         self._elapsed = 0.0            # played seconds (Android get_pos() is 0)
         self._volume = 1.0             # playback volume (0.0–1.0), kept across tracks
@@ -1031,6 +1035,11 @@ class Mp3ArchiveApp(MDApp):
         # release. This is framework-managed, so it can't get stuck the way a
         # hand-rolled touch flag could (e.g. a drag straddling a track change).
         self.root.ids.position_bar.bind(active=self._on_seek_active)
+        # Start the background-playback service; if it cannot start (desktop,
+        # or the service class/oscpy is unavailable) playback falls back to the
+        # in-process SoundLoader and the app behaves as before.
+        self._player_svc = ServiceBridge(self._on_service_state)
+        self._player_svc.start()
         self._refresh_list()
 
     # KivyMD 1.2.0 maps its font styles to several family names, not just
@@ -1078,13 +1087,32 @@ class Mp3ArchiveApp(MDApp):
             from android.permissions import request_permissions, Permission  # type: ignore
         except ImportError:
             return
-        names = ("READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_AUDIO")
+        names = ("READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE",
+                 "READ_MEDIA_AUDIO", "POST_NOTIFICATIONS")
         perms = [getattr(Permission, n) for n in names if hasattr(Permission, n)]
         if perms:
             request_permissions(perms)
 
+    def on_pause(self) -> bool:
+        """
+        Allow the app to pause (not stop) when backgrounded.
+
+        Returning True keeps the UI process and its OSC server alive while the
+        app is in the background, so the foreground service's audio keeps
+        playing and the player UI stays in sync on resume.
+        """
+        return True
+
+    def on_resume(self) -> None:
+        """Re-sync the player UI from the service when returning to foreground."""
+        if self._player_svc and self._player_svc.available:
+            self._player_svc.send(ipc.OP_PING)
+
     def on_stop(self) -> None:
         """Stop playback and close the database connection when the app exits."""
+        if self._player_svc and self._player_svc.available:
+            self._player_svc.send(ipc.OP_STOP)
+            self._player_svc.stop_server()
         self._stop_sound()
         self._manager.close()
 
@@ -1961,7 +1989,7 @@ class Mp3ArchiveApp(MDApp):
         track on auto-advance); stop_playback refreshes the list itself.
         """
         removing_current = (index == self._queue.current_index
-                            and self._sound is not None)
+                            and (self._svc_active() or self._sound is not None))
         self._queue.remove(index)
         if removing_current:
             self.stop_playback()
@@ -2096,7 +2124,7 @@ class Mp3ArchiveApp(MDApp):
         """Enqueue loaded paths (replacing the queue first if asked); skip missing."""
         if replace:
             self._queue.clear()
-            if self._sound is not None:
+            if self._svc_active() or self._sound is not None:
                 # The replaced queue no longer contains the playing track;
                 # stop so audio, pointer, and highlight stay consistent.
                 self.stop_playback()
@@ -2127,18 +2155,45 @@ class Mp3ArchiveApp(MDApp):
         if self._list_fm is not None:
             self._list_fm.close()
 
+    def _svc_active(self) -> bool:
+        """Return True when the background-playback service is driving audio."""
+        return bool(self._player_svc and self._player_svc.available)
+
+    def _set_now_playing_ui(self, path: str, title: str, subtitle: str) -> None:
+        """Reset the player tab's labels, art, and position display for a track."""
+        self._playing_path = path
+        self._paused_pos = 0.0
+        self._elapsed = 0.0
+        self.root.ids.now_playing.text = title
+        self.root.ids.now_playing_sub.text = subtitle
+        self._show_now_art(path)
+        if self._lower_view == "lyrics":
+            self._refresh_lyrics()
+        self.root.ids.position_bar.value = 0
+        self.root.ids.pos_label.text = self._format_time(0)
+        self.root.ids.dur_label.text = self._format_time(0)
+
     def _play(self, path: str, title: str, subtitle: str) -> None:
         """
         Load and start playing an audio file, updating the player UI.
 
-        Any currently playing sound is stopped and unloaded first. On load
-        failure a Snackbar is shown and the player state is left cleared.
+        When the background service is active, the track is played there (so it
+        keeps going when backgrounded) and the position is driven by the
+        service's state pushes; otherwise it falls back to the in-process
+        SoundLoader. On local load failure a Snackbar is shown.
 
         Args:
             path:     Absolute path to the audio file.
             title:    Primary label text (typically the filename).
             subtitle: Secondary label text (typically "artist — title").
         """
+        if self._svc_active():
+            self._stop_sound()   # ensure no stray local sound is playing
+            self._set_now_playing_ui(path, title, subtitle)
+            self.root.ids.play_button.icon = "pause"
+            self._player_svc.send(ipc.OP_PLAY, path=path, title=title,
+                                  subtitle=subtitle)
+            return
         self._stop_sound()
         sound = SoundLoader.load(path)
         if sound is None:
@@ -2171,6 +2226,13 @@ class Mp3ArchiveApp(MDApp):
         Kivy's Sound has no pause, so pausing remembers get_pos() and stops;
         resuming plays and seeks back to the remembered position.
         """
+        if self._svc_active():
+            if not self._playing_path:
+                Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
+                return
+            # The play/pause icon is updated from the service's state push.
+            self._player_svc.send(ipc.OP_TOGGLE)
+            return
         sound = self._sound
         if sound is None:
             Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
@@ -2190,7 +2252,9 @@ class Mp3ArchiveApp(MDApp):
     def on_volume(self, value: float) -> None:
         """Set the playback volume from the slider (0–100), kept across tracks."""
         self._volume = max(0.0, min(1.0, value / 100.0))
-        if self._sound is not None:
+        if self._svc_active():
+            self._player_svc.send(ipc.OP_VOLUME, volume=self._volume)
+        elif self._sound is not None:
             try:
                 self._sound.volume = self._volume
             except Exception:
@@ -2211,7 +2275,10 @@ class Mp3ArchiveApp(MDApp):
 
     def stop_playback(self) -> None:
         """Stop playback, unload the sound, and reset the player to idle."""
+        if self._svc_active():
+            self._player_svc.send(ipc.OP_STOP)
         self._stop_sound()
+        self._svc_length = 0.0
         self._paused_pos = 0.0
         self._playing_path = ""
         self.root.ids.play_button.icon = "play"
@@ -2289,6 +2356,47 @@ class Mp3ArchiveApp(MDApp):
         else:
             self.stop_playback()
 
+    def _on_service_state(self, state: dict) -> None:
+        """
+        Receive a state snapshot from the background service.
+
+        Runs on the OSC server thread, so it re-schedules the actual UI update
+        onto the Kivy main thread.
+
+        Args:
+            state: Parsed state dict (see service_ipc.parse_state).
+        """
+        Clock.schedule_once(lambda _dt: self._apply_service_state(state), 0)
+
+    def _apply_service_state(self, state: dict) -> None:
+        """
+        Render a service state snapshot on the player tab (UI thread).
+
+        Drives the position bar, time labels, and play/pause icon from the
+        service, and advances the queue when the service reports a track end.
+
+        Args:
+            state: Parsed state dict (see service_ipc.parse_state).
+        """
+        if not self._svc_active():
+            return
+        self._svc_length = state.get("length", 0.0)
+        if state.get("ended"):
+            # Natural end: advance per the play mode (or stop) just as the
+            # local poll path does — fires once per end (one ended snapshot).
+            self._on_track_ended()
+            return
+        length = state.get("length", 0.0)
+        pos = state.get("position", 0.0)
+        bar = self.root.ids.position_bar
+        if not getattr(bar, "active", False):
+            bar.value = (pos / length * 100) if length else 0
+        self.root.ids.pos_label.text = self._format_time(pos)
+        self.root.ids.dur_label.text = self._format_time(length)
+        self.root.ids.play_button.icon = (
+            "pause" if state.get("playing") else "play"
+        )
+
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""
         self._unschedule_pos()
@@ -2355,6 +2463,17 @@ class Mp3ArchiveApp(MDApp):
         provider to seek the audio — best-effort, since some Android providers
         ignore seek.
         """
+        if self._svc_active():
+            length = self._svc_length or 0
+            if not length:
+                # No track length yet (the service has not reported it); the
+                # seek bar is not meaningful until the first state push.
+                Snackbar(text="재생을 시작한 뒤 이동할 수 있습니다.").open()
+                return
+            target = max(0.0, min(length, value / 100.0 * length))
+            self._player_svc.send(ipc.OP_SEEK, position=target)
+            self.root.ids.pos_label.text = self._format_time(target)
+            return
         sound = self._sound
         if sound is None:
             return
