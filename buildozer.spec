@@ -24,13 +24,24 @@ version = 1.0.0
 # compiles cleanly there with Cython 0.29.x; kivymd 1.2.0 needs kivy>=2.1.0.
 # certifi supplies a CA bundle so HTTPS (MusicBrainz / iTunes) verifies under
 # python-for-android, where the system trust store CPython expects is absent.
-requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,mutagen,certifi,openssl
+# oscpy carries the UI <-> background-playback service IPC (see service_ipc).
+requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,mutagen,certifi,openssl,oscpy
 
 orientation = portrait
 fullscreen = 0
 
 # Android-specific
 android.presplash_color = #FFFFFF
+
+# Background audio runs in a foreground service (src/audio_service.py) so
+# playback continues when the app is backgrounded / the screen is off. The
+# generated service class is org.musiren.mp3archive.ServiceAudioplayback.
+services = audioplayback:audio_service.py:foreground
+
+# A tiny Java MediaSession.Callback subclass (which pyjnius cannot implement,
+# as it is an abstract class) forwards lock-screen / headset transport events
+# to the service as broadcasts. Source lives under java/<package path>/.
+android.add_src = java
 
 # READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE cover API < 33;
 # READ_MEDIA_AUDIO covers API 33+ (Android 13). MANAGE_EXTERNAL_STORAGE
@@ -40,7 +51,13 @@ android.presplash_color = #FFFFFF
 #
 # INTERNET is required for online metadata lookups (MusicBrainz / iTunes tag
 # fetch). It is a normal, install-time permission with no runtime prompt.
-android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET
+#
+# FOREGROUND_SERVICE + WAKE_LOCK let the background-playback service keep
+# audio running with the screen off. POST_NOTIFICATIONS (runtime on API 33+)
+# is needed for the ongoing playback notification; it is requested at startup.
+# FOREGROUND_SERVICE_MEDIA_PLAYBACK is only enforced at API 34+ but is harmless
+# to declare now and is forward-compatible.
+android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_AUDIO,MANAGE_EXTERNAL_STORAGE,INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_MEDIA_PLAYBACK,POST_NOTIFICATIONS,WAKE_LOCK
 
 android.api = 33
 android.minapi = 21

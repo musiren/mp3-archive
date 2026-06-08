@@ -4,9 +4,11 @@
 
 Desktop ↔ Android feature parity is essentially complete: the Android (KivyMD)
 app now covers scanning, search, five view modes (목록 / 자세히 / 트리 / 타일 /
-표), online metadata, full tag editing, the playlist/queue subsystem, and the
-player controls. It is verified on-device (Galaxy SM-S928N) except auto-advance,
-whose logic is unit-tested but was not wall-clock-observed.
+표), online metadata, full tag editing, the playlist/queue subsystem, the player
+controls, and **background playback** (foreground service: keeps playing
+backgrounded / screen-off, queue + auto-advance owned by the service, audio
+focus, and notification + lock-screen media controls). Verified on-device
+(Galaxy SM-S928N).
 
 ## Android — follow-ups / nice-to-have
 
@@ -14,12 +16,16 @@ whose logic is unit-tested but was not wall-clock-observed.
   volume are kept in memory only. Persisting the **last scanned folder** would
   also keep the 트리 view and the tree-folder "재생목록에 추가" working after a
   relaunch without re-scanning (today `_last_dir` resets to None).
+- **Rebuild the UI queue after a cold restart** — if the OS fully kills the UI
+  process while the service keeps playing, the relaunched UI shows an empty
+  queue (playback continues). Have the service push its queue on resume so the
+  UI can rebuild it.
 - **Queue reorder** — add up/down buttons per queue row (KivyMD's RecycleView
   has no touch drag-reorder).
-- **Interactive seek is best-effort** — the Android audio provider's `get_pos()`
-  returns 0 (elapsed time is tracked manually) and `seek()` may be ignored;
-  revisit if a provider with working seek is adopted.
-- **Wall-clock verify auto-advance** on-device (logic is unit-tested).
+- **Local-fallback seek is best-effort** — when the background service is
+  unavailable the SoundLoader fallback's `get_pos()` returns 0 and `seek()` may
+  be ignored. The service path uses `android.media.MediaPlayer`, whose `seekTo`
+  works.
 
 ## Shared / backend
 
