@@ -298,8 +298,13 @@ class AudioService:
             try:
                 style = MediaStyle()
                 if added >= 3:
-                    # int... varargs: pyjnius takes the array as a Python list.
-                    style = style.setShowActionsInCompactView([0, 1, 2])
+                    try:
+                        # int... varargs: pyjnius wants the indices as separate
+                        # positional args, not a list. Isolated so a failure
+                        # here still leaves the MediaSession binding below.
+                        style.setShowActionsInCompactView(0, 1, 2)
+                    except Exception:
+                        traceback.print_exc()
                 if self._session is not None:
                     style = style.setMediaSession(self._session.getSessionToken())
                 builder.setStyle(style)
