@@ -4,7 +4,16 @@
 
 ## UI 프리뷰
 
-![UI Preview](docs/ui-preview.jpg)
+### 데스크톱 (PyQt6)
+
+![Desktop UI Preview](docs/ui-preview.jpg)
+
+### 안드로이드 (KivyMD)
+
+![Android UI Preview](docs/android-ui-preview.jpg)
+
+왼쪽부터 **목록 보기**, **자세히 + 앨범아트**(태그 편집 가능), **표 보기**(다크
+테마), **재생 + 재생목록** 화면입니다.
 
 ---
 
@@ -108,7 +117,9 @@ buildozer -v android debug
 
 설정은 `buildozer.spec` 참고 (python-for-android v2024.01.21, CPython 3.11,
 kivy 2.3.0 / kivymd 1.2.0). 로딩 화면 이미지는
-`python assets/make_presplash.py`로 재생성합니다.
+`python assets/make_presplash.py`로, 위의 UI 프리뷰 몽타주는
+`python assets/make_android_preview.py`(소스 스크린샷: `assets/android-shots/`)로
+재생성합니다.
 
 ---
 
