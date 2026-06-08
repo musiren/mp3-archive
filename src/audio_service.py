@@ -57,6 +57,7 @@ PlaybackState = autoclass("android.media.session.PlaybackState")
 MediaMetadataBuilder = autoclass("android.media.MediaMetadata$Builder")
 MediaMetadata = autoclass("android.media.MediaMetadata")
 RDrawable = autoclass("android.R$drawable")
+JString = autoclass("java.lang.String")
 VERSION = autoclass("android.os.Build$VERSION")
 Intent = autoclass("android.content.Intent")
 PendingIntent = autoclass("android.app.PendingIntent")
@@ -273,19 +274,23 @@ class AudioService:
             # ones actually added so the compact view never names a missing one.
             added = 0
             try:
-                builder.addAction(RDrawable.ic_media_previous, "이전",
+                # Titles are wrapped in java.lang.String: pyjnius cannot resolve
+                # the overloaded addAction(int, CharSequence, PendingIntent) from
+                # a Python str, but a String object is assignable to CharSequence.
+                builder.addAction(RDrawable.ic_media_previous, JString("이전"),
                                   self._action_pi(ACTION_PREV, 1))
                 added += 1
                 builder.addAction(
                     RDrawable.ic_media_pause if playing
                     else RDrawable.ic_media_play,
-                    "일시정지" if playing else "재생",
+                    JString("일시정지" if playing else "재생"),
                     self._action_pi(ACTION_TOGGLE, 2))
                 added += 1
-                builder.addAction(RDrawable.ic_media_next, "다음",
+                builder.addAction(RDrawable.ic_media_next, JString("다음"),
                                   self._action_pi(ACTION_NEXT, 3))
                 added += 1
-                builder.addAction(RDrawable.ic_menu_close_clear_cancel, "정지",
+                builder.addAction(RDrawable.ic_menu_close_clear_cancel,
+                                  JString("정지"),
                                   self._action_pi(ACTION_STOP, 4))
                 added += 1
             except Exception:
@@ -293,7 +298,8 @@ class AudioService:
             try:
                 style = MediaStyle()
                 if added >= 3:
-                    style = style.setShowActionsInCompactView(0, 1, 2)
+                    # int... varargs: pyjnius takes the array as a Python list.
+                    style = style.setShowActionsInCompactView([0, 1, 2])
                 if self._session is not None:
                     style = style.setMediaSession(self._session.getSessionToken())
                 builder.setStyle(style)
