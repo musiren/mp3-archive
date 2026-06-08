@@ -29,7 +29,7 @@ creating such a proxy throws ClassNotFoundException. Polling avoids any proxy.
 import time
 import traceback
 
-from jnius import autoclass
+from jnius import autoclass, cast, java_method, PythonJavaClass
 from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
@@ -40,8 +40,12 @@ from playlist import PLAY_MODES, next_index
 PythonService = autoclass("org.kivy.android.PythonService")
 MediaPlayer = autoclass("android.media.MediaPlayer")
 AudioManager = autoclass("android.media.AudioManager")
+AudioAttributes = autoclass("android.media.AudioAttributes")
+AudioAttributesBuilder = autoclass("android.media.AudioAttributes$Builder")
+AudioFocusRequestBuilder = autoclass("android.media.AudioFocusRequest$Builder")
 PowerManager = autoclass("android.os.PowerManager")
 Context = autoclass("android.content.Context")
+Thread = autoclass("java.lang.Thread")
 NotificationBuilder = autoclass("android.app.Notification$Builder")
 NotificationManager = autoclass("android.app.NotificationManager")
 NotificationChannel = autoclass("android.app.NotificationChannel")
@@ -53,12 +57,55 @@ PythonActivity = autoclass("org.kivy.android.PythonActivity")
 CHANNEL_ID = "mp3archive_playback"
 NOTIFICATION_ID = 0x4D5033  # non-zero ("MP3")
 
+# Duck volume multiplier while another app holds transient focus (e.g. nav).
+_DUCK_FACTOR = 0.2
+
+
+def _install_service_classloader() -> None:
+    """
+    Make jnius Java-interface proxies resolvable in this service process.
+
+    Implementing a Java interface from Python (PythonJavaClass) needs
+    org.jnius.NativeInvocationHandler, which a service process's *system*
+    classloader cannot see. Pin the service's app/dex classloader onto the
+    current thread and eagerly cache the helper class, so later proxies built
+    with ``__javacontext__ = 'app'`` resolve. Must run before any proxy is
+    instantiated (the classloader is resolved at proxy-construction time).
+    """
+    try:
+        service = PythonService.mService
+        Thread.currentThread().setContextClassLoader(service.getClassLoader())
+        autoclass("org.jnius.NativeInvocationHandler")
+    except Exception:
+        traceback.print_exc()
+
+
+class _FocusListener(PythonJavaClass):
+    """Bridge AudioManager.OnAudioFocusChangeListener back to Python."""
+
+    __javainterfaces__ = ["android/media/AudioManager$OnAudioFocusChangeListener"]
+    __javacontext__ = "app"   # resolve via the thread context (app) classloader
+
+    def __init__(self, callback):
+        """Store the Python *callback(focus_change_int)*."""
+        super().__init__()
+        self._callback = callback
+
+    @java_method("(I)V")
+    def onAudioFocusChange(self, focus_change):
+        """Invoked by Android when audio focus changes."""
+        try:
+            self._callback(focus_change)
+        except Exception:
+            traceback.print_exc()
+
 
 class AudioService:
     """Owns the queue, the MediaPlayer, the notification, and the OSC server."""
 
     def __init__(self):
         """Initialise empty state; the engine is created lazily per track."""
+        _install_service_classloader()   # before any PythonJavaClass proxy
         self._service = PythonService.mService
         self._player = None
         self._items = []              # queue: list of {path,title,subtitle}
@@ -68,8 +115,12 @@ class AudioService:
         self._title = ""
         self._subtitle = ""
         self._volume = 1.0
-        self._paused = False          # True while the user has paused
+        self._paused = False          # True while paused (user or focus loss)
+        self._auto_paused = False     # True when paused by transient focus loss
+        self._ducked = False          # True while ducked for transient focus
         self._was_playing = False     # True since play() until end/stop
+        self._focus_listener = None
+        self._focus_request = None    # AudioFocusRequest (API 26+)
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
 
@@ -128,9 +179,11 @@ class AudioService:
                 traceback.print_exc()
             player.setDataSource(path)
             player.prepare()
-            player.setVolume(self._volume, self._volume)
-            player.start()
             self._player = player
+            self._ducked = False
+            self._apply_player_volume()
+            self._request_focus()
+            player.start()
             self._was_playing = True
             self._start_foreground(title or "재생 중", subtitle or "")
         except Exception:
@@ -192,20 +245,51 @@ class AudioService:
             if player.isPlaying():
                 player.pause()
                 self._paused = True
+                self._auto_paused = False   # user action overrides focus pause
             else:
+                self._request_focus()
                 player.start()
                 self._paused = False
+                self._auto_paused = False
                 self._was_playing = True
         except Exception:
             traceback.print_exc()
         self.push_state()
 
+    def pause(self) -> None:
+        """Pause playback if currently playing (used by audio-focus loss)."""
+        player = self._player
+        if player is not None:
+            try:
+                if player.isPlaying():
+                    player.pause()
+                    self._paused = True
+            except Exception:
+                traceback.print_exc()
+        self.push_state()
+
+    def resume(self) -> None:
+        """Resume playback (used when transient audio focus is regained)."""
+        player = self._player
+        if player is not None:
+            try:
+                self._request_focus()
+                player.start()
+                self._paused = False
+                self._was_playing = True
+            except Exception:
+                traceback.print_exc()
+        self.push_state()
+
     def stop(self) -> None:
         """Stop playback and clear the current track (the queue is kept)."""
+        self._abandon_focus()
         self._release()
         self._path = self._title = self._subtitle = ""
         self._index = -1
         self._paused = False
+        self._auto_paused = False
+        self._ducked = False
         self._was_playing = False
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
         self.push_state()
@@ -223,12 +307,87 @@ class AudioService:
     def set_volume(self, volume: float) -> None:
         """Set the playback volume (0.0..1.0), remembered across tracks."""
         self._volume = max(0.0, min(1.0, volume))
+        self._apply_player_volume()
+
+    # -- audio focus ---------------------------------------------------------
+    def _audio_manager(self):
+        """Return the system AudioManager."""
+        return cast("android.media.AudioManager",
+                    self._service.getSystemService(Context.AUDIO_SERVICE))
+
+    def _apply_player_volume(self) -> None:
+        """Apply the current volume to the player, accounting for ducking."""
         player = self._player   # read once; a command thread may swap it
-        if player is not None:
-            try:
-                player.setVolume(self._volume, self._volume)
-            except Exception:
-                traceback.print_exc()
+        if player is None:
+            return
+        vol = self._volume * (_DUCK_FACTOR if self._ducked else 1.0)
+        try:
+            player.setVolume(vol, vol)
+        except Exception:
+            traceback.print_exc()
+
+    def _request_focus(self) -> None:
+        """Request audio focus so calls/other media pause us (best-effort)."""
+        try:
+            am = self._audio_manager()
+            if self._focus_listener is None:
+                self._focus_listener = _FocusListener(self._on_focus_change)
+            if VERSION.SDK_INT >= 26:
+                if self._focus_request is None:
+                    attrs = (AudioAttributesBuilder()
+                             .setUsage(AudioAttributes.USAGE_MEDIA)
+                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                             .build())
+                    self._focus_request = (
+                        AudioFocusRequestBuilder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(attrs)
+                        .setOnAudioFocusChangeListener(self._focus_listener)
+                        .build())
+                am.requestAudioFocus(self._focus_request)
+            else:
+                am.requestAudioFocus(self._focus_listener,
+                                     AudioManager.STREAM_MUSIC,
+                                     AudioManager.AUDIOFOCUS_GAIN)
+        except Exception:
+            traceback.print_exc()
+
+    def _abandon_focus(self) -> None:
+        """Release audio focus (best-effort)."""
+        try:
+            am = self._audio_manager()
+            if VERSION.SDK_INT >= 26 and self._focus_request is not None:
+                am.abandonAudioFocusRequest(self._focus_request)
+            elif self._focus_listener is not None:
+                am.abandonAudioFocus(self._focus_listener)
+        except Exception:
+            traceback.print_exc()
+
+    def _on_focus_change(self, change) -> None:
+        """React to audio-focus changes (pause / duck / resume)."""
+        try:
+            if change == AudioManager.AUDIOFOCUS_LOSS:
+                # Permanent loss (another media app): pause, don't auto-resume.
+                self._ducked = False
+                self._auto_paused = False
+                self.pause()
+            elif change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                # Transient (call/notification): pause and resume on regain.
+                self._ducked = False
+                if self._is_playing():
+                    self._auto_paused = True
+                self.pause()
+            elif change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                self._ducked = True
+                self._apply_player_volume()
+            elif change == AudioManager.AUDIOFOCUS_GAIN:
+                if self._ducked:
+                    self._ducked = False
+                    self._apply_player_volume()
+                if self._auto_paused:
+                    self._auto_paused = False
+                    self.resume()
+        except Exception:
+            traceback.print_exc()
 
     def _advance_ended(self) -> None:
         """Auto-advance to the next track per the play mode, or stop."""
