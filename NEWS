@@ -1,6 +1,55 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260608 (2026-06-08)
+===========================================================================
+
+The Android (KivyMD) app reaches feature parity with the desktop app.
+
+New features (Android)
+----------------------
+- Online metadata: single-song MusicBrainz lookup with a per-candidate
+  tag diff (current -> proposed); source selection (MusicBrainz / iTunes
+  / 둘 다) with a keyword override; and batch tag auto-completion that
+  steps through files missing a title or artist.
+- Table (표) view: a fifth list mode showing selectable, sortable,
+  horizontally-scrollable tag columns (drag the header to scroll, tap a
+  header to sort, ⋮ > 표 컬럼 to choose columns).
+- List sort menu (name / artist / title / date), theme toggle
+  (system / light / dark), and an About dialog, grouped in a ⋮ overflow
+  menu.
+- The 자세히 dialog shows read-only file/stream info (size, duration,
+  created/modified, sample rate, channels, bitrate) and now edits every
+  embedded easy-tag, not just six.
+- Incremental scan: picking a folder merges into the library and skips
+  unchanged files; the refresh button forces a full re-read and prunes
+  records for files missing under that folder.
+- Playlist / queue: tap a song to enqueue+play, long-press 재생목록에
+  추가 (or add all selected); the 재생 tab shows the queue with a
+  now-playing highlight, per-row remove, prev/next, play modes
+  (순차 / 한곡반복 / 전체반복 / 셔플), auto-advance at track end, and
+  .list save / load (skipping missing files) / clear. The queue
+  auto-scrolls to the playing track, and long-pressing a 트리 folder
+  enqueues every file under it.
+- Player controls: a volume slider (with mute), an interactive seek bar,
+  and album art plus a 가사 / 재생목록 toggle on the 재생 tab. Tracks
+  without embedded art show a default placeholder.
+- Branded loading screen: a white screen with the app icon, name, and
+  version.
+
+Bug fixes / improvements (Android)
+----------------------------------
+- Playback time and the progress bar now advance: the Android audio
+  provider's get_pos() returns 0, so elapsed time is tracked from the
+  poll interval instead.
+- HTTPS metadata fetch (MusicBrainz / iTunes) works under
+  python-for-android via a bundled certifi CA bundle.
+- Hardened many queue/player edge cases found by review: multi-select
+  add, removing the currently-playing track, append-vs-replace prompt on
+  load, shuffle no longer re-picks the current track, prev on a
+  never-played queue, and tree-folder add after an app relaunch.
+
+===========================================================================
 v20260420 (2026-04-20)
 ===========================================================================
 

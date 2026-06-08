@@ -1,6 +1,6 @@
 # mp3-archive
 
-오디오 파일을 재귀적으로 스캔하여 메타데이터를 SQLite DB에 저장하고 관리하는 데스크톱 애플리케이션입니다.
+오디오 파일을 재귀적으로 스캔하여 메타데이터를 SQLite DB에 저장하고 관리하는 음악 관리 애플리케이션입니다. **데스크톱(PyQt6)** 과 **안드로이드(KivyMD)** 두 가지 앱을 제공하며, 스캔·태그·검색·온라인 메타데이터 백엔드는 두 앱이 공유합니다.
 
 ## UI 프리뷰
 
@@ -66,6 +66,49 @@
 | **보기** | 트리/테이블 전환 | Ctrl+T |
 | | 테마 전환 | |
 | **도움말** | About mp3-archive | F1 |
+
+---
+
+## 안드로이드 앱 (KivyMD)
+
+데스크톱과 기능 패리티를 갖춘 안드로이드 앱입니다. 백엔드(`mp3_manager`,
+`audio_meta`, `mb_fetcher`, `itunes_fetcher`, `online_meta`, `playlist`,
+`table_util`, `ui_util`, `tree_util`)는 순수 Python으로 데스크톱과 공유하며,
+UI 계층(`src/main_window_android.py`)만 KivyMD로 구현되어 있습니다.
+
+### 기능
+
+- **스캔 / 검색**: 인앱 파일 관리자로 폴더 선택 → 증분 스캔(폴더 병합, 미변경
+  건너뜀) / 새로고침으로 전체 재스캔; 파일명·태그 실시간 검색
+- **보기 모드 5종**: 목록 / 자세히(앨범아트) / 트리 / 타일 / **표**(컬럼
+  선택·헤더 탭 정렬·가로 스크롤)
+- **정렬 / 테마 / 정보**: ⋮ 오버플로 메뉴 (이름·아티스트·제목·날짜 정렬,
+  시스템/라이트/다크 테마, 버전 표시)
+- **태그**: `자세히`에서 파일·스트림 정보 + 모든 내장 태그 편집, `가사`,
+  `온라인 정보`(MusicBrainz/iTunes/둘 다 + 후보별 변경 diff + 키워드 검색),
+  롱프레스 `재생목록에 추가`(선택 곡 일괄), **태그 자동 완성** 배치
+- **재생목록 / 큐**: 탭하면 큐에 추가+재생, 재생 탭에 큐 표시(재생중 강조·삭제),
+  이전/다음, 재생모드(순차·한곡반복·전체반복·셔플), 곡 끝나면 자동 다음곡,
+  `.list` 저장/불러오기(없는 파일 건너뜀)/비우기, 트리 폴더 롱프레스로 폴더
+  전체 추가
+- **플레이어**: 볼륨 슬라이더(+음소거), 드래그 시크, 재생 탭 앨범아트(없으면
+  기본 이미지) + 가사 토글
+- **로딩 화면**: 흰 배경 + 앱 아이콘 + 버전
+
+### 빌드
+
+GitHub Actions(`.github/workflows/build-android.yml`)가 푸시마다 디버그 APK를
+빌드해 `mp3-archive-debug` 아티팩트로 올립니다. 로컬 빌드는 buildozer:
+
+```bash
+pip install buildozer
+buildozer -v android debug
+# 결과물: bin/*.apk
+```
+
+설정은 `buildozer.spec` 참고 (python-for-android v2024.01.21, CPython 3.11,
+kivy 2.3.0 / kivymd 1.2.0). 로딩 화면 이미지는
+`python assets/make_presplash.py`로 재생성합니다.
 
 ---
 
@@ -200,19 +243,32 @@ python -m unittest discover -s test -v
 ```
 mp3-archive/
 ├── src/
-│   ├── mp3_manager.py          # 스캔 및 SQLite 관리 라이브러리
+│   ├── mp3_manager.py          # 스캔 및 SQLite 관리 라이브러리 (공유)
+│   ├── audio_meta.py           # 앨범아트/가사/태그/스트림 헬퍼 (공유)
 │   ├── main_window.py          # PyQt6 데스크톱 UI
 │   ├── main_window.ui          # Qt Designer 레이아웃
-│   ├── tag_fetcher.py          # MusicBrainz 태그 검색
-│   ├── itunes_fetcher.py       # iTunes Search API 연동
-│   ├── tag_fetch_dialog.py     # 태그 일괄 자동 완성 다이얼로그
-│   ├── tag_detail_dialog.py    # 전체 태그 상세 + 앨범 아트 팝업
-│   ├── song_info_dialog.py     # 인터넷 곡 정보 팝업
-│   └── lyrics_dialog.py        # 내장 가사 팝업
+│   ├── main_window_android.py  # KivyMD 안드로이드 UI
+│   ├── tag_fetcher.py          # MusicBrainz 태그 검색 (musicbrainzngs)
+│   ├── mb_fetcher.py           # 의존성 없는 MusicBrainz 검색 (안드로이드)
+│   ├── itunes_fetcher.py       # iTunes Search API 연동 (공유)
+│   ├── net_util.py             # HTTPS/CA 컨텍스트 (공유)
+│   ├── online_meta.py          # 온라인 메타 쿼리/병합/배치 큐 헬퍼
+│   ├── playlist.py             # 재생목록/큐 모델 + 재생모드 로직
+│   ├── table_util.py           # 표 보기 컬럼 모델 + 정렬
+│   ├── ui_util.py              # 정렬 / 테마 / 버전 헬퍼
+│   ├── tree_util.py            # 디렉토리 트리 빌더 + 폴더 파일 수집
+│   ├── default_art.png         # 앨범아트 없는 곡의 기본 이미지 (안드로이드)
+│   ├── tag_fetch_dialog.py     # 태그 일괄 자동 완성 다이얼로그 (데스크톱)
+│   ├── tag_detail_dialog.py    # 전체 태그 상세 + 앨범 아트 팝업 (데스크톱)
+│   ├── song_info_dialog.py     # 인터넷 곡 정보 팝업 (데스크톱)
+│   └── lyrics_dialog.py        # 내장 가사 팝업 (데스크톱)
 ├── test/                       # 테스트 코드
 ├── build/                      # PyInstaller spec 파일
 ├── docs/                       # UI 및 다이얼로그 프리뷰 이미지
-├── assets/                     # 아이콘 등 리소스
-├── main.py                     # 진입점
+├── assets/                     # 아이콘, 로딩 화면 등 리소스
+├── skills/                     # 기능 계획 문서 (*.md)
+├── buildozer.spec              # 안드로이드 빌드 설정
+├── .github/workflows/          # CI (안드로이드 APK 빌드)
+├── main.py                     # 데스크톱 진입점
 └── requirements.txt
 ```
