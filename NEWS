@@ -1,6 +1,31 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260609 (2026-06-09) — second batch
+===========================================================================
+
+Android UI polish for the list/tree selection flow and the player tab.
+
+New features (Android)
+----------------------
+- Selection mode: the per-row select circle is hidden by default. A check
+  icon in the list's filter row turns selection mode on (circles appear)
+  and opens a menu with 전체 선택 / 선택 해제 / 선택 종료; tapping a row
+  then (de)selects it. When at least one song is selected a
+  "재생목록에 추가 (N곡)" bar adds them to the queue. The 트리 view works
+  the same, and selecting a folder selects every song under it.
+- Player tab: an album-art show/hide toggle, and tighter vertical spacing
+  around the progress bar, transport, volume and queue rows.
+- Queue rows drop the ✕; a long-press now opens a 재생 / 재생목록에서 제거
+  menu instead.
+
+Bug fixes (Android)
+-------------------
+- The play button starts the queue when nothing is loaded yet: it plays
+  the first queued track (a random one in shuffle mode) instead of asking
+  the user to pick a song.
+
+===========================================================================
 v20260609 (2026-06-09)
 ===========================================================================
 
