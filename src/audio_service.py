@@ -34,7 +34,7 @@ from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
-from playlist import PLAY_MODES, next_index
+from playlist import PLAY_MODES, next_index, prev_index
 
 # --- Android classes -------------------------------------------------------
 PythonService = autoclass("org.kivy.android.PythonService")
@@ -49,6 +49,13 @@ Thread = autoclass("java.lang.Thread")
 NotificationBuilder = autoclass("android.app.Notification$Builder")
 NotificationManager = autoclass("android.app.NotificationManager")
 NotificationChannel = autoclass("android.app.NotificationChannel")
+MediaStyle = autoclass("android.app.Notification$MediaStyle")
+MediaSession = autoclass("android.media.session.MediaSession")
+PlaybackStateBuilder = autoclass("android.media.session.PlaybackState$Builder")
+PlaybackState = autoclass("android.media.session.PlaybackState")
+MediaMetadataBuilder = autoclass("android.media.MediaMetadata$Builder")
+MediaMetadata = autoclass("android.media.MediaMetadata")
+RDrawable = autoclass("android.R$drawable")
 VERSION = autoclass("android.os.Build$VERSION")
 Intent = autoclass("android.content.Intent")
 PendingIntent = autoclass("android.app.PendingIntent")
@@ -59,6 +66,14 @@ NOTIFICATION_ID = 0x4D5033  # non-zero ("MP3")
 
 # Duck volume multiplier while another app holds transient focus (e.g. nav).
 _DUCK_FACTOR = 0.2
+
+# Notification / lock-screen control actions (broadcast back to the service).
+_PKG = "org.musiren.mp3archive"
+ACTION_TOGGLE = _PKG + ".TOGGLE"
+ACTION_NEXT = _PKG + ".NEXT"
+ACTION_PREV = _PKG + ".PREV"
+ACTION_STOP = _PKG + ".STOP"
+_PI_FLAGS = (0x08000000 | (0x04000000 if VERSION.SDK_INT >= 31 else 0))  # UPDATE|IMMUTABLE
 
 
 def _install_service_classloader() -> None:
@@ -121,14 +136,102 @@ class AudioService:
         self._was_playing = False     # True since play() until end/stop
         self._focus_listener = None
         self._focus_request = None    # AudioFocusRequest (API 26+)
+        self._session = None          # MediaSession for lock-screen controls
+        self._receiver = None         # BroadcastReceiver for notification taps
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
-        self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
+        self._setup_controls()
+        self._post_notification()
 
-    # -- foreground notification --------------------------------------------
-    def _start_foreground(self, title: str, text: str) -> None:
-        """Build/refresh the ongoing notification and enter the foreground."""
+    # -- media controls (notification + lock screen) -------------------------
+    def _setup_controls(self) -> None:
+        """Create the MediaSession and register the control BroadcastReceiver."""
+        try:
+            self._session = MediaSession(self._service, "mp3archive")
+            self._session.setActive(True)
+        except Exception:
+            traceback.print_exc()
+            self._session = None
+        try:
+            from android.broadcast import BroadcastReceiver
+            self._receiver = BroadcastReceiver(
+                self._on_action,
+                actions=[ACTION_TOGGLE, ACTION_NEXT, ACTION_PREV, ACTION_STOP])
+            self._receiver.start()
+        except Exception:
+            traceback.print_exc()
+            self._receiver = None
+
+    def _on_action(self, context, intent) -> None:
+        """Handle a control broadcast from a notification / lock-screen button."""
+        try:
+            action = intent.getAction()
+        except Exception:
+            return
+        if action == ACTION_TOGGLE:
+            self.toggle()
+        elif action == ACTION_NEXT:
+            self.play_next()
+        elif action == ACTION_PREV:
+            self.play_prev()
+        elif action == ACTION_STOP:
+            self.stop()
+
+    def _action_pi(self, action: str, request_code: int):
+        """Build a broadcast PendingIntent carrying *action* back to us."""
+        intent = Intent(action)
+        intent.setPackage(_PKG)
+        return PendingIntent.getBroadcast(self._service, request_code, intent,
+                                          _PI_FLAGS)
+
+    def _content_pi(self):
+        """Build the tap-to-open-app PendingIntent (or None on failure)."""
+        try:
+            intent = Intent(self._service, PythonActivity)
+            intent.setFlags(0x10000000 | 0x04000000)  # NEW_TASK | CLEAR_TOP
+            flag = 0x04000000 if VERSION.SDK_INT >= 31 else 0  # IMMUTABLE
+            return PendingIntent.getActivity(self._service, 0, intent, flag)
+        except Exception:
+            traceback.print_exc()
+            return None
+
+    def _update_session(self) -> None:
+        """Push current metadata + playback state to the MediaSession."""
+        session = self._session
+        if session is None:
+            return
+        try:
+            meta = (MediaMetadataBuilder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE,
+                               self._subtitle or self._title or "")
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
+                               self._title or "")
+                    .build())
+            session.setMetadata(meta)
+            pos, _ = self._position_length()
+            playing = self._is_playing()
+            actions = (PlaybackState.ACTION_PLAY_PAUSE
+                       | PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
+                       | PlaybackState.ACTION_SKIP_TO_NEXT
+                       | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                       | PlaybackState.ACTION_STOP)
+            st = (PlaybackState.STATE_PLAYING if playing
+                  else PlaybackState.STATE_PAUSED)
+            state = (PlaybackStateBuilder()
+                     .setActions(actions)
+                     .setState(st, int(pos * 1000), 1.0)
+                     .build())
+            session.setPlaybackState(state)
+        except Exception:
+            traceback.print_exc()
+
+    def _post_notification(self) -> None:
+        """Build the ongoing media notification and (re-)enter the foreground."""
         try:
             service = self._service
+            title = self._title or "준비 완료"
+            text = self._subtitle or ("재생 중" if self._path
+                                      else "재생할 곡을 선택하세요")
+            playing = self._is_playing()
             if VERSION.SDK_INT >= 26:
                 channel = NotificationChannel(
                     CHANNEL_ID, "재생", NotificationManager.IMPORTANCE_LOW)
@@ -141,18 +244,37 @@ class AudioService:
             builder.setContentText(text)
             builder.setOngoing(True)
             builder.setSmallIcon(service.getApplicationInfo().icon)
+            builder.setVisibility(1)   # Notification.VISIBILITY_PUBLIC
+            content = self._content_pi()
+            if content is not None:
+                builder.setContentIntent(content)
+            # Transport actions: prev / play-pause / next / stop.
             try:
-                intent = Intent(service, PythonActivity)
-                flags = 0x10000000 | 0x04000000  # NEW_TASK | CLEAR_TOP
-                intent.setFlags(flags)
-                pi_flag = 0x04000000 if VERSION.SDK_INT >= 31 else 0  # IMMUTABLE
-                pi = PendingIntent.getActivity(service, 0, intent, pi_flag)
-                builder.setContentIntent(pi)
+                builder.addAction(RDrawable.ic_media_previous, "이전",
+                                  self._action_pi(ACTION_PREV, 1))
+                builder.addAction(
+                    RDrawable.ic_media_pause if playing
+                    else RDrawable.ic_media_play,
+                    "일시정지" if playing else "재생",
+                    self._action_pi(ACTION_TOGGLE, 2))
+                builder.addAction(RDrawable.ic_media_next, "다음",
+                                  self._action_pi(ACTION_NEXT, 3))
+                builder.addAction(RDrawable.ic_menu_close_clear_cancel, "정지",
+                                  self._action_pi(ACTION_STOP, 4))
+                style = MediaStyle().setShowActionsInCompactView(0, 1, 2)
+                if self._session is not None:
+                    style = style.setMediaSession(self._session.getSessionToken())
+                builder.setStyle(style)
             except Exception:
                 traceback.print_exc()
             service.startForeground(NOTIFICATION_ID, builder.build())
         except Exception:
             traceback.print_exc()
+
+    def _refresh_controls(self) -> None:
+        """Refresh the MediaSession state and the ongoing notification."""
+        self._update_session()
+        self._post_notification()
 
     # -- playback engine -----------------------------------------------------
     def _release(self) -> None:
@@ -185,7 +307,7 @@ class AudioService:
             self._request_focus()
             player.start()
             self._was_playing = True
-            self._start_foreground(title or "재생 중", subtitle or "")
+            self._refresh_controls()
         except Exception:
             traceback.print_exc()
             self._release()
@@ -254,6 +376,7 @@ class AudioService:
                 self._was_playing = True
         except Exception:
             traceback.print_exc()
+        self._refresh_controls()
         self.push_state()
 
     def pause(self) -> None:
@@ -266,6 +389,7 @@ class AudioService:
                     self._paused = True
             except Exception:
                 traceback.print_exc()
+        self._refresh_controls()
         self.push_state()
 
     def resume(self) -> None:
@@ -279,7 +403,22 @@ class AudioService:
                 self._was_playing = True
             except Exception:
                 traceback.print_exc()
+        self._refresh_controls()
         self.push_state()
+
+    def play_next(self) -> None:
+        """Skip to the next track per the play mode (notification/lock-screen)."""
+        idx = next_index(self._index, len(self._items), self._mode, ended=False)
+        if idx is not None and self._items:
+            self._play_index(idx)
+            self.push_state()
+
+    def play_prev(self) -> None:
+        """Skip to the previous track per the play mode."""
+        idx = prev_index(self._index, len(self._items), self._mode)
+        if idx is not None and self._items:
+            self._play_index(idx)
+            self.push_state()
 
     def stop(self) -> None:
         """Stop playback and clear the current track (the queue is kept)."""
@@ -291,7 +430,7 @@ class AudioService:
         self._auto_paused = False
         self._ducked = False
         self._was_playing = False
-        self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
+        self._refresh_controls()
         self.push_state()
 
     def seek(self, position: float) -> None:
