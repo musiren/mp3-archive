@@ -71,13 +71,14 @@ def load_mp3(file_path: str) -> dict:
 ### **[MANDATORY] Android On-Device Verification Routine**
 
 Whenever a change affects the Android app — i.e. `buildozer.spec`,
-`.github/workflows/build-android.yml`, `src/main_window_android.py`, or any
+`.github/workflows/build.yml`, `src/main_window_android.py`, or any
 `src/` module bundled into the APK — **always** run this full routine after the
 change is pushed (push itself still requires explicit user approval per the Git
 Rules):
 
-1. **Watch the build.** Monitor the `Build Android APK` GitHub Actions run for
-   the pushed commit until it finishes (e.g. `gh run watch <run-id>`).
+1. **Watch the build.** Monitor the `Build` workflow's `android` job (file
+   `.github/workflows/build.yml`) for the pushed commit until it finishes
+   (e.g. `gh run watch <run-id>`).
 2. **Install on the connected device.** When the build succeeds, download the
    `mp3-archive-debug` artifact (`bin/*.apk`) and install it on the
    ADB-connected phone:

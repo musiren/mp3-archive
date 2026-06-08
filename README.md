@@ -106,8 +106,11 @@ UI 계층(`src/main_window_android.py`)만 KivyMD로 구현되어 있습니다.
 
 ### 빌드
 
-GitHub Actions(`.github/workflows/build-android.yml`)가 푸시마다 디버그 APK를
-빌드해 `mp3-archive-debug` 아티팩트로 올립니다. 로컬 빌드는 buildozer:
+GitHub Actions(`.github/workflows/build.yml`)가 main 푸시마다 디버그 APK를
+빌드해 `mp3-archive-debug` 아티팩트로 올립니다. 같은 워크플로를 수동 실행
+(Actions → Build → Run workflow)하면 `platform` 입력으로 안드로이드 / 윈도우 /
+둘 다를 선택해 원하는 빌드만 돌릴 수 있습니다 (윈도우는 EXE + MSI 산출). 로컬
+빌드는 buildozer:
 
 ```bash
 pip install buildozer
