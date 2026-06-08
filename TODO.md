@@ -16,8 +16,6 @@ whose logic is unit-tested but was not wall-clock-observed.
   relaunch without re-scanning (today `_last_dir` resets to None).
 - **Queue reorder** — add up/down buttons per queue row (KivyMD's RecycleView
   has no touch drag-reorder).
-- **About version** — bundle NEWS into the APK (or a generated version module)
-  so the About dialog shows the dated version instead of the `1.0.0` fallback.
 - **Interactive seek is best-effort** — the Android audio provider's `get_pos()`
   returns 0 (elapsed time is tracked manually) and `seek()` may be ignored;
   revisit if a provider with working seek is adopted.

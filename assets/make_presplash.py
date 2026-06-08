@@ -11,7 +11,7 @@ bumping the version:
 """
 
 import os
-import re
+import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -19,23 +19,23 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 _ICON = os.path.join(_HERE, "icon.png")
 _OUT = os.path.join(_HERE, "presplash.png")
-_SPEC = os.path.join(_ROOT, "buildozer.spec")
+sys.path.insert(0, os.path.join(_ROOT, "src"))
 
 SIZE = 1024                      # square canvas; p4a centres it on white
 NAME = "MP3 Archive"
 
 
 def _read_version() -> str:
-    """Return the ``version = ...`` value from buildozer.spec, or '1.0.0'."""
+    """Return the latest NEWS version (e.g. "v20260608"), matching the About box."""
     try:
-        with open(_SPEC, encoding="utf-8") as fh:
-            for line in fh:
-                match = re.match(r"\s*version\s*=\s*(\S+)", line)
-                if match:
-                    return match.group(1)
+        from ui_util import latest_news_version
+        with open(os.path.join(_ROOT, "NEWS"), encoding="utf-8") as fh:
+            version = latest_news_version(fh.read())
+        if version:
+            return version
     except Exception:
         pass
-    return "1.0.0"
+    return "v1.0.0"
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -66,7 +66,7 @@ def main() -> None:
 
     draw = ImageDraw.Draw(canvas)
     _centre(draw, NAME, _load_font(78, bold=True), 690, (33, 33, 33))
-    _centre(draw, f"v{version}", _load_font(46), 800, (120, 120, 120))
+    _centre(draw, version, _load_font(46), 800, (120, 120, 120))
     _centre(draw, "Loading...", _load_font(42), 882, (150, 150, 150))
 
     canvas.save(_OUT)

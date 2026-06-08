@@ -1576,10 +1576,14 @@ class Mp3ArchiveApp(MDApp):
         """
         Return the latest NEWS release version, or a fallback.
 
-        Reads the NEWS file when it is reachable next to the bundled sources
-        (e.g. on desktop / when run from source) and returns its newest
-        ``vYYYYMMDD`` header. NEWS is not packaged into the APK, so on-device
-        this falls back to the build version string.
+        On desktop (or when run from source) the NEWS file sits next to the
+        bundled sources, so its newest ``vYYYYMMDD`` header is read live. NEWS
+        is not packaged into the APK, so on-device this falls back to the
+        ``app_version.VERSION`` constant baked from NEWS at build time by
+        ``assets/make_version.py`` (and finally to a hard-coded string).
+
+        Returns:
+            The version string to display in the About dialog.
         """
         here = os.path.dirname(os.path.abspath(__file__))
         for candidate in (os.path.join(here, "NEWS"),
@@ -1591,6 +1595,12 @@ class Mp3ArchiveApp(MDApp):
                     return version
             except Exception:
                 continue
+        try:
+            from app_version import VERSION
+            if VERSION:
+                return VERSION
+        except Exception:
+            pass
         return "1.0.0"
 
     @staticmethod

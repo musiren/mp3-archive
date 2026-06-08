@@ -48,6 +48,10 @@ Bug fixes / improvements (Android)
   add, removing the currently-playing track, append-vs-replace prompt on
   load, shuffle no longer re-picks the current track, prev on a
   never-played queue, and tree-folder add after an app relaunch.
+- About dialog and loading screen now show the dated NEWS version
+  on-device: the version is baked from NEWS into a bundled module
+  (src/app_version.py via assets/make_version.py) since NEWS itself is
+  not packaged into the APK, replacing the old 1.0.0 fallback.
 
 ===========================================================================
 v20260420 (2026-04-20)
