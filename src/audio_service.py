@@ -20,7 +20,7 @@ unit-tested separately.
 import time
 import traceback
 
-from jnius import autoclass, PythonJavaClass, java_method
+from jnius import autoclass
 from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
@@ -43,24 +43,11 @@ PythonActivity = autoclass("org.kivy.android.PythonActivity")
 CHANNEL_ID = "mp3archive_playback"
 NOTIFICATION_ID = 0x4D5033  # non-zero ("MP3")
 
-
-class _OnComplete(PythonJavaClass):
-    """Bridge android MediaPlayer.OnCompletionListener back to Python."""
-
-    __javainterfaces__ = ["android/media/MediaPlayer$OnCompletionListener"]
-
-    def __init__(self, callback):
-        """Store the Python *callback* to run when a track finishes."""
-        super().__init__()
-        self._callback = callback
-
-    @java_method("(Landroid/media/MediaPlayer;)V")
-    def onCompletion(self, mp):
-        """Invoked by Android on the service thread when playback completes."""
-        try:
-            self._callback()
-        except Exception:
-            traceback.print_exc()
+# Note: completion is detected by polling MediaPlayer.isPlaying() in tick(),
+# NOT via an OnCompletionListener. Implementing a Java interface from Python
+# (jnius PythonJavaClass) needs org.jnius.NativeInvocationHandler, which is not
+# on the classloader of a python-for-android *service* process, so creating
+# such a proxy throws ClassNotFoundException. Polling avoids any Java proxy.
 
 
 class AudioService:
@@ -70,11 +57,12 @@ class AudioService:
         """Initialise empty state; the engine is created lazily per track."""
         self._service = PythonService.mService
         self._player = None
-        self._on_complete = None      # keep a ref so jnius doesn't GC it
         self._path = ""
         self._title = ""
         self._subtitle = ""
         self._volume = 1.0
+        self._paused = False          # True while the user has paused
+        self._was_playing = False     # True since play() until end/stop
         self._ended_pending = False
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
@@ -124,6 +112,8 @@ class AudioService:
         self._release()
         self._path, self._title, self._subtitle = path, title, subtitle
         self._ended_pending = False
+        self._paused = False
+        self._was_playing = False
         try:
             player = MediaPlayer()
             player.setAudioStreamType(AudioManager.STREAM_MUSIC)
@@ -134,10 +124,9 @@ class AudioService:
             player.setDataSource(path)
             player.prepare()
             player.setVolume(self._volume, self._volume)
-            self._on_complete = _OnComplete(self._handle_completion)
-            player.setOnCompletionListener(self._on_complete)
             player.start()
             self._player = player
+            self._was_playing = True
             self._start_foreground(title, subtitle or "재생 중")
         except Exception:
             traceback.print_exc()
@@ -152,8 +141,11 @@ class AudioService:
         try:
             if player.isPlaying():
                 player.pause()
+                self._paused = True
             else:
                 player.start()
+                self._paused = False
+                self._was_playing = True
         except Exception:
             traceback.print_exc()
         self.push_state()
@@ -165,6 +157,7 @@ class AudioService:
             try:
                 if player.isPlaying():
                     player.pause()
+                    self._paused = True
             except Exception:
                 traceback.print_exc()
         self.push_state()
@@ -175,6 +168,8 @@ class AudioService:
         if player is not None:
             try:
                 player.start()
+                self._paused = False
+                self._was_playing = True
             except Exception:
                 traceback.print_exc()
         self.push_state()
@@ -184,6 +179,8 @@ class AudioService:
         self._release()
         self._path = self._title = self._subtitle = ""
         self._ended_pending = False
+        self._paused = False
+        self._was_playing = False
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
         self.push_state()
 
@@ -207,10 +204,29 @@ class AudioService:
             except Exception:
                 traceback.print_exc()
 
-    def _handle_completion(self) -> None:
-        """Mark the current track as ended and notify the UI once."""
-        self._ended_pending = True
-        self.push_state()
+    def tick(self) -> None:
+        """
+        Periodic poll (called ~2x/sec): push position, detect track end.
+
+        Completion is detected by polling instead of an OnCompletionListener:
+        once a track has started, MediaPlayer.isPlaying() going False while the
+        user has not paused means the track finished, so report it ended once.
+        """
+        player = self._player
+        if player is None:
+            return
+        try:
+            playing = bool(player.isPlaying())
+        except Exception:
+            playing = False
+        if playing:
+            self._was_playing = True
+            self.push_state()
+        elif self._was_playing and not self._paused:
+            # Played, then stopped on its own (not a user pause): natural end.
+            self._was_playing = False
+            self._ended_pending = True
+            self.push_state()
 
     # -- state push ----------------------------------------------------------
     def _position_length(self):
@@ -295,11 +311,10 @@ def main() -> None:
         # service has already entered the foreground, so keep it alive rather
         # than dying with an unhandled exception.
         traceback.print_exc()
-    # Keep the process alive and push position updates while playing.
+    # Keep the process alive; push position updates and detect track end.
     while True:
         time.sleep(0.5)
-        if service._is_playing():
-            service.push_state()
+        service.tick()
 
 
 if __name__ == "__main__":
