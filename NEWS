@@ -1,6 +1,39 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260609 (2026-06-09)
+===========================================================================
+
+The Android app gains true background playback.
+
+New features (Android)
+----------------------
+- Background playback: audio now runs in an Android foreground service
+  (src/audio_service.py) in a separate process, so it keeps playing when
+  the app is backgrounded or the screen is off, with a partial wake lock.
+- The play queue lives in the service: it owns the queue and advances to
+  the next track on its own (using the shared playlist logic), so
+  auto-advance works even when the UI is paused or killed. The UI is a
+  thin client that syncs the queue and renders now-playing / highlight /
+  position from the service's pushed state over oscpy.
+- Audio focus: playback pauses when a call or another media app takes
+  focus (auto-resuming after a transient interruption) and ducks the
+  volume for transient "can duck" requests.
+- Media controls: an ongoing media notification with previous /
+  play-pause / next / stop, plus a MediaSession so the lock screen shows a
+  media card whose controls drive playback (routed through a small Java
+  MediaSession.Callback that re-broadcasts to the service).
+
+Bug fixes / improvements (Android)
+----------------------------------
+- Hardened the service found by review: a reentrant lock serialises the
+  command/poll/focus/broadcast threads; startForeground always runs (a
+  minimal notification is posted if the rich one fails) so the service is
+  never killed for the foreground-start timeout; the queue index is
+  re-derived from the playing path so edits never drift or restart;
+  and the pyjnius Java-proxy classloader is pinned in the service process.
+
+===========================================================================
 v20260608 (2026-06-08)
 ===========================================================================
 
