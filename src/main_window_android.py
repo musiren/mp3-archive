@@ -20,6 +20,7 @@ Entry point for buildozer:
 """
 
 import os
+import random
 import threading
 
 from kivy.clock import Clock, mainthread
@@ -2396,24 +2397,43 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.play_button.icon = "pause"
         self._schedule_pos()
 
+    def _start_index(self) -> int:
+        """
+        Pick the queue index to start from when play is pressed while idle.
+
+        Shuffle picks a random track; every other mode starts at the first
+        track in the queue.
+        """
+        count = len(self._queue)
+        if count <= 0:
+            return 0
+        if self._play_mode == "shuffle":
+            return random.randrange(count)
+        return 0
+
     def toggle_play_pause(self) -> None:
         """
-        Toggle between playing and paused for the current track.
+        Toggle play/pause, or start the queue when nothing is loaded yet.
 
-        Kivy's Sound has no pause, so pausing remembers get_pos() and stops;
-        resuming plays and seeks back to the remembered position.
+        If no track is loaded, the play button begins playing from the queue
+        (random track for shuffle, otherwise the first). Otherwise it toggles
+        the current track. In the SoundLoader fallback, pausing remembers the
+        position (Kivy's Sound has no pause) and resuming seeks back to it.
         """
+        # Nothing loaded yet: the play button starts the queue per the mode.
+        nothing_loaded = (not self._playing_path
+                          if self._svc_active() else self._sound is None)
+        if nothing_loaded:
+            if self._queue.is_empty:
+                Snackbar(text="재생목록이 비어 있습니다.").open()
+            else:
+                self._play_queue_index(self._start_index())
+            return
         if self._svc_active():
-            if not self._playing_path:
-                Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
-                return
             # The play/pause icon is updated from the service's state push.
             self._player_svc.send(ipc.OP_TOGGLE)
             return
         sound = self._sound
-        if sound is None:
-            Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
-            return
         if sound.state == "play":
             self._paused_pos = self._elapsed
             sound.stop()
