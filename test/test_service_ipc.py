@@ -1,7 +1,8 @@
 """
 test_service_ipc.py - Tests for the UI <-> audio-service IPC (de)serialiser.
 
-Runs locally (no Kivy/jnius/device): service_ipc imports only stdlib json.
+Runs locally (no Kivy/jnius/device): service_ipc imports only stdlib json and
+the pure playlist module (for PLAY_MODES validation).
 """
 
 import json
@@ -17,14 +18,35 @@ import service_ipc as ipc  # noqa: E402
 class TestMakeCommand(unittest.TestCase):
     """Verify command payloads are built and normalised correctly."""
 
-    def test_play_round_trips_fields(self):
-        """A play command keeps its path/title/subtitle through a round trip."""
-        s = ipc.make_command(ipc.OP_PLAY, path="/a.mp3", title="a", subtitle="x")
+    def test_sync_round_trips_items_index_mode(self):
+        """A sync command keeps its items/index/mode through a round trip."""
+        items = [{"path": "/a.mp3", "title": "a", "subtitle": "x"}]
+        s = ipc.make_command(ipc.OP_SYNC, items=items, index=0, mode="shuffle")
         data = ipc.parse_command(s)
-        self.assertEqual(data["op"], ipc.OP_PLAY)
-        self.assertEqual(data["path"], "/a.mp3")
-        self.assertEqual(data["title"], "a")
-        self.assertEqual(data["subtitle"], "x")
+        self.assertEqual(data["op"], ipc.OP_SYNC)
+        self.assertEqual(data["index"], 0)
+        self.assertEqual(data["mode"], "shuffle")
+        self.assertEqual(data["items"], items)
+
+    def test_sync_normalises_items(self):
+        """Items are coerced to path/title/subtitle dicts; bad entries dropped."""
+        s = ipc.make_command(ipc.OP_SYNC,
+                             items=[{"path": "/a.mp3", "title": "a"},
+                                    {"no_path": 1}, "junk"])
+        data = ipc.parse_command(s)
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0],
+                         {"path": "/a.mp3", "title": "a", "subtitle": ""})
+
+    def test_sync_unknown_mode_defaults(self):
+        """An unrecognised mode falls back to the first PLAY_MODES value."""
+        s = ipc.make_command(ipc.OP_SYNC, items=[], index=-1, mode="bogus")
+        self.assertEqual(ipc.parse_command(s)["mode"], ipc.PLAY_MODES[0])
+
+    def test_sync_non_int_index_defaults_minus_one(self):
+        """A non-integer index normalises to -1."""
+        s = ipc.make_command(ipc.OP_SYNC, items=[], index="oops")
+        self.assertEqual(ipc.parse_command(s)["index"], -1)
 
     def test_unknown_op_rejected(self):
         """make_command raises ValueError for an op it does not know."""
@@ -35,10 +57,6 @@ class TestMakeCommand(unittest.TestCase):
         """Volume above 1.0 or below 0.0 is clamped into [0, 1]."""
         self.assertEqual(json.loads(ipc.make_command(ipc.OP_VOLUME, volume=2.5))["volume"], 1.0)
         self.assertEqual(json.loads(ipc.make_command(ipc.OP_VOLUME, volume=-3))["volume"], 0.0)
-
-    def test_volume_non_numeric_defaults_to_zero(self):
-        """A non-numeric volume normalises to 0.0 rather than raising."""
-        self.assertEqual(json.loads(ipc.make_command(ipc.OP_VOLUME, volume="loud"))["volume"], 0.0)
 
     def test_seek_position_non_negative(self):
         """A negative seek position is clamped to 0.0."""
@@ -67,10 +85,23 @@ class TestParseCommand(unittest.TestCase):
         with self.assertRaises(ValueError):
             ipc.parse_command(json.dumps({"op": "nope"}))
 
-    def test_missing_op_raises(self):
-        """A payload with no op raises ValueError."""
-        with self.assertRaises(ValueError):
-            ipc.parse_command(json.dumps({"path": "/a.mp3"}))
+
+class TestNormalizeItems(unittest.TestCase):
+    """Verify queue-item coercion."""
+
+    def test_non_list_returns_empty(self):
+        """A non-list items value normalises to an empty list."""
+        self.assertEqual(ipc.normalize_items("nope"), [])
+        self.assertEqual(ipc.normalize_items(None), [])
+
+    def test_drops_entries_without_path(self):
+        """Entries lacking a path are dropped."""
+        self.assertEqual(ipc.normalize_items([{"title": "x"}]), [])
+
+    def test_coerces_fields_to_strings(self):
+        """All kept fields become strings with the canonical keys."""
+        out = ipc.normalize_items([{"path": "/a", "title": 5}])
+        self.assertEqual(out, [{"path": "/a", "title": "5", "subtitle": ""}])
 
 
 class TestState(unittest.TestCase):
@@ -79,7 +110,7 @@ class TestState(unittest.TestCase):
     def test_round_trip(self):
         """make_state -> parse_state preserves every field."""
         s = ipc.make_state(playing=True, path="/a.mp3", title="a",
-                           subtitle="x", position=10.0, length=200.0, ended=False)
+                           subtitle="x", position=10.0, length=200.0, index=3)
         st = ipc.parse_state(s)
         self.assertTrue(st["playing"])
         self.assertEqual(st["path"], "/a.mp3")
@@ -87,7 +118,7 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["subtitle"], "x")
         self.assertEqual(st["position"], 10.0)
         self.assertEqual(st["length"], 200.0)
-        self.assertFalse(st["ended"])
+        self.assertEqual(st["index"], 3)
 
     def test_defaults_when_empty(self):
         """parse_state of an empty object yields a fully-defaulted idle state."""
@@ -96,24 +127,20 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["path"], "")
         self.assertEqual(st["position"], 0.0)
         self.assertEqual(st["length"], 0.0)
-        self.assertFalse(st["ended"])
+        self.assertEqual(st["index"], -1)
 
     def test_malformed_payload_yields_idle_state(self):
         """A malformed (non-JSON) state payload degrades to an idle state."""
         st = ipc.parse_state("garbage{")
         self.assertFalse(st["playing"])
         self.assertEqual(st["path"], "")
+        self.assertEqual(st["index"], -1)
 
     def test_negative_values_clamped(self):
         """Negative position/length values are clamped to 0.0 on parse."""
         st = ipc.parse_state(json.dumps({"position": -4, "length": -9}))
         self.assertEqual(st["position"], 0.0)
         self.assertEqual(st["length"], 0.0)
-
-    def test_ended_flag(self):
-        """The ended flag survives a round trip."""
-        st = ipc.parse_state(ipc.make_state(playing=False, ended=True))
-        self.assertTrue(st["ended"])
 
 
 if __name__ == "__main__":

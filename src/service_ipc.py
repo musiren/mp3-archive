@@ -5,12 +5,19 @@ The Android background-playback service runs in a separate process and talks to
 the UI over OSC (oscpy). To keep the wire format simple and robust, every
 message carries a single JSON string payload: commands on ``ADDR_CMD`` (UI ->
 service) and state snapshots on ``ADDR_STATE`` (service -> UI). This module owns
-that encoding plus the value normalisation (volume/seek clamping, op
+that encoding plus the value normalisation (volume/seek clamping, op/mode
 validation, state defaults) so the logic is testable without Kivy, jnius, or a
 device.
+
+Since Stage 1 the service owns the queue: the UI sends the whole queue + the
+desired current index + the play mode in a single ``sync`` command, and the
+service plays/auto-advances on its own. The UI renders the now-playing
+highlight and labels from the pushed state's ``index``/``path``/``title``.
 """
 
 import json
+
+from playlist import PLAY_MODES
 
 # OSC addresses (bytes, as oscpy expects).
 ADDR_CMD = b"/cmd"      # UI -> service
@@ -22,18 +29,14 @@ SERVICE_PORT = 38291
 UI_PORT = 38292
 
 # Command ops (UI -> service).
-OP_PLAY = "play"        # fields: path, title, subtitle
+OP_SYNC = "sync"        # fields: items (list of {path,title,subtitle}), index, mode
 OP_TOGGLE = "toggle"    # play/pause flip
-OP_PAUSE = "pause"
-OP_RESUME = "resume"
 OP_STOP = "stop"
 OP_SEEK = "seek"        # field: position (seconds)
 OP_VOLUME = "volume"    # field: volume (0.0..1.0)
-OP_PING = "ping"
+OP_PING = "ping"        # ask the service to push its current state
 
-_OPS = frozenset({
-    OP_PLAY, OP_TOGGLE, OP_PAUSE, OP_RESUME, OP_STOP, OP_SEEK, OP_VOLUME, OP_PING,
-})
+_OPS = frozenset({OP_SYNC, OP_TOGGLE, OP_STOP, OP_SEEK, OP_VOLUME, OP_PING})
 
 
 def _clamp01(value) -> float:
@@ -52,15 +55,52 @@ def _non_negative(value) -> float:
         return 0.0
 
 
+def _as_int(value, default=-1) -> int:
+    """Return int(*value*), or *default* if it is not an integer."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def normalize_items(items) -> list:
+    """
+    Coerce a queue payload into a list of {path,title,subtitle} string dicts.
+
+    Args:
+        items: Any value (expected: a list of dicts). Non-lists become [].
+
+    Returns:
+        A list of dicts with exactly the keys path/title/subtitle, each a
+        string. Entries without a path are dropped.
+    """
+    out = []
+    if not isinstance(items, list):
+        return out
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        path = it.get("path") or ""
+        if not path:
+            continue
+        out.append({
+            "path": str(path),
+            "title": str(it.get("title", "") or ""),
+            "subtitle": str(it.get("subtitle", "") or ""),
+        })
+    return out
+
+
 def make_command(op: str, **fields) -> str:
     """
     Build a JSON command payload for the service.
 
     Args:
         op:     One of the ``OP_*`` constants.
-        fields: Op-specific fields (e.g. path/title/subtitle for play,
-                position for seek, volume for volume). Values are normalised:
-                volume is clamped to [0, 1] and seek position to >= 0.
+        fields: Op-specific fields. For ``sync``: items (list of
+                {path,title,subtitle}), index (int), mode (a PLAY_MODES value).
+                For ``seek``: position (seconds, clamped >= 0). For ``volume``:
+                volume (clamped to [0, 1]).
 
     Returns:
         A JSON string suitable as the single OSC argument on ``ADDR_CMD``.
@@ -76,6 +116,11 @@ def make_command(op: str, **fields) -> str:
         payload["volume"] = _clamp01(payload.get("volume", 1.0))
     if op == OP_SEEK:
         payload["position"] = _non_negative(payload.get("position", 0.0))
+    if op == OP_SYNC:
+        payload["items"] = normalize_items(payload.get("items"))
+        payload["index"] = _as_int(payload.get("index", -1))
+        mode = payload.get("mode")
+        payload["mode"] = mode if mode in PLAY_MODES else PLAY_MODES[0]
     return json.dumps(payload)
 
 
@@ -107,7 +152,7 @@ def parse_command(payload: str) -> dict:
 
 def make_state(*, playing: bool, path: str = "", title: str = "",
                subtitle: str = "", position: float = 0.0, length: float = 0.0,
-               ended: bool = False) -> str:
+               index: int = -1) -> str:
     """
     Build a JSON state snapshot for the UI.
 
@@ -118,7 +163,7 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         subtitle: Secondary label ("artist — title").
         position: Current playback position in seconds.
         length:   Track duration in seconds (0 if unknown).
-        ended:    True for the one snapshot that reports a natural track end.
+        index:    Index of the current track within the queue (-1 if none).
 
     Returns:
         A JSON string suitable as the single OSC argument on ``ADDR_STATE``.
@@ -130,7 +175,7 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         "subtitle": subtitle or "",
         "position": _non_negative(position),
         "length": _non_negative(length),
-        "ended": bool(ended),
+        "index": _as_int(index, -1),
     })
 
 
@@ -143,7 +188,7 @@ def parse_state(payload: str) -> dict:
 
     Returns:
         A dict with keys playing, path, title, subtitle, position, length,
-        ended — always present and of the right type, even if *payload* was
+        index — always present and of the right type, even if *payload* was
         malformed (in which case an idle/empty state is returned).
     """
     try:
@@ -159,5 +204,5 @@ def parse_state(payload: str) -> dict:
         "subtitle": data.get("subtitle", "") or "",
         "position": _non_negative(data.get("position", 0.0)),
         "length": _non_negative(data.get("length", 0.0)),
-        "ended": bool(data.get("ended", False)),
+        "index": _as_int(data.get("index", -1), -1),
     }

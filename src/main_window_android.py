@@ -1873,8 +1873,16 @@ class Mp3ArchiveApp(MDApp):
         item = self._queue.current_item()
         if not item:
             return
-        self._play(item["path"], item["filename"],
-                   f"{item['artist']} — {item['title']}")
+        subtitle = f"{item['artist']} — {item['title']}"
+        if self._svc_active():
+            # Drive playback through the service: set the UI optimistically and
+            # ask the service to play this index (it owns the queue/advance).
+            self._stop_sound()
+            self._set_now_playing_ui(item["path"], item["filename"], subtitle)
+            self.root.ids.play_button.icon = "pause"
+            self._sync_queue(play_index=index)
+        else:
+            self._play(item["path"], item["filename"], subtitle)
         self._refresh_queue()
         # Bring the now-playing row into view (next frame, after the RV relays).
         Clock.schedule_once(lambda _dt: self._scroll_queue_to_current(), 0)
@@ -1935,6 +1943,7 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
             self._play_mode, "playlist-play"
         )
+        self._sync_queue()   # tell the service the new mode for auto-advance
         Snackbar(text=self._PLAY_MODE_LABELS.get(self._play_mode, "")).open()
 
     def _row_info_for_path(self, path: str) -> dict | None:
@@ -1975,6 +1984,7 @@ class Mp3ArchiveApp(MDApp):
             if info:
                 self._queue.add(info)
         self._refresh_queue()
+        self._sync_queue()   # update the service's queue (no playback change)
         if used_selection:
             self._selected.clear()
             self._refresh_list()   # clear the now-consumed selection checkboxes
@@ -1995,6 +2005,7 @@ class Mp3ArchiveApp(MDApp):
             self.stop_playback()
         else:
             self._refresh_queue()
+            self._sync_queue()   # service re-derives its index from the path
 
     def _refresh_queue(self) -> None:
         """Repopulate the 재생목록 RecycleView, highlighting the playing track."""
@@ -2023,6 +2034,7 @@ class Mp3ArchiveApp(MDApp):
             return
         self._queue.clear()
         self._refresh_queue()
+        self._sync_queue()   # empty queue -> the service stops and goes idle
         Snackbar(text="재생목록을 비웠습니다.").open()
 
     def save_playlist(self) -> None:
@@ -2144,6 +2156,7 @@ class Mp3ArchiveApp(MDApp):
             else:
                 missing += 1
         self._refresh_queue()
+        self._sync_queue()   # push the loaded queue to the service
         msg = f"{added}곡 불러옴"
         if missing:
             msg += f" · {missing}개 누락"
@@ -2158,6 +2171,32 @@ class Mp3ArchiveApp(MDApp):
     def _svc_active(self) -> bool:
         """Return True when the background-playback service is driving audio."""
         return bool(self._player_svc and self._player_svc.available)
+
+    def _serialize_queue(self) -> list:
+        """Serialise the queue to the {path,title,subtitle} items the service uses."""
+        return [
+            {
+                "path": it.get("path", ""),
+                "title": it.get("filename") or it.get("title") or "-",
+                "subtitle": f'{it.get("artist", "-")} — {it.get("title", "-")}',
+            }
+            for it in self._queue.items
+        ]
+
+    def _sync_queue(self, play_index: int = -1) -> None:
+        """
+        Push the queue + play mode to the background service.
+
+        Args:
+            play_index: The queue index the service should play. -1 means
+                "just adopt the updated queue/mode, keep current playback"
+                (the service re-derives its position from the playing path);
+                a valid index asks the service to play that track.
+        """
+        if not self._svc_active():
+            return
+        self._player_svc.send(ipc.OP_SYNC, items=self._serialize_queue(),
+                              index=play_index, mode=self._play_mode)
 
     def _set_now_playing_ui(self, path: str, title: str, subtitle: str) -> None:
         """Reset the player tab's labels, art, and position display for a track."""
@@ -2175,25 +2214,18 @@ class Mp3ArchiveApp(MDApp):
 
     def _play(self, path: str, title: str, subtitle: str) -> None:
         """
-        Load and start playing an audio file, updating the player UI.
+        Load and start playing an audio file with the in-process SoundLoader.
 
-        When the background service is active, the track is played there (so it
-        keeps going when backgrounded) and the position is driven by the
-        service's state pushes; otherwise it falls back to the in-process
-        SoundLoader. On local load failure a Snackbar is shown.
+        This is the fallback path used only when the background service is not
+        available (desktop, or the service failed to start). When the service
+        is active, playback is driven by the service via _play_queue_index ->
+        _sync_queue instead. On local load failure a Snackbar is shown.
 
         Args:
             path:     Absolute path to the audio file.
             title:    Primary label text (typically the filename).
             subtitle: Secondary label text (typically "artist — title").
         """
-        if self._svc_active():
-            self._stop_sound()   # ensure no stray local sound is playing
-            self._set_now_playing_ui(path, title, subtitle)
-            self.root.ids.play_button.icon = "pause"
-            self._player_svc.send(ipc.OP_PLAY, path=path, title=title,
-                                  subtitle=subtitle)
-            return
         self._stop_sound()
         sound = SoundLoader.load(path)
         if sound is None:
@@ -2372,8 +2404,10 @@ class Mp3ArchiveApp(MDApp):
         """
         Render a service state snapshot on the player tab (UI thread).
 
-        Drives the position bar, time labels, and play/pause icon from the
-        service, and advances the queue when the service reports a track end.
+        The service owns the queue and auto-advance, so this follows the
+        service's current index/track (handling its auto-advance and stop) and
+        drives the position bar, time labels, and play/pause icon. It never
+        starts playback itself — that is the service's job.
 
         Args:
             state: Parsed state dict (see service_ipc.parse_state).
@@ -2381,11 +2415,32 @@ class Mp3ArchiveApp(MDApp):
         if not self._svc_active():
             return
         self._svc_length = state.get("length", 0.0)
-        if state.get("ended"):
-            # Natural end: advance per the play mode (or stop) just as the
-            # local poll path does — fires once per end (one ended snapshot).
-            self._on_track_ended()
-            return
+        index = state.get("index", -1)
+        path = state.get("path", "")
+        # Follow the service's current index (e.g. after it auto-advanced).
+        if index != self._queue.current_index:
+            if 0 <= index < len(self._queue):
+                self._queue.set_current(index)
+            self._refresh_queue()
+            Clock.schedule_once(lambda _dt: self._scroll_queue_to_current(), 0)
+        # Follow the service's current track for the now-playing display.
+        if path and path != self._playing_path:
+            self._playing_path = path
+            self.root.ids.now_playing.text = state.get("title", "")
+            self.root.ids.now_playing_sub.text = state.get("subtitle", "")
+            self._show_now_art(path)
+            if self._lower_view == "lyrics":
+                self._refresh_lyrics()
+            self._refresh_queue()
+        elif not path and self._playing_path:
+            # The service went idle (stopped / queue cleared / sequence end).
+            self._playing_path = ""
+            self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
+            self.root.ids.now_playing_sub.text = ""
+            self._show_now_art("")
+            if self._lower_view == "lyrics":
+                self._refresh_lyrics()
+            self._refresh_queue()
         length = state.get("length", 0.0)
         pos = state.get("position", 0.0)
         bar = self.root.ids.position_bar

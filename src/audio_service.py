@@ -4,17 +4,26 @@ audio_service.py - Android background-playback foreground service.
 Entry point for the foreground service declared in buildozer.spec
 (``services = audioplayback:audio_service.py:foreground``). It runs in a
 separate process from the UI, so it owns the actual audio engine
-(``android.media.MediaPlayer`` via pyjnius) and survives the UI being
-backgrounded or killed.
+(``android.media.MediaPlayer`` via pyjnius) AND, since Stage 1, the play queue
+itself — so playback and auto-advance survive the UI being backgrounded or
+killed.
 
 Protocol (see service_ipc): the UI sends JSON commands on ``ADDR_CMD`` to this
 process's OSC server (``SERVICE_PORT``); this process pushes JSON state
-snapshots on ``ADDR_STATE`` to the UI's OSC server (``UI_PORT``). All audio
-runs here; the UI only sends commands and renders the pushed state.
+snapshots on ``ADDR_STATE`` to the UI's OSC server (``UI_PORT``). The UI sends
+a ``sync`` command with the whole queue + desired index + play mode; the
+service plays it and, when a track ends, advances on its own using the shared
+``playlist`` logic.
 
 This module is Android-only (jnius / oscpy / Android APIs) and is never
-imported on the desktop. The pure wire format lives in service_ipc, which is
-unit-tested separately.
+imported on the desktop. The pure wire format (service_ipc) and queue logic
+(playlist) are unit-tested separately.
+
+Note: track completion is detected by polling MediaPlayer.isPlaying() in
+tick(), NOT via an OnCompletionListener. Implementing a Java interface from
+Python (jnius PythonJavaClass) needs org.jnius.NativeInvocationHandler, which
+is not on the classloader of a python-for-android *service* process, so
+creating such a proxy throws ClassNotFoundException. Polling avoids any proxy.
 """
 
 import time
@@ -25,6 +34,7 @@ from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
+from playlist import PLAY_MODES, next_index
 
 # --- Android classes -------------------------------------------------------
 PythonService = autoclass("org.kivy.android.PythonService")
@@ -43,27 +53,23 @@ PythonActivity = autoclass("org.kivy.android.PythonActivity")
 CHANNEL_ID = "mp3archive_playback"
 NOTIFICATION_ID = 0x4D5033  # non-zero ("MP3")
 
-# Note: completion is detected by polling MediaPlayer.isPlaying() in tick(),
-# NOT via an OnCompletionListener. Implementing a Java interface from Python
-# (jnius PythonJavaClass) needs org.jnius.NativeInvocationHandler, which is not
-# on the classloader of a python-for-android *service* process, so creating
-# such a proxy throws ClassNotFoundException. Polling avoids any Java proxy.
-
 
 class AudioService:
-    """Owns the MediaPlayer, the foreground notification, and the OSC server."""
+    """Owns the queue, the MediaPlayer, the notification, and the OSC server."""
 
     def __init__(self):
         """Initialise empty state; the engine is created lazily per track."""
         self._service = PythonService.mService
         self._player = None
-        self._path = ""
+        self._items = []              # queue: list of {path,title,subtitle}
+        self._index = -1              # current index into _items
+        self._mode = PLAY_MODES[0]
+        self._path = ""               # currently-loaded track path
         self._title = ""
         self._subtitle = ""
         self._volume = 1.0
         self._paused = False          # True while the user has paused
         self._was_playing = False     # True since play() until end/stop
-        self._ended_pending = False
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
 
@@ -107,11 +113,10 @@ class AudioService:
                 traceback.print_exc()
             self._player = None
 
-    def play(self, path: str, title: str, subtitle: str) -> None:
+    def _play_path(self, path: str, title: str, subtitle: str) -> None:
         """Load *path* and start playing it, replacing any current track."""
         self._release()
         self._path, self._title, self._subtitle = path, title, subtitle
-        self._ended_pending = False
         self._paused = False
         self._was_playing = False
         try:
@@ -127,16 +132,61 @@ class AudioService:
             player.start()
             self._player = player
             self._was_playing = True
-            self._start_foreground(title, subtitle or "재생 중")
+            self._start_foreground(title or "재생 중", subtitle or "")
         except Exception:
             traceback.print_exc()
             self._release()
-        self.push_state()
+
+    def _play_index(self, index: int) -> None:
+        """Make queue item *index* current and start playing it."""
+        if not (0 <= index < len(self._items)):
+            return
+        self._index = index
+        item = self._items[index]
+        self._play_path(item.get("path", ""), item.get("title", ""),
+                        item.get("subtitle", ""))
+
+    # -- commands ------------------------------------------------------------
+    def sync(self, items: list, index: int, mode: str) -> None:
+        """
+        Replace the queue/mode and play *index* (the one sync command).
+
+        - Empty queue: stop and go idle.
+        - index in range and different from the currently-playing track:
+          start playing it.
+        - index in range but already the current track: keep playing, just
+          adopt the updated queue/mode (e.g. the user appended songs).
+        - index out of range (e.g. -1): keep current playback, adopt queue/mode.
+        """
+        self._items = items
+        self._mode = mode if mode in PLAY_MODES else PLAY_MODES[0]
+        # Re-derive the current index from the playing path so auto-advance
+        # stays correct after the queue was edited (insert/remove shifts).
+        if self._path:
+            for i, it in enumerate(items):
+                if it.get("path", "") == self._path:
+                    self._index = i
+                    break
+        if not items:
+            self._index = -1
+            self.stop()
+            return
+        if 0 <= index < len(items):
+            already = (self._player is not None
+                       and items[index].get("path", "") == self._path)
+            if already:
+                self.push_state()   # already playing this track; keep going
+            else:
+                self._play_index(index)
+        else:
+            # index < 0 / out of range: keep current playback, queue updated.
+            self.push_state()
 
     def toggle(self) -> None:
         """Pause if playing, resume if paused."""
         player = self._player
         if player is None:
+            self.push_state()
             return
         try:
             if player.isPlaying():
@@ -150,35 +200,11 @@ class AudioService:
             traceback.print_exc()
         self.push_state()
 
-    def pause(self) -> None:
-        """Pause playback if a track is loaded and playing."""
-        player = self._player
-        if player is not None:
-            try:
-                if player.isPlaying():
-                    player.pause()
-                    self._paused = True
-            except Exception:
-                traceback.print_exc()
-        self.push_state()
-
-    def resume(self) -> None:
-        """Resume playback if a track is loaded and paused."""
-        player = self._player
-        if player is not None:
-            try:
-                player.start()
-                self._paused = False
-                self._was_playing = True
-            except Exception:
-                traceback.print_exc()
-        self.push_state()
-
     def stop(self) -> None:
-        """Stop playback and clear the current track."""
+        """Stop playback and clear the current track (the queue is kept)."""
         self._release()
         self._path = self._title = self._subtitle = ""
-        self._ended_pending = False
+        self._index = -1
         self._paused = False
         self._was_playing = False
         self._start_foreground("준비 완료", "재생할 곡을 선택하세요")
@@ -204,29 +230,14 @@ class AudioService:
             except Exception:
                 traceback.print_exc()
 
-    def tick(self) -> None:
-        """
-        Periodic poll (called ~2x/sec): push position, detect track end.
-
-        Completion is detected by polling instead of an OnCompletionListener:
-        once a track has started, MediaPlayer.isPlaying() going False while the
-        user has not paused means the track finished, so report it ended once.
-        """
-        player = self._player
-        if player is None:
-            return
-        try:
-            playing = bool(player.isPlaying())
-        except Exception:
-            playing = False
-        if playing:
-            self._was_playing = True
+    def _advance_ended(self) -> None:
+        """Auto-advance to the next track per the play mode, or stop."""
+        idx = next_index(self._index, len(self._items), self._mode, ended=True)
+        if idx is not None and self._items:
+            self._play_index(idx)
             self.push_state()
-        elif self._was_playing and not self._paused:
-            # Played, then stopped on its own (not a user pause): natural end.
-            self._was_playing = False
-            self._ended_pending = True
-            self.push_state()
+        else:
+            self.stop()
 
     # -- state push ----------------------------------------------------------
     def _position_length(self):
@@ -257,15 +268,35 @@ class AudioService:
         payload = ipc.make_state(
             playing=self._is_playing(), path=self._path, title=self._title,
             subtitle=self._subtitle, position=pos, length=length,
-            ended=self._ended_pending,
+            index=self._index,
         )
         try:
             self._client.send_message(ipc.ADDR_STATE, [payload.encode("utf-8")])
         except Exception:
             traceback.print_exc()
-        # ``ended`` is a one-shot edge; clear it after reporting.
-        if self._ended_pending:
-            self._ended_pending = False
+
+    def tick(self) -> None:
+        """
+        Periodic poll (~2x/sec): push position, detect end, auto-advance.
+
+        Completion is detected by polling: once a track has started,
+        MediaPlayer.isPlaying() going False while the user has not paused means
+        the track finished, so advance to the next track (or stop) — this runs
+        in the service, so it works even when the UI is backgrounded or gone.
+        """
+        player = self._player
+        if player is None:
+            return
+        try:
+            playing = bool(player.isPlaying())
+        except Exception:
+            playing = False
+        if playing:
+            self._was_playing = True
+            self.push_state()
+        elif self._was_playing and not self._paused:
+            self._was_playing = False
+            self._advance_ended()
 
     # -- command dispatch ----------------------------------------------------
     def handle_command(self, *values) -> None:
@@ -279,15 +310,11 @@ class AudioService:
             traceback.print_exc()
             return
         op = cmd.get("op")
-        if op == ipc.OP_PLAY:
-            self.play(cmd.get("path", ""), cmd.get("title", ""),
-                      cmd.get("subtitle", ""))
+        if op == ipc.OP_SYNC:
+            self.sync(cmd.get("items", []), cmd.get("index", -1),
+                      cmd.get("mode", PLAY_MODES[0]))
         elif op == ipc.OP_TOGGLE:
             self.toggle()
-        elif op == ipc.OP_PAUSE:
-            self.pause()
-        elif op == ipc.OP_RESUME:
-            self.resume()
         elif op == ipc.OP_STOP:
             self.stop()
         elif op == ipc.OP_SEEK:
@@ -299,7 +326,7 @@ class AudioService:
 
 
 def main() -> None:
-    """Service entry point: set up OSC, then loop pushing state to the UI."""
+    """Service entry point: set up OSC, then loop ticking the player."""
     service = AudioService()
     try:
         server = OSCThreadServer()
@@ -308,10 +335,8 @@ def main() -> None:
         print("audio_service: listening on", ipc.SERVICE_PORT)
     except Exception:
         # A bind failure (e.g. port in use) must not crash the process: the
-        # service has already entered the foreground, so keep it alive rather
-        # than dying with an unhandled exception.
+        # service has already entered the foreground, so keep it alive.
         traceback.print_exc()
-    # Keep the process alive; push position updates and detect track end.
     while True:
         time.sleep(0.5)
         service.tick()
