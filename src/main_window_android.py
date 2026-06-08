@@ -188,6 +188,13 @@ KV = """
 
 <Mp3TreeRow>:
     on_release: app.tree_row_tapped(root)
+    IconRightWidget:
+        icon: "check-circle" if root.selected else "circle-outline"
+        theme_text_color: "Custom"
+        text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        opacity: 1 if app.selection_mode else 0
+        disabled: not app.selection_mode
+        on_release: app.tree_toggle_select(root)
 
 <Mp3Tile>:
     orientation: "vertical"
@@ -816,13 +823,14 @@ class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
         _open_actions_for(self)
 
 
-class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem, TouchBehavior):
+class Mp3TreeRow(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavior):
     """One-line folder/file row for the 트리 (tree) view (a RecycleView viewclass)."""
 
-    is_dir = BooleanProperty(False)
-    path   = StringProperty("")
-    key    = StringProperty("")
-    index  = None
+    is_dir   = BooleanProperty(False)
+    path     = StringProperty("")
+    key      = StringProperty("")
+    selected = BooleanProperty(False)
+    index    = None
 
     def refresh_view_attrs(self, rv, index, data):
         """Record the data index each time this recycled view is (re)bound."""
@@ -1431,9 +1439,7 @@ class Mp3ArchiveApp(MDApp):
         if self._view_mode == "tiles":
             self.root.ids.mp3_grid.data = self._files
         elif self._view_mode == "tree":
-            self.root.ids.mp3_list.data = build_tree_rows(
-                self._files, self._last_dir or "", self._expanded
-            )
+            self.root.ids.mp3_list.data = self._tree_rows()
         else:
             self.root.ids.mp3_list.data = self._files
         self.root.ids.count_label.text = self._count_label_text(
@@ -1918,7 +1924,9 @@ class Mp3ArchiveApp(MDApp):
             self._suppress_next_play = False
             return  # a long-press just opened the actions menu; don't also play
         if row.is_dir:
-            self.toggle_tree_folder(row.key)
+            self.toggle_tree_folder(row.key)   # folders always navigate
+        elif self.selection_mode and row.path:
+            self.tree_toggle_select(row)       # in selection mode a tap selects
         elif row.path:
             self._enqueue_and_play(self._row_info(row))
             try:
@@ -1926,15 +1934,60 @@ class Mp3ArchiveApp(MDApp):
             except Exception:
                 pass
 
+    def tree_toggle_select(self, row) -> None:
+        """
+        Toggle selection for a tree row.
+
+        A file row toggles its own path; a folder row toggles every song under
+        it (recursively): selecting if any are unselected, else deselecting all.
+        """
+        if row.is_dir and row.key:
+            paths = [rec["path"] for rec in files_under_folder(
+                self._files, self._last_dir or "", row.key)]
+            if not paths:
+                return
+            select = not all(p in self._selected for p in paths)
+            for p in paths:
+                if select:
+                    self._selected.add(p)
+                else:
+                    self._selected.discard(p)
+        elif row.path:
+            if row.path in self._selected:
+                self._selected.discard(row.path)
+            else:
+                self._selected.add(row.path)
+        self.selection_count = len(self._selected)
+        self._refresh_tree_rows()
+
+    def _tree_rows(self) -> list:
+        """Build the visible tree rows, tagged with their selection state."""
+        rows = build_tree_rows(
+            self._files, self._last_dir or "", self._expanded
+        )
+        base = self._last_dir or ""
+        for r in rows:
+            if r.get("is_dir"):
+                paths = [rec["path"] for rec in files_under_folder(
+                    self._files, base, r.get("key", ""))]
+                r["selected"] = bool(paths) and all(
+                    p in self._selected for p in paths)
+            else:
+                r["selected"] = r.get("path", "") in self._selected
+        return rows
+
+    def _refresh_tree_rows(self) -> None:
+        """Re-assign the tree RecycleView data (e.g. after a selection change)."""
+        if self.root is not None:
+            self.root.ids.mp3_list.data = self._tree_rows()
+
     def toggle_tree_folder(self, key: str) -> None:
         """Expand/collapse a tree folder and rebuild the visible tree rows."""
         if key in self._expanded:
             self._expanded.discard(key)
         else:
             self._expanded.add(key)
-        self.root.ids.mp3_list.data = build_tree_rows(
-            self._files, self._last_dir or "", self._expanded
-        )
+        self._refresh_tree_rows()
 
     # ------------------------------------------------------------------
     # Playback (재생 tab)
