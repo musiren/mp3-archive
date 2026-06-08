@@ -956,6 +956,10 @@ class Mp3ArchiveApp(MDApp):
         self._play_mode = "sequential"  # see playlist.PLAY_MODES
         self._playing_path = ""        # path of the track currently loaded
         self._lower_view = "queue"     # 재생 tab lower area: "queue" or "lyrics"
+        # Placeholder shown on the player tab when a track has no album art.
+        self._default_art = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "default_art.png"
+        )
         self._list_fm = None           # MDFileManager for loading .list files
         self._list_fm_open = False     # whether that file manager is showing
         self._save_dialog = None       # the "save playlist" filename dialog
@@ -2211,8 +2215,15 @@ class Mp3ArchiveApp(MDApp):
         self._refresh_queue()
 
     def _show_now_art(self, path: str) -> None:
-        """Show the track's album art on the player tab, collapsing when none."""
+        """
+        Show the track's album art on the player tab.
+
+        Falls back to the bundled default placeholder when the playing track
+        has no embedded art; collapses the area only when nothing is playing.
+        """
         art = self._album_source(path) if path else ""
+        if path and not art and os.path.exists(self._default_art):
+            art = self._default_art
         image = self.root.ids.now_art
         image.source = art
         image.opacity = 1 if art else 0
