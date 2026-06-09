@@ -2677,6 +2677,13 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.play_button.icon = (
             "pause" if state.get("playing") else "play"
         )
+        # Mirror the system media volume on the slider (also reflects the
+        # hardware volume keys). Skip while the user is dragging it, and only
+        # move it on a real change so we don't re-fire on_volume from rounding.
+        vbar = self.root.ids.volume_slider
+        target = state.get("volume", 1.0) * 100
+        if not getattr(vbar, "active", False) and abs(vbar.value - target) > 2:
+            vbar.value = target
 
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""

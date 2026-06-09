@@ -152,7 +152,7 @@ def parse_command(payload: str) -> dict:
 
 def make_state(*, playing: bool, path: str = "", title: str = "",
                subtitle: str = "", position: float = 0.0, length: float = 0.0,
-               index: int = -1) -> str:
+               index: int = -1, volume: float = 1.0) -> str:
     """
     Build a JSON state snapshot for the UI.
 
@@ -164,6 +164,8 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         position: Current playback position in seconds.
         length:   Track duration in seconds (0 if unknown).
         index:    Index of the current track within the queue (-1 if none).
+        volume:   Current system media volume as a 0.0..1.0 fraction, so the
+                  UI slider can mirror it (incl. hardware volume keys).
 
     Returns:
         A JSON string suitable as the single OSC argument on ``ADDR_STATE``.
@@ -176,6 +178,7 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         "position": _non_negative(position),
         "length": _non_negative(length),
         "index": _as_int(index, -1),
+        "volume": _clamp01(volume),
     })
 
 
@@ -205,4 +208,5 @@ def parse_state(payload: str) -> dict:
         "position": _non_negative(data.get("position", 0.0)),
         "length": _non_negative(data.get("length", 0.0)),
         "index": _as_int(data.get("index", -1), -1),
+        "volume": _clamp01(data.get("volume", 1.0)),
     }

@@ -149,6 +149,7 @@ class AudioService:
         self._session = None          # MediaSession for lock-screen controls
         self._receiver = None         # BroadcastReceiver for notification taps
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
+        self._volume = self._system_volume_fraction()   # mirror system volume
         self._setup_controls()
         self._post_notification()
 
@@ -528,22 +529,55 @@ class AudioService:
         self.push_state()
 
     def set_volume(self, volume: float) -> None:
-        """Set the playback volume (0.0..1.0), remembered across tracks."""
+        """
+        Set the *system* media volume from the slider (0.0..1.0).
+
+        The slider now drives the device's STREAM_MUSIC volume directly, so it
+        matches what the hardware volume keys change. The MediaPlayer's own
+        (software) volume stays at full and is only lowered for ducking.
+        """
         self._volume = max(0.0, min(1.0, volume))
+        self._set_system_volume(self._volume)
         self._apply_player_volume()
 
-    # -- audio focus ---------------------------------------------------------
+    # -- audio focus / volume ------------------------------------------------
     def _audio_manager(self):
         """Return the system AudioManager."""
         return cast("android.media.AudioManager",
                     self._service.getSystemService(Context.AUDIO_SERVICE))
 
+    def _set_system_volume(self, fraction: float) -> None:
+        """Set the STREAM_MUSIC system volume to *fraction* (0.0..1.0)."""
+        try:
+            am = self._audio_manager()
+            max_vol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            level = int(round(max(0.0, min(1.0, fraction)) * max_vol))
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
+        except Exception:
+            traceback.print_exc()
+
+    def _system_volume_fraction(self) -> float:
+        """Return the current STREAM_MUSIC volume as a 0.0..1.0 fraction."""
+        try:
+            am = self._audio_manager()
+            max_vol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if max_vol <= 0:
+                return self._volume
+            return am.getStreamVolume(AudioManager.STREAM_MUSIC) / float(max_vol)
+        except Exception:
+            return self._volume
+
     def _apply_player_volume(self) -> None:
-        """Apply the current volume to the player, accounting for ducking."""
+        """
+        Apply the MediaPlayer's software volume (ducking only).
+
+        Loudness is governed by the system volume now, so the player stays at
+        full unless audio focus asks us to duck.
+        """
         player = self._player   # read once; a command thread may swap it
         if player is None:
             return
-        vol = self._volume * (_DUCK_FACTOR if self._ducked else 1.0)
+        vol = _DUCK_FACTOR if self._ducked else 1.0
         try:
             player.setVolume(vol, vol)
         except Exception:
@@ -653,7 +687,7 @@ class AudioService:
         payload = ipc.make_state(
             playing=self._is_playing(), path=self._path, title=self._title,
             subtitle=self._subtitle, position=pos, length=length,
-            index=self._index,
+            index=self._index, volume=self._system_volume_fraction(),
         )
         try:
             self._client.send_message(ipc.ADDR_STATE, [payload.encode("utf-8")])
