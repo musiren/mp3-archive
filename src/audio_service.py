@@ -85,6 +85,10 @@ ACTION_TOGGLE = _PKG + ".TOGGLE"
 ACTION_NEXT = _PKG + ".NEXT"
 ACTION_PREV = _PKG + ".PREV"
 ACTION_STOP = _PKG + ".STOP"
+# System broadcast fired when the audio output is pulled (headset unplugged or
+# a Bluetooth device disconnects): the cue to pause before audio blares out of
+# the phone speaker.
+ACTION_NOISY = "android.media.AUDIO_BECOMING_NOISY"
 _PI_FLAGS = (0x08000000 | (0x04000000 if VERSION.SDK_INT >= 31 else 0))  # UPDATE|IMMUTABLE
 
 
@@ -146,6 +150,8 @@ class AudioService:
         self._auto_paused = False     # True when paused by transient focus loss
         self._ducked = False          # True while ducked for transient focus
         self._was_playing = False     # True since play() until end/stop
+        self._noisy_paused = False    # paused by an output disconnect (BT/headset)
+        self._bt_present = False      # last-seen Bluetooth audio-output presence
         # Serialises state mutations across the OSC, tick, focus and broadcast
         # threads. Reentrant: a focus request may synchronously re-enter.
         self._lock = threading.RLock()
@@ -189,7 +195,8 @@ class AudioService:
             from android.broadcast import BroadcastReceiver
             self._receiver = BroadcastReceiver(
                 self._on_action,
-                actions=[ACTION_TOGGLE, ACTION_NEXT, ACTION_PREV, ACTION_STOP])
+                actions=[ACTION_TOGGLE, ACTION_NEXT, ACTION_PREV, ACTION_STOP,
+                         ACTION_NOISY])
             self._receiver.start()
         except Exception:
             traceback.print_exc()
@@ -210,6 +217,23 @@ class AudioService:
                 self.play_prev()
             elif action == ACTION_STOP:
                 self.stop()
+            elif action == ACTION_NOISY:
+                self._on_becoming_noisy()
+
+    def _on_becoming_noisy(self) -> None:
+        """Pause when the audio output is pulled (Bluetooth/headset lost).
+
+        Mirrors what every media app does on AUDIO_BECOMING_NOISY so music
+        does not suddenly blast from the phone speaker. Records that the pause
+        was disconnect-driven so playback auto-resumes once a Bluetooth audio
+        device reconnects (handled in the periodic tick).
+        """
+        if self._is_playing():
+            self._noisy_paused = True
+            self.pause()
+        # The output just went away, so seed the presence tracker as absent;
+        # the reconnect is then a clean absent->present edge.
+        self._bt_present = False
 
     def _action_pi(self, action: str, request_code: int):
         """Build a broadcast PendingIntent carrying *action* back to us."""
@@ -496,6 +520,7 @@ class AudioService:
         """Load *path* and start playing it, replacing any current track."""
         self._release()
         self._path, self._title, self._subtitle = path, title, subtitle
+        self._noisy_paused = False
         self._paused = False
         self._was_playing = False
         try:
@@ -589,11 +614,13 @@ class AudioService:
                 player.pause()
                 self._paused = True
                 self._auto_paused = False   # user action overrides focus pause
+                self._noisy_paused = False  # ...and a disconnect-driven pause
             else:
                 self._request_focus()
                 player.start()
                 self._paused = False
                 self._auto_paused = False
+                self._noisy_paused = False
                 self._was_playing = True
         except Exception:
             traceback.print_exc()
@@ -649,6 +676,7 @@ class AudioService:
         self._index = -1
         self._paused = False
         self._auto_paused = False
+        self._noisy_paused = False
         self._ducked = False
         self._was_playing = False
         self._refresh_controls()
@@ -763,6 +791,7 @@ class AudioService:
                 # Permanent loss (another media app): pause, don't auto-resume.
                 self._ducked = False
                 self._auto_paused = False
+                self._noisy_paused = False
                 self.pause()
             elif change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 # Transient (call/notification): pause and resume on regain.
@@ -817,6 +846,41 @@ class AudioService:
         except Exception:
             return False
 
+    def _bt_audio_present(self) -> bool:
+        """Return True if a Bluetooth audio output device is connected.
+
+        Queries the current audio output routing rather than the Bluetooth
+        stack, so it needs no Bluetooth permission. Output-device enumeration
+        is API 23+; on older devices this returns False (auto-resume is then a
+        no-op, but pause-on-disconnect still works).
+        """
+        if VERSION.SDK_INT < 23:
+            return False
+        try:
+            am = self._service.getSystemService(Context.AUDIO_SERVICE)
+            # GET_DEVICES_OUTPUTS == 2; AudioDeviceInfo.TYPE_BLUETOOTH_A2DP == 8
+            # and TYPE_BLUETOOTH_SCO == 7 (literals avoid autoclassing a type
+            # that does not exist on pre-23 runtimes at import time).
+            for dev in am.getDevices(2):
+                if dev.getType() in (7, 8):
+                    return True
+        except Exception:
+            traceback.print_exc()
+        return False
+
+    def _check_bt_reconnect(self) -> None:
+        """Resume playback when a Bluetooth audio device reconnects.
+
+        Only resumes when the pause was caused by a disconnect mid-playback
+        (see _on_becoming_noisy); a manual pause or stop clears that flag so
+        reconnecting does not start music the user deliberately stopped.
+        """
+        present = self._bt_audio_present()
+        if present and not self._bt_present and self._noisy_paused:
+            self._noisy_paused = False
+            self.resume()
+        self._bt_present = present
+
     def push_state(self) -> None:
         """Send a state snapshot to the UI's OSC server."""
         pos, length = self._position_length()
@@ -843,6 +907,8 @@ class AudioService:
             player = self._player
             if player is None:
                 return
+            # Runs while paused too, so a Bluetooth reconnect can resume us.
+            self._check_bt_reconnect()
             try:
                 playing = bool(player.isPlaying())
             except Exception:
