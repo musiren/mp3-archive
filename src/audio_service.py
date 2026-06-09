@@ -156,6 +156,7 @@ class AudioService:
         self._focus_request = None    # AudioFocusRequest (API 26+)
         self._session = None          # MediaSession for lock-screen controls
         self._receiver = None         # BroadcastReceiver for notification taps
+        self._widget_tick = 0         # throttle counter for periodic widget repaint
         self._widget_art_path = None  # track path the cached widget art is for
         self._widget_art_bmp = None   # cached decoded album-art Bitmap
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
@@ -384,33 +385,65 @@ class AudioService:
             self._widget_art_bmp = None
         return self._widget_art_bmp
 
-    def update_widget(self) -> None:
-        """Repaint the home-screen widget with the current track and state."""
+    def _res_id(self, name, kind):
+        """Resolve an app resource id by name (no R-class autoclass needed)."""
         try:
-            R_id = autoclass(_PKG + ".R$id")
-            R_layout = autoclass(_PKG + ".R$layout")
+            return self._service.getResources().getIdentifier(
+                name, kind, self._service.getPackageName())
         except Exception:
-            return   # widget resources not present (e.g. older build)
+            traceback.print_exc()
+            return 0
+
+    def update_widget(self) -> None:
+        """
+        Repaint the home-screen widget with the current track and state.
+
+        Resource ids are resolved via Resources.getIdentifier rather than the
+        generated R class (which may not resolve from the service process), and
+        each piece is set in its own try so a single failure (e.g. an album-art
+        bitmap) cannot drop the title/artist text.
+        """
+        ctx = self._service
+        layout_id = self._res_id("widget_player", "layout")
+        if not layout_id:
+            return   # widget resources not present (e.g. an older build)
+        id_title = self._res_id("widget_title", "id")
+        id_artist = self._res_id("widget_artist", "id")
+        id_art = self._res_id("widget_art", "id")
+        id_play = self._res_id("widget_play_pause", "id")
+        id_next = self._res_id("widget_next", "id")
+        id_prev = self._res_id("widget_prev", "id")
         try:
-            ctx = self._service
-            rv = RemoteViews(ctx.getPackageName(), R_layout.widget_player)
-            rv.setTextViewText(R_id.widget_title, self._title or "")
-            rv.setTextViewText(R_id.widget_artist, self._subtitle or "")
+            rv = RemoteViews(ctx.getPackageName(), layout_id)
+        except Exception:
+            traceback.print_exc()
+            return
+        try:   # title / artist (JString for the CharSequence param)
+            rv.setTextViewText(id_title, JString(self._title or ""))
+            rv.setTextViewText(id_artist, JString(self._subtitle or ""))
+        except Exception:
+            traceback.print_exc()
+        try:   # play/pause glyph
             rv.setImageViewResource(
-                R_id.widget_play_pause,
-                RDrawable.ic_media_pause if self._is_playing()
+                id_play, RDrawable.ic_media_pause if self._is_playing()
                 else RDrawable.ic_media_play)
+        except Exception:
+            traceback.print_exc()
+        try:   # album-art background (own try so a bitmap error keeps the text)
             bmp = self._widget_art_bitmap()
             if bmp is not None:
-                rv.setImageViewBitmap(R_id.widget_art, bmp)
+                rv.setImageViewBitmap(id_art, bmp)
             else:
-                rv.setImageViewResource(R_id.widget_art, 0)   # no art -> nothing
-            rv.setOnClickPendingIntent(
-                R_id.widget_play_pause, self._action_pi(ACTION_TOGGLE, 11))
-            rv.setOnClickPendingIntent(
-                R_id.widget_next, self._action_pi(ACTION_NEXT, 12))
-            rv.setOnClickPendingIntent(
-                R_id.widget_prev, self._action_pi(ACTION_PREV, 13))
+                rv.setImageViewResource(id_art, 0)   # no art -> nothing
+        except Exception:
+            traceback.print_exc()
+        try:   # button intents
+            rv.setOnClickPendingIntent(id_play, self._action_pi(ACTION_TOGGLE, 11))
+            rv.setOnClickPendingIntent(id_next, self._action_pi(ACTION_NEXT, 12))
+            rv.setOnClickPendingIntent(id_prev, self._action_pi(ACTION_PREV, 13))
+        except Exception:
+            traceback.print_exc()
+        try:   # push to all widget instances
             mgr = AppWidgetManager.getInstance(ctx)
             comp = ComponentName(ctx, _PKG + ".PlayerWidgetProvider")
             mgr.updateAppWidget(comp, rv)
@@ -785,6 +818,11 @@ class AudioService:
             if playing:
                 self._was_playing = True
                 self.push_state()
+                # Keep the home widget current (and populate it if it was just
+                # added mid-playback) without repainting on every 0.5s tick.
+                self._widget_tick = (self._widget_tick + 1) % 4
+                if self._widget_tick == 0:
+                    self.update_widget()
             elif self._was_playing and not self._paused:
                 self._was_playing = False
                 self._advance_ended()
