@@ -449,7 +449,11 @@ class AudioService:
             traceback.print_exc()
         try:   # push to all widget instances
             mgr = AppWidgetManager.getInstance(ctx)
-            comp = ComponentName(ctx, _PKG + ".PlayerWidgetProvider")
+            # Use ComponentName(String pkg, String cls): passing the Context
+            # makes pyjnius mis-resolve to ComponentName(String, String) and
+            # reject the Context ("Invalid instance ... for java/lang/String").
+            comp = ComponentName(ctx.getPackageName(),
+                                 _PKG + ".PlayerWidgetProvider")
             ids = mgr.getAppWidgetIds(comp)
             n = len(ids) if ids is not None else -1
             mgr.updateAppWidget(comp, rv)
