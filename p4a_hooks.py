@@ -53,6 +53,64 @@ def _inject(path):
     return True
 
 
+def _patch_template_text(text):
+    """Insert the receiver before </application> in a manifest *template*."""
+    if "PlayerWidgetProvider" in text:
+        return text, True   # already patched (idempotent)
+    if "</application>" not in text:
+        return text, False
+    return text.replace("</application>", RECEIVER_XML + "    </application>", 1), True
+
+
+def _template_paths():
+    """Find the SDL2 AndroidManifest templates (dist copies + p4a package)."""
+    paths = []
+    for root in (os.getcwd(), os.path.join(os.getcwd(), ".buildozer")):
+        if os.path.isdir(root):
+            paths += glob.glob(os.path.join(
+                root, "**", "templates", "AndroidManifest.tmpl.xml"), recursive=True)
+    try:
+        import pythonforandroid
+        base = os.path.dirname(pythonforandroid.__file__)
+        paths += glob.glob(os.path.join(
+            base, "bootstraps", "*", "build", "templates",
+            "AndroidManifest.tmpl.xml"))
+    except Exception:
+        pass
+    seen = set()
+    return [p for p in paths if not (p in seen or seen.add(p))]
+
+
+def _patch_templates():
+    """
+    Inject the receiver into the manifest TEMPLATE(s) before p4a renders them.
+
+    p4a renders AndroidManifest.tmpl.xml -> AndroidManifest.xml during the apk
+    step, *after* before_apk_build and *before* gradle packages the APK, with
+    no hook in between. Patching the template (which exists at before_apk_build)
+    makes the rendered manifest contain the receiver.
+    """
+    patched = 0
+    for path in _template_paths():
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        new_text, ok = _patch_template_text(text)
+        if not ok:
+            continue
+        if new_text != text:
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(new_text)
+            except OSError:
+                continue
+            print("p4a_hooks: patched manifest template", path)
+        patched += 1
+    return patched
+
+
 def _inject_into_app_manifests():
     """Patch every app manifest found by recursive sweep; return count."""
     injected = 0
@@ -77,10 +135,16 @@ def _inject_into_app_manifests():
 
 
 def before_apk_build(toolchain):
-    """Add the App Widget <receiver> to the app manifest before the APK build."""
+    """Add the App Widget <receiver> by patching the manifest template.
+
+    The rendered manifest does not exist yet at this point, so patch the
+    template that p4a is about to render (the durable fix), and also patch any
+    already-rendered manifest just in case.
+    """
     print("p4a_hooks: before_apk_build, cwd =", os.getcwd())
-    if not _inject_into_app_manifests():
-        print("p4a_hooks: WARNING - app manifest not found at before_apk_build")
+    n = _patch_templates()
+    print("p4a_hooks: patched", n, "manifest template(s)")
+    _inject_into_app_manifests()
 
 
 def after_apk_build(toolchain):
