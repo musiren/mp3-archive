@@ -5,17 +5,19 @@
 Desktop ↔ Android feature parity is essentially complete: the Android (KivyMD)
 app now covers scanning, search, five view modes (목록 / 자세히 / 트리 / 타일 /
 표), online metadata, full tag editing, the playlist/queue subsystem, the player
-controls, and **background playback** (foreground service: keeps playing
-backgrounded / screen-off, queue + auto-advance owned by the service, audio
-focus, and notification + lock-screen media controls). Verified on-device
-(Galaxy SM-S928N).
+controls (with the volume slider driving the system media volume), a
+home-screen player widget, and **background playback** (foreground service:
+keeps playing backgrounded / screen-off, queue + auto-advance owned by the
+service, audio focus, and notification + lock-screen media controls). Verified
+on-device (Galaxy SM-S928N).
 
 ## Android — follow-ups / nice-to-have
 
-- **Persist UI state across launches** — sort mode, theme, view mode, and
-  volume are kept in memory only. Persisting the **last scanned folder** would
-  also keep the 트리 view and the tree-folder "재생목록에 추가" working after a
-  relaunch without re-scanning (today `_last_dir` resets to None).
+- **Persist UI state across launches** — sort mode, theme, and view mode are
+  kept in memory only (volume now follows the system media volume, which the OS
+  persists). Persisting the **last scanned folder** would also keep the 트리
+  view and the tree-folder "재생목록에 추가" working after a relaunch without
+  re-scanning (today `_last_dir` resets to None).
 - **Rebuild the UI queue after a cold restart** — if the OS fully kills the UI
   process while the service keeps playing, the relaunched UI shows an empty
   queue (playback continues). Have the service push its queue on resume so the
