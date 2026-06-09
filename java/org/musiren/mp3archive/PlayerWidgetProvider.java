@@ -28,9 +28,19 @@ public class PlayerWidgetProvider extends AppWidgetProvider {
         return PendingIntent.getBroadcast(ctx, req, intent, flags);
     }
 
+    private static PendingIntent openApp(Context ctx) {
+        Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(PKG);
+        if (launch == null) {
+            launch = new Intent(Intent.ACTION_MAIN).setPackage(PKG);
+        }
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getActivity(ctx, 0, launch, flags);
+    }
+
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
         RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_player);
+        rv.setOnClickPendingIntent(R.id.widget_root, openApp(ctx));
         rv.setOnClickPendingIntent(R.id.widget_play_pause, broadcast(ctx, PKG + ".TOGGLE", 1));
         rv.setOnClickPendingIntent(R.id.widget_next, broadcast(ctx, PKG + ".NEXT", 2));
         rv.setOnClickPendingIntent(R.id.widget_prev, broadcast(ctx, PKG + ".PREV", 3));

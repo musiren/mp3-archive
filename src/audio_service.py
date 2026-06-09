@@ -405,18 +405,15 @@ class AudioService:
         """
         ctx = self._service
         layout_id = self._res_id("widget_player", "layout")
+        if not layout_id:
+            return   # widget resources not present (e.g. an older build)
+        id_root = self._res_id("widget_root", "id")
         id_title = self._res_id("widget_title", "id")
         id_artist = self._res_id("widget_artist", "id")
         id_art = self._res_id("widget_art", "id")
         id_play = self._res_id("widget_play_pause", "id")
         id_next = self._res_id("widget_next", "id")
         id_prev = self._res_id("widget_prev", "id")
-        print("WIDGETDBG update_widget layout=%d title_id=%d artist_id=%d "
-              "art_id=%d title=%r" % (layout_id, id_title, id_artist, id_art,
-                                      self._title))
-        if not layout_id:
-            print("WIDGETDBG layout id not found - aborting")
-            return   # widget resources not present (e.g. an older build)
         try:
             rv = RemoteViews(ctx.getPackageName(), layout_id)
         except Exception:
@@ -441,7 +438,11 @@ class AudioService:
                 rv.setImageViewResource(id_art, 0)   # no art -> nothing
         except Exception:
             traceback.print_exc()
-        try:   # button intents
+        try:   # button intents + tap-elsewhere opens the app
+            if id_root:
+                content = self._content_pi()
+                if content is not None:
+                    rv.setOnClickPendingIntent(id_root, content)
             rv.setOnClickPendingIntent(id_play, self._action_pi(ACTION_TOGGLE, 11))
             rv.setOnClickPendingIntent(id_next, self._action_pi(ACTION_NEXT, 12))
             rv.setOnClickPendingIntent(id_prev, self._action_pi(ACTION_PREV, 13))
@@ -454,12 +455,8 @@ class AudioService:
             # reject the Context ("Invalid instance ... for java/lang/String").
             comp = ComponentName(ctx.getPackageName(),
                                  _PKG + ".PlayerWidgetProvider")
-            ids = mgr.getAppWidgetIds(comp)
-            n = len(ids) if ids is not None else -1
             mgr.updateAppWidget(comp, rv)
-            print("WIDGETDBG updateAppWidget pushed; instance count =", n)
         except Exception:
-            print("WIDGETDBG updateAppWidget FAILED")
             traceback.print_exc()
 
     # -- playback engine -----------------------------------------------------
