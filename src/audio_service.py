@@ -36,7 +36,7 @@ from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
-from audio_meta import get_album_art
+from audio_meta import get_album, get_album_art
 from playlist import PLAY_MODES, next_index, prev_index
 
 RemoteViews = autoclass("android.widget.RemoteViews")
@@ -159,6 +159,8 @@ class AudioService:
         self._widget_tick = 0         # throttle counter for periodic widget repaint
         self._widget_art_path = None  # track path the cached widget art is for
         self._widget_art_bmp = None   # cached decoded album-art Bitmap
+        self._album_path = None       # track path the cached album name is for
+        self._album = None            # cached album name for the current track
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
         self._volume = self._system_volume_fraction()   # mirror system volume
         self._setup_controls()
@@ -233,14 +235,23 @@ class AudioService:
         if session is None:
             return
         try:
-            meta = (MediaMetadataBuilder()
-                    .putString(MediaMetadata.METADATA_KEY_TITLE,
-                               self._title or "")
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
-                               self._subtitle or "")
-                    .build())
-            session.setMetadata(meta)
-            pos, _ = self._position_length()
+            pos, length = self._position_length()
+            # Car head units / lock screen read the now-playing card from this
+            # MediaMetadata: include album, duration and the cover bitmap so the
+            # full track card renders (title/artist alone leaves the card bare).
+            builder = (MediaMetadataBuilder()
+                       .putString(MediaMetadata.METADATA_KEY_TITLE,
+                                  self._title or "")
+                       .putString(MediaMetadata.METADATA_KEY_ARTIST,
+                                  self._subtitle or "")
+                       .putString(MediaMetadata.METADATA_KEY_ALBUM,
+                                  self._album_name() or "")
+                       .putLong(MediaMetadata.METADATA_KEY_DURATION,
+                                int(length * 1000)))
+            art = self._widget_art_bitmap()
+            if art is not None:
+                builder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art)
+            session.setMetadata(builder.build())
             playing = self._is_playing()
             actions = (PlaybackState.ACTION_PLAY_PAUSE
                        | PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
@@ -357,6 +368,18 @@ class AudioService:
         self._update_session()
         self._post_notification()
         self.update_widget()
+
+    def _album_name(self):
+        """Return the current track's album name, or None.
+
+        Cached per track path so the tags are only read on a track change
+        (play/pause refreshes reuse the cached value).
+        """
+        if self._path == self._album_path:
+            return self._album
+        self._album_path = self._path
+        self._album = get_album(self._path) if self._path else None
+        return self._album
 
     # -- home-screen widget --------------------------------------------------
     def _widget_art_bitmap(self):
