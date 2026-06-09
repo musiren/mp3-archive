@@ -26,6 +26,7 @@ is not on the classloader of a python-for-android *service* process, so
 creating such a proxy throws ClassNotFoundException. Polling avoids any proxy.
 """
 
+import os
 import threading
 import time
 import traceback
@@ -35,7 +36,14 @@ from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
+from audio_meta import get_album_art
 from playlist import PLAY_MODES, next_index, prev_index
+
+RemoteViews = autoclass("android.widget.RemoteViews")
+AppWidgetManager = autoclass("android.appwidget.AppWidgetManager")
+ComponentName = autoclass("android.content.ComponentName")
+BitmapFactory = autoclass("android.graphics.BitmapFactory")
+BitmapFactoryOptions = autoclass("android.graphics.BitmapFactory$Options")
 
 # --- Android classes -------------------------------------------------------
 PythonService = autoclass("org.kivy.android.PythonService")
@@ -148,6 +156,8 @@ class AudioService:
         self._focus_request = None    # AudioFocusRequest (API 26+)
         self._session = None          # MediaSession for lock-screen controls
         self._receiver = None         # BroadcastReceiver for notification taps
+        self._widget_art_path = None  # track path the cached widget art is for
+        self._widget_art_bmp = None   # cached decoded album-art Bitmap
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
         self._volume = self._system_volume_fraction()   # mirror system volume
         self._setup_controls()
@@ -342,9 +352,70 @@ class AudioService:
             traceback.print_exc()
 
     def _refresh_controls(self) -> None:
-        """Refresh the MediaSession state and the ongoing notification."""
+        """Refresh the MediaSession, the notification, and the home widget."""
         self._update_session()
         self._post_notification()
+        self.update_widget()
+
+    # -- home-screen widget --------------------------------------------------
+    def _widget_art_bitmap(self):
+        """Return a downsampled Bitmap of the current track's art, or None.
+
+        Cached per track path so the art is only extracted/decoded on a track
+        change (repaints for play/pause reuse it).
+        """
+        if self._path == self._widget_art_path:
+            return self._widget_art_bmp
+        self._widget_art_path = self._path
+        self._widget_art_bmp = None
+        try:
+            data = get_album_art(self._path) if self._path else None
+            if not data:
+                return None
+            art_file = os.path.join(
+                self._service.getCacheDir().getAbsolutePath(), "widget_art.img")
+            with open(art_file, "wb") as fh:
+                fh.write(data)
+            opts = BitmapFactoryOptions()
+            opts.inSampleSize = 2   # keep RemoteViews bitmap memory small
+            self._widget_art_bmp = BitmapFactory.decodeFile(art_file, opts)
+        except Exception:
+            traceback.print_exc()
+            self._widget_art_bmp = None
+        return self._widget_art_bmp
+
+    def update_widget(self) -> None:
+        """Repaint the home-screen widget with the current track and state."""
+        try:
+            R_id = autoclass(_PKG + ".R$id")
+            R_layout = autoclass(_PKG + ".R$layout")
+        except Exception:
+            return   # widget resources not present (e.g. older build)
+        try:
+            ctx = self._service
+            rv = RemoteViews(ctx.getPackageName(), R_layout.widget_player)
+            rv.setTextViewText(R_id.widget_title, self._title or "")
+            rv.setTextViewText(R_id.widget_artist, self._subtitle or "")
+            rv.setImageViewResource(
+                R_id.widget_play_pause,
+                RDrawable.ic_media_pause if self._is_playing()
+                else RDrawable.ic_media_play)
+            bmp = self._widget_art_bitmap()
+            if bmp is not None:
+                rv.setImageViewBitmap(R_id.widget_art, bmp)
+            else:
+                rv.setImageViewResource(R_id.widget_art, 0)   # no art -> nothing
+            rv.setOnClickPendingIntent(
+                R_id.widget_play_pause, self._action_pi(ACTION_TOGGLE, 11))
+            rv.setOnClickPendingIntent(
+                R_id.widget_next, self._action_pi(ACTION_NEXT, 12))
+            rv.setOnClickPendingIntent(
+                R_id.widget_prev, self._action_pi(ACTION_PREV, 13))
+            mgr = AppWidgetManager.getInstance(ctx)
+            comp = ComponentName(ctx, _PKG + ".PlayerWidgetProvider")
+            mgr.updateAppWidget(comp, rv)
+        except Exception:
+            traceback.print_exc()
 
     # -- playback engine -----------------------------------------------------
     def _release(self) -> None:
