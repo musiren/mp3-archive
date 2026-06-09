@@ -4,7 +4,8 @@ mp3-archive NEWS
 v20260609 (2026-06-09) — second batch
 ===========================================================================
 
-Android UI polish for the list/tree selection flow and the player tab.
+Android UI polish for the list/tree selection flow and the player tab,
+plus system-volume control and a home-screen player widget.
 
 New features (Android)
 ----------------------
@@ -18,6 +19,16 @@ New features (Android)
   around the progress bar, transport, volume and queue rows.
 - Queue rows drop the ✕; a long-press now opens a 재생 / 재생목록에서 제거
   menu instead.
+- System volume: the in-app volume slider now drives the device media
+  volume (AudioManager STREAM_MUSIC) instead of only the player gain, and
+  it follows hardware volume-key changes pushed from the service.
+- Home-screen widget: a resizable App Widget shows the current title and
+  artist (the file name when untagged) over the album art with
+  previous / play-pause / next buttons. The title/artist/buttons stay
+  centred at any widget size, a translucent scrim keeps the white text
+  legible over bright art, and tapping the widget body opens the app. The
+  buttons drive the same service the notification and lock screen use, and
+  the service repaints the widget as the track / play state changes.
 
 Bug fixes (Android)
 -------------------
