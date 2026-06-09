@@ -405,14 +405,18 @@ class AudioService:
         """
         ctx = self._service
         layout_id = self._res_id("widget_player", "layout")
-        if not layout_id:
-            return   # widget resources not present (e.g. an older build)
         id_title = self._res_id("widget_title", "id")
         id_artist = self._res_id("widget_artist", "id")
         id_art = self._res_id("widget_art", "id")
         id_play = self._res_id("widget_play_pause", "id")
         id_next = self._res_id("widget_next", "id")
         id_prev = self._res_id("widget_prev", "id")
+        print("WIDGETDBG update_widget layout=%d title_id=%d artist_id=%d "
+              "art_id=%d title=%r" % (layout_id, id_title, id_artist, id_art,
+                                      self._title))
+        if not layout_id:
+            print("WIDGETDBG layout id not found - aborting")
+            return   # widget resources not present (e.g. an older build)
         try:
             rv = RemoteViews(ctx.getPackageName(), layout_id)
         except Exception:
@@ -446,8 +450,12 @@ class AudioService:
         try:   # push to all widget instances
             mgr = AppWidgetManager.getInstance(ctx)
             comp = ComponentName(ctx, _PKG + ".PlayerWidgetProvider")
+            ids = mgr.getAppWidgetIds(comp)
+            n = len(ids) if ids is not None else -1
             mgr.updateAppWidget(comp, rv)
+            print("WIDGETDBG updateAppWidget pushed; instance count =", n)
         except Exception:
+            print("WIDGETDBG updateAppWidget FAILED")
             traceback.print_exc()
 
     # -- playback engine -----------------------------------------------------
