@@ -27,51 +27,20 @@ RECEIVER_XML = """
 """ % PACKAGE
 
 
-def _toolchain_dist_dirs(toolchain):
-    """Best-effort dist directories from the toolchain object (API varies)."""
-    dirs = []
-    for chain in (("_dist", "dist_dir"), ("ctx", "dist_dir"),
-                  ("ctx", "dist", "dist_dir")):
-        obj = toolchain
-        for attr in chain:
-            obj = getattr(obj, attr, None)
-        if isinstance(obj, str) and obj:
-            dirs.append(obj)
-    return dirs
-
-
-def _candidate_manifests(toolchain):
-    """Collect plausible rendered-manifest paths, most specific first."""
-    cwd = os.getcwd()
-    paths = []
-    for dist_dir in _toolchain_dist_dirs(toolchain):
-        paths.append(os.path.join(dist_dir, "src", "main", "AndroidManifest.xml"))
-    # During this hook p4a's CWD is usually the dist dir itself.
-    paths.append(os.path.join(cwd, "src", "main", "AndroidManifest.xml"))
-    # Recursive sweeps from the CWD and the buildozer build tree.
-    roots = [cwd, os.path.join(cwd, ".buildozer")]
-    for root in roots:
-        if os.path.isdir(root):
-            paths.extend(glob.glob(
-                os.path.join(root, "**", "src", "main", "AndroidManifest.xml"),
-                recursive=True))
-            paths.extend(glob.glob(
-                os.path.join(root, "**", "AndroidManifest.xml"),
-                recursive=True))
-    # De-duplicate, keep order.
-    seen = set()
-    return [p for p in paths if not (p in seen or seen.add(p))]
+def _is_app_manifest(text):
+    """True only for THIS app's rendered manifest (not SDL/library manifests)."""
+    return "</application>" in text and "org.kivy.android.PythonActivity" in text
 
 
 def _inject(path):
-    """Insert the widget <receiver> before </application> in *path*."""
+    """Insert the widget <receiver> before </application> in the app manifest."""
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
     except OSError:
         return False
-    if "</application>" not in text:
-        return False   # not a full app manifest (e.g. a template fragment)
+    if not _is_app_manifest(text):
+        return False   # a library/template manifest, not the app's
     if (PACKAGE + ".PlayerWidgetProvider") in text:
         return True    # already injected (idempotent)
     text = text.replace("</application>", RECEIVER_XML + "    </application>", 1)
@@ -84,17 +53,41 @@ def _inject(path):
     return True
 
 
-def before_apk_build(toolchain):
-    """Add the App Widget <receiver> to the manifest before the APK is built."""
-    print("p4a_hooks: before_apk_build, cwd =", os.getcwd())
-    candidates = _candidate_manifests(toolchain)
-    print("p4a_hooks: %d manifest candidate(s)" % len(candidates))
+def _inject_into_app_manifests():
+    """Patch every app manifest found by recursive sweep; return count."""
     injected = 0
-    for path in candidates:
-        if os.path.exists(path) and _inject(path):
-            injected += 1
-    if not injected:
-        for path in candidates:
-            print("p4a_hooks:   tried", path, "exists=", os.path.exists(path))
-        print("p4a_hooks: WARNING - widget receiver NOT injected; "
-              "the home-screen widget will be missing")
+    seen = set()
+    for root in (os.getcwd(), os.path.join(os.getcwd(), ".buildozer")):
+        if not os.path.isdir(root):
+            continue
+        for path in glob.glob(os.path.join(root, "**", "AndroidManifest.xml"),
+                              recursive=True):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    is_app = _is_app_manifest(fh.read())
+            except OSError:
+                is_app = False
+            print("p4a_hooks:   manifest", path, "is_app=", is_app)
+            if is_app and _inject(path):
+                injected += 1
+    return injected
+
+
+def before_apk_build(toolchain):
+    """Add the App Widget <receiver> to the app manifest before the APK build."""
+    print("p4a_hooks: before_apk_build, cwd =", os.getcwd())
+    if not _inject_into_app_manifests():
+        print("p4a_hooks: WARNING - app manifest not found at before_apk_build")
+
+
+def after_apk_build(toolchain):
+    """
+    Re-patch after build in case the manifest was (re-)rendered post
+    before_apk_build. Patching the source manifest then is too late for the
+    already-assembled APK, but logs the path so the timing is verifiable.
+    """
+    print("p4a_hooks: after_apk_build, cwd =", os.getcwd())
+    _inject_into_app_manifests()
