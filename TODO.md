@@ -20,8 +20,10 @@ focus, and notification + lock-screen media controls). Verified on-device
   process while the service keeps playing, the relaunched UI shows an empty
   queue (playback continues). Have the service push its queue on resume so the
   UI can rebuild it.
-- **Queue reorder** — add up/down buttons per queue row (KivyMD's RecycleView
-  has no touch drag-reorder).
+- **Queue reorder (deferred)** — the user wants to drag queue rows to reorder,
+  but KivyMD's RecycleView has no built-in drag-reorder (recycled widgets need
+  a ghost-overlay drag). Decide between a true drag implementation and simpler
+  up/down move actions in the queue row's long-press menu.
 - **Local-fallback seek is best-effort** — when the background service is
   unavailable the SoundLoader fallback's `get_pos()` returns 0 and `seek()` may
   be ignored. The service path uses `android.media.MediaPlayer`, whose `seekTo`

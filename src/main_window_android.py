@@ -20,6 +20,7 @@ Entry point for buildozer:
 """
 
 import os
+import random
 import threading
 
 from kivy.clock import Clock, mainthread
@@ -29,7 +30,12 @@ from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.factory import Factory
-from kivy.properties import BooleanProperty, ListProperty, StringProperty
+from kivy.properties import (
+    BooleanProperty,
+    ListProperty,
+    NumericProperty,
+    StringProperty,
+)
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.recycleboxlayout import RecycleBoxLayout
 from kivy.uix.recyclegridlayout import RecycleGridLayout
@@ -41,7 +47,7 @@ from kivymd.app import MDApp
 from kivymd.uix.behaviors import TouchBehavior
 from kivymd.uix.bottomnavigation import MDBottomNavigation
 from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.button import MDIconButton, MDFlatButton
+from kivymd.uix.button import MDIconButton, MDFlatButton, MDRaisedButton
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.filemanager import MDFileManager
 from kivymd.uix.label import MDLabel
@@ -165,6 +171,8 @@ KV = """
         icon: "check-circle" if root.selected else "circle-outline"
         theme_text_color: "Custom"
         text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        opacity: 1 if app.selection_mode else 0
+        disabled: not app.selection_mode
         on_release: app.toggle_select(root)
 
 <Mp3RowList>:
@@ -174,10 +182,19 @@ KV = """
         icon: "check-circle" if root.selected else "circle-outline"
         theme_text_color: "Custom"
         text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        opacity: 1 if app.selection_mode else 0
+        disabled: not app.selection_mode
         on_release: app.toggle_select(root)
 
 <Mp3TreeRow>:
     on_release: app.tree_row_tapped(root)
+    IconRightWidget:
+        icon: "check-circle" if root.selected else "circle-outline"
+        theme_text_color: "Custom"
+        text_color: app.theme_cls.primary_color if root.selected else (0.6, 0.6, 0.6, 1)
+        opacity: 1 if app.selection_mode else 0
+        disabled: not app.selection_mode
+        on_release: app.tree_toggle_select(root)
 
 <Mp3Tile>:
     orientation: "vertical"
@@ -210,9 +227,6 @@ KV = """
     theme_text_color: "Custom"
     text_color: app.theme_cls.primary_color if root.playing else app.theme_cls.text_color
     on_release: app.play_queue_index(root.index)
-    IconRightWidget:
-        icon: "close"
-        on_release: app.remove_from_queue(root.index)
 
 <LyricsContent>:
     orientation: "vertical"
@@ -408,7 +422,7 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(40)
+                    height: dp(48)
                     padding: dp(8), 0
 
                     MDCheckbox:
@@ -432,6 +446,14 @@ MDBoxLayout:
                         font_style: "Caption"
                         theme_text_color: "Secondary"
                         pos_hint: {"center_y": 0.5}
+
+                    MDIconButton:
+                        id: select_btn
+                        icon: "checkbox-multiple-marked-circle" if app.selection_mode else "checkbox-multiple-marked-circle-outline"
+                        theme_text_color: "Custom"
+                        text_color: app.theme_cls.primary_color if app.selection_mode else app.theme_cls.text_color
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.open_select_menu()
 
                 MDProgressBar:
                     id: progress_bar
@@ -519,6 +541,18 @@ MDBoxLayout:
                                 default_size: None, dp(40)
                                 default_size_hint: 1, None
 
+                MDBoxLayout:
+                    id: sel_bar
+                    size_hint_y: None
+                    height: dp(56) if app.selection_mode and app.selection_count > 0 else 0
+                    opacity: 1 if app.selection_mode and app.selection_count > 0 else 0
+                    padding: dp(8), dp(6)
+
+                    MDRaisedButton:
+                        text: "재생목록에 추가 (" + str(app.selection_count) + "곡)"
+                        size_hint_x: 1
+                        on_release: app.add_selected_to_queue()
+
         MDBottomNavigationItem:
             name: "player"
             text: "재생"
@@ -526,8 +560,8 @@ MDBoxLayout:
 
             MDBoxLayout:
                 orientation: "vertical"
-                padding: dp(12)
-                spacing: dp(8)
+                padding: dp(8), dp(4)
+                spacing: dp(2)
 
                 Image:
                     id: now_art
@@ -544,7 +578,7 @@ MDBoxLayout:
                     halign: "center"
                     font_style: "H6"
                     size_hint_y: None
-                    height: dp(36)
+                    height: dp(32)
 
                 MDLabel:
                     id: now_playing_sub
@@ -562,7 +596,7 @@ MDBoxLayout:
                     value: 0
                     hint: False
                     size_hint_y: None
-                    height: dp(32)
+                    height: dp(28)
 
                 MDBoxLayout:
                     size_hint_y: None
@@ -583,7 +617,7 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(64)
+                    height: dp(52)
                     spacing: dp(8)
 
                     Widget:
@@ -639,7 +673,7 @@ MDBoxLayout:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(48)
+                    height: dp(44)
                     padding: dp(4), 0
 
                     MDFlatButton:
@@ -647,6 +681,12 @@ MDBoxLayout:
                         text: "가사"
                         pos_hint: {"center_y": 0.5}
                         on_release: app.toggle_lower_view()
+
+                    MDIconButton:
+                        id: art_toggle
+                        icon: "image"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.toggle_art_visibility()
 
                     Widget:
 
@@ -783,13 +823,14 @@ class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
         _open_actions_for(self)
 
 
-class Mp3TreeRow(RecycleDataViewBehavior, OneLineListItem, TouchBehavior):
+class Mp3TreeRow(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavior):
     """One-line folder/file row for the 트리 (tree) view (a RecycleView viewclass)."""
 
-    is_dir = BooleanProperty(False)
-    path   = StringProperty("")
-    key    = StringProperty("")
-    index  = None
+    is_dir   = BooleanProperty(False)
+    path     = StringProperty("")
+    key      = StringProperty("")
+    selected = BooleanProperty(False)
+    index    = None
 
     def refresh_view_attrs(self, rv, index, data):
         """Record the data index each time this recycled view is (re)bound."""
@@ -886,8 +927,8 @@ class TableRow(RecycleDataViewBehavior, MDBoxLayout):
             self.add_widget(label)
 
 
-class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
-    """A queue (재생목록) row: tap to play that track, ✕ to remove it."""
+class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior):
+    """A queue (재생목록) row: tap to play that track, long-press for actions."""
 
     q_title  = StringProperty("")
     q_sub    = StringProperty("")
@@ -898,6 +939,12 @@ class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem):
         """Record the data index each time this recycled view is (re)bound."""
         self.index = index
         return super().refresh_view_attrs(rv, index, data)
+
+    def on_long_touch(self, *args) -> None:
+        """Open the queue-row actions menu (재생 / 제거) on a long press."""
+        app = MDApp.get_running_app()
+        if app is not None:
+            app.open_queue_actions(self)
 
 
 class _HeaderCell(ButtonBehavior, MDLabel):
@@ -938,6 +985,12 @@ class Mp3ArchiveApp(MDApp):
     scan thread, posting updates to the main thread via Clock.schedule_once.
     """
 
+    # Selection mode for the 목록 list: while on, each row shows a check
+    # circle and the "재생목록에 추가" bar appears. Kivy properties so the KV
+    # can react (show/hide the per-row checks and the bottom bar).
+    selection_mode = BooleanProperty(False)
+    selection_count = NumericProperty(0)
+
     def __init__(self, **kwargs) -> None:
         """Initialise the app, open the SQLite database, and reset player state."""
         super().__init__(**kwargs)
@@ -956,10 +1009,12 @@ class Mp3ArchiveApp(MDApp):
         self._pre_mute_volume = 100    # slider level to restore when unmuting
         self._pos_event = None         # Clock event polling playback position
         self._suppress_next_play = False  # skip play_row right after a long-press
+        self._suppress_next_queue_play = False  # skip queue play after long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
         self._play_mode = "sequential"  # see playlist.PLAY_MODES
         self._playing_path = ""        # path of the track currently loaded
         self._lower_view = "queue"     # 재생 tab lower area: "queue" or "lyrics"
+        self._show_art = True          # whether to show album art on the 재생 tab
         # Placeholder shown on the player tab when a track has no album art.
         self._default_art = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "default_art.png"
@@ -1384,9 +1439,7 @@ class Mp3ArchiveApp(MDApp):
         if self._view_mode == "tiles":
             self.root.ids.mp3_grid.data = self._files
         elif self._view_mode == "tree":
-            self.root.ids.mp3_list.data = build_tree_rows(
-                self._files, self._last_dir or "", self._expanded
-            )
+            self.root.ids.mp3_list.data = self._tree_rows()
         else:
             self.root.ids.mp3_list.data = self._files
         self.root.ids.count_label.text = self._count_label_text(
@@ -1462,6 +1515,70 @@ class Mp3ArchiveApp(MDApp):
         row.selected = selected                      # instant feedback on this view
         if row.index is not None and 0 <= row.index < len(self._files):
             self._files[row.index]["selected"] = selected   # persist across recycling
+        self.selection_count = len(self._selected)
+
+    # ------------------------------------------------------------------
+    # Selection mode (목록: 다중 선택 → 재생목록에 추가)
+    # ------------------------------------------------------------------
+
+    def open_select_menu(self) -> None:
+        """Enter selection mode and open the select-actions dropdown."""
+        self.selection_mode = True
+        items = [
+            ("전체 선택", self.select_all_visible),
+            ("선택 해제", self.clear_selection),
+            ("선택 종료", self.exit_selection_mode),
+        ]
+        menu_items = [
+            {"viewclass": "OneLineListItem", "text": text, "height": dp(48),
+             "on_release": (lambda cb=cb: self._run_select_action(cb))}
+            for text, cb in items
+        ]
+        self._select_menu = MDDropdownMenu(
+            caller=self.root.ids.select_btn, items=menu_items, width_mult=3)
+        self._select_menu.open()
+
+    def _run_select_action(self, callback) -> None:
+        """Dismiss the select dropdown and run the chosen action."""
+        if getattr(self, "_select_menu", None) is not None:
+            self._select_menu.dismiss()
+        callback()
+
+    def select_all_visible(self) -> None:
+        """Select every song currently listed (after the active search)."""
+        for f in self._files:
+            self._selected.add(f["path"])
+        self.selection_count = len(self._selected)
+        self._refresh_list()
+
+    def clear_selection(self) -> None:
+        """Deselect everything (stays in selection mode)."""
+        self._selected.clear()
+        self.selection_count = 0
+        self._refresh_list()
+
+    def exit_selection_mode(self) -> None:
+        """Leave selection mode and clear the selection (hides the checks/bar)."""
+        self.selection_mode = False
+        self._selected.clear()
+        self.selection_count = 0
+        self._refresh_list()
+
+    def add_selected_to_queue(self) -> None:
+        """Add the selected songs to the queue, then leave selection mode."""
+        paths = [f["path"] for f in self._files if f["path"] in self._selected]
+        if not paths:
+            paths = list(self._selected)
+        added = 0
+        for path in paths:
+            info = self._row_info_for_path(path)
+            if info:
+                self._queue.add(info)
+                added += 1
+        self._refresh_queue()
+        self._sync_queue()
+        self.exit_selection_mode()
+        Snackbar(text=f"재생목록에 {added}곡 추가됨").open()
 
     # ------------------------------------------------------------------
     # View mode (목록 / 자세히)
@@ -1807,7 +1924,9 @@ class Mp3ArchiveApp(MDApp):
             self._suppress_next_play = False
             return  # a long-press just opened the actions menu; don't also play
         if row.is_dir:
-            self.toggle_tree_folder(row.key)
+            self.toggle_tree_folder(row.key)   # folders always navigate
+        elif self.selection_mode and row.path:
+            self.tree_toggle_select(row)       # in selection mode a tap selects
         elif row.path:
             self._enqueue_and_play(self._row_info(row))
             try:
@@ -1815,15 +1934,60 @@ class Mp3ArchiveApp(MDApp):
             except Exception:
                 pass
 
+    def tree_toggle_select(self, row) -> None:
+        """
+        Toggle selection for a tree row.
+
+        A file row toggles its own path; a folder row toggles every song under
+        it (recursively): selecting if any are unselected, else deselecting all.
+        """
+        if row.is_dir and row.key:
+            paths = [rec["path"] for rec in files_under_folder(
+                self._files, self._last_dir or "", row.key)]
+            if not paths:
+                return
+            select = not all(p in self._selected for p in paths)
+            for p in paths:
+                if select:
+                    self._selected.add(p)
+                else:
+                    self._selected.discard(p)
+        elif row.path:
+            if row.path in self._selected:
+                self._selected.discard(row.path)
+            else:
+                self._selected.add(row.path)
+        self.selection_count = len(self._selected)
+        self._refresh_tree_rows()
+
+    def _tree_rows(self) -> list:
+        """Build the visible tree rows, tagged with their selection state."""
+        rows = build_tree_rows(
+            self._files, self._last_dir or "", self._expanded
+        )
+        base = self._last_dir or ""
+        for r in rows:
+            if r.get("is_dir"):
+                paths = [rec["path"] for rec in files_under_folder(
+                    self._files, base, r.get("key", ""))]
+                r["selected"] = bool(paths) and all(
+                    p in self._selected for p in paths)
+            else:
+                r["selected"] = r.get("path", "") in self._selected
+        return rows
+
+    def _refresh_tree_rows(self) -> None:
+        """Re-assign the tree RecycleView data (e.g. after a selection change)."""
+        if self.root is not None:
+            self.root.ids.mp3_list.data = self._tree_rows()
+
     def toggle_tree_folder(self, key: str) -> None:
         """Expand/collapse a tree folder and rebuild the visible tree rows."""
         if key in self._expanded:
             self._expanded.discard(key)
         else:
             self._expanded.add(key)
-        self.root.ids.mp3_list.data = build_tree_rows(
-            self._files, self._last_dir or "", self._expanded
-        )
+        self._refresh_tree_rows()
 
     # ------------------------------------------------------------------
     # Playback (재생 tab)
@@ -1855,6 +2019,9 @@ class Mp3ArchiveApp(MDApp):
             self._suppress_next_play = False
             return  # a long-press just opened the actions menu; don't also play
         if not row.path:
+            return
+        if self.selection_mode:
+            self.toggle_select(row)   # in selection mode a tap (de)selects
             return
         self._enqueue_and_play(self._row_info(row))
         try:
@@ -1907,7 +2074,39 @@ class Mp3ArchiveApp(MDApp):
 
     def play_queue_index(self, index: int) -> None:
         """Play the queued track at *index* (tapped in the 재생목록 list)."""
+        if self._suppress_next_queue_play:
+            self._suppress_next_queue_play = False
+            return  # a long-press just opened the queue actions menu
         self._play_queue_index(index)
+
+    def open_queue_actions(self, row) -> None:
+        """Show the queue-row actions menu (재생 / 재생목록에서 제거)."""
+        self._suppress_next_queue_play = True   # the long-press also fires on_release
+        index = row.index
+        items = [
+            ("재생", lambda: self._play_queue_index(index)),
+            ("재생목록에서 제거", lambda: self.remove_from_queue(index)),
+        ]
+        box = MDBoxLayout(orientation="vertical", spacing=dp(4),
+                          size_hint_y=None, padding=(0, dp(8)))
+        box.height = dp(48) * len(items) + dp(16)
+        self._queue_actions_dialog = MDDialog(
+            title=row.q_title or "재생목록",
+            type="custom",
+            content_cls=box,
+        )
+        for label, cb in items:
+            box.add_widget(OneLineListItem(
+                text=label,
+                on_release=lambda _w, _cb=cb: self._run_queue_action(_cb),
+            ))
+        self._queue_actions_dialog.open()
+
+    def _run_queue_action(self, callback) -> None:
+        """Dismiss the queue-actions dialog and run the chosen action."""
+        if getattr(self, "_queue_actions_dialog", None) is not None:
+            self._queue_actions_dialog.dismiss()
+        callback()
 
     def play_prev(self) -> None:
         """Play the previous track in the queue per the current play mode."""
@@ -2251,24 +2450,43 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.play_button.icon = "pause"
         self._schedule_pos()
 
+    def _start_index(self) -> int:
+        """
+        Pick the queue index to start from when play is pressed while idle.
+
+        Shuffle picks a random track; every other mode starts at the first
+        track in the queue.
+        """
+        count = len(self._queue)
+        if count <= 0:
+            return 0
+        if self._play_mode == "shuffle":
+            return random.randrange(count)
+        return 0
+
     def toggle_play_pause(self) -> None:
         """
-        Toggle between playing and paused for the current track.
+        Toggle play/pause, or start the queue when nothing is loaded yet.
 
-        Kivy's Sound has no pause, so pausing remembers get_pos() and stops;
-        resuming plays and seeks back to the remembered position.
+        If no track is loaded, the play button begins playing from the queue
+        (random track for shuffle, otherwise the first). Otherwise it toggles
+        the current track. In the SoundLoader fallback, pausing remembers the
+        position (Kivy's Sound has no pause) and resuming seeks back to it.
         """
+        # Nothing loaded yet: the play button starts the queue per the mode.
+        nothing_loaded = (not self._playing_path
+                          if self._svc_active() else self._sound is None)
+        if nothing_loaded:
+            if self._queue.is_empty:
+                Snackbar(text="재생목록이 비어 있습니다.").open()
+            else:
+                self._play_queue_index(self._start_index())
+            return
         if self._svc_active():
-            if not self._playing_path:
-                Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
-                return
             # The play/pause icon is updated from the service's state push.
             self._player_svc.send(ipc.OP_TOGGLE)
             return
         sound = self._sound
-        if sound is None:
-            Snackbar(text="재생할 곡을 목록에서 선택하세요.").open()
-            return
         if sound.state == "play":
             self._paused_pos = self._elapsed
             sound.stop()
@@ -2328,15 +2546,23 @@ class Mp3ArchiveApp(MDApp):
         Show the track's album art on the player tab.
 
         Falls back to the bundled default placeholder when the playing track
-        has no embedded art; collapses the area only when nothing is playing.
+        has no embedded art; collapses the area when nothing is playing or when
+        the user has hidden the art (``_show_art`` is False).
         """
         art = self._album_source(path) if path else ""
         if path and not art and os.path.exists(self._default_art):
             art = self._default_art
+        visible = bool(art) and self._show_art
         image = self.root.ids.now_art
         image.source = art
-        image.opacity = 1 if art else 0
-        image.height = dp(180) if art else 0
+        image.opacity = 1 if visible else 0
+        image.height = dp(180) if visible else 0
+
+    def toggle_art_visibility(self) -> None:
+        """Show or hide the player-tab album art, remembering the choice."""
+        self._show_art = not self._show_art
+        self.root.ids.art_toggle.icon = "image" if self._show_art else "image-off"
+        self._show_now_art(self._playing_path)
 
     def toggle_lower_view(self) -> None:
         """Swap the 재생 tab's lower area between the 재생목록 and the 가사."""
@@ -2451,6 +2677,13 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.play_button.icon = (
             "pause" if state.get("playing") else "play"
         )
+        # Mirror the system media volume on the slider (also reflects the
+        # hardware volume keys). Skip while the user is dragging it, and only
+        # move it on a real change so we don't re-fire on_volume from rounding.
+        vbar = self.root.ids.volume_slider
+        target = state.get("volume", 1.0) * 100
+        if not getattr(vbar, "active", False) and abs(vbar.value - target) > 2:
+            vbar.value = target
 
     def _stop_sound(self) -> None:
         """Stop and unload the current sound and cancel position polling."""

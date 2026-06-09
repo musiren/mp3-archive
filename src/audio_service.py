@@ -26,6 +26,7 @@ is not on the classloader of a python-for-android *service* process, so
 creating such a proxy throws ClassNotFoundException. Polling avoids any proxy.
 """
 
+import os
 import threading
 import time
 import traceback
@@ -35,7 +36,14 @@ from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
+from audio_meta import get_album_art
 from playlist import PLAY_MODES, next_index, prev_index
+
+RemoteViews = autoclass("android.widget.RemoteViews")
+AppWidgetManager = autoclass("android.appwidget.AppWidgetManager")
+ComponentName = autoclass("android.content.ComponentName")
+BitmapFactory = autoclass("android.graphics.BitmapFactory")
+BitmapFactoryOptions = autoclass("android.graphics.BitmapFactory$Options")
 
 # --- Android classes -------------------------------------------------------
 PythonService = autoclass("org.kivy.android.PythonService")
@@ -148,7 +156,11 @@ class AudioService:
         self._focus_request = None    # AudioFocusRequest (API 26+)
         self._session = None          # MediaSession for lock-screen controls
         self._receiver = None         # BroadcastReceiver for notification taps
+        self._widget_tick = 0         # throttle counter for periodic widget repaint
+        self._widget_art_path = None  # track path the cached widget art is for
+        self._widget_art_bmp = None   # cached decoded album-art Bitmap
         self._client = OSCClient("127.0.0.1", ipc.UI_PORT)
+        self._volume = self._system_volume_fraction()   # mirror system volume
         self._setup_controls()
         self._post_notification()
 
@@ -341,9 +353,111 @@ class AudioService:
             traceback.print_exc()
 
     def _refresh_controls(self) -> None:
-        """Refresh the MediaSession state and the ongoing notification."""
+        """Refresh the MediaSession, the notification, and the home widget."""
         self._update_session()
         self._post_notification()
+        self.update_widget()
+
+    # -- home-screen widget --------------------------------------------------
+    def _widget_art_bitmap(self):
+        """Return a downsampled Bitmap of the current track's art, or None.
+
+        Cached per track path so the art is only extracted/decoded on a track
+        change (repaints for play/pause reuse it).
+        """
+        if self._path == self._widget_art_path:
+            return self._widget_art_bmp
+        self._widget_art_path = self._path
+        self._widget_art_bmp = None
+        try:
+            data = get_album_art(self._path) if self._path else None
+            if not data:
+                return None
+            art_file = os.path.join(
+                self._service.getCacheDir().getAbsolutePath(), "widget_art.img")
+            with open(art_file, "wb") as fh:
+                fh.write(data)
+            opts = BitmapFactoryOptions()
+            opts.inSampleSize = 2   # keep RemoteViews bitmap memory small
+            self._widget_art_bmp = BitmapFactory.decodeFile(art_file, opts)
+        except Exception:
+            traceback.print_exc()
+            self._widget_art_bmp = None
+        return self._widget_art_bmp
+
+    def _res_id(self, name, kind):
+        """Resolve an app resource id by name (no R-class autoclass needed)."""
+        try:
+            return self._service.getResources().getIdentifier(
+                name, kind, self._service.getPackageName())
+        except Exception:
+            traceback.print_exc()
+            return 0
+
+    def update_widget(self) -> None:
+        """
+        Repaint the home-screen widget with the current track and state.
+
+        Resource ids are resolved via Resources.getIdentifier rather than the
+        generated R class (which may not resolve from the service process), and
+        each piece is set in its own try so a single failure (e.g. an album-art
+        bitmap) cannot drop the title/artist text.
+        """
+        ctx = self._service
+        layout_id = self._res_id("widget_player", "layout")
+        if not layout_id:
+            return   # widget resources not present (e.g. an older build)
+        id_root = self._res_id("widget_root", "id")
+        id_title = self._res_id("widget_title", "id")
+        id_artist = self._res_id("widget_artist", "id")
+        id_art = self._res_id("widget_art", "id")
+        id_play = self._res_id("widget_play_pause", "id")
+        id_next = self._res_id("widget_next", "id")
+        id_prev = self._res_id("widget_prev", "id")
+        try:
+            rv = RemoteViews(ctx.getPackageName(), layout_id)
+        except Exception:
+            traceback.print_exc()
+            return
+        try:   # title / artist (JString for the CharSequence param)
+            rv.setTextViewText(id_title, JString(self._title or ""))
+            rv.setTextViewText(id_artist, JString(self._subtitle or ""))
+        except Exception:
+            traceback.print_exc()
+        try:   # play/pause glyph
+            rv.setImageViewResource(
+                id_play, RDrawable.ic_media_pause if self._is_playing()
+                else RDrawable.ic_media_play)
+        except Exception:
+            traceback.print_exc()
+        try:   # album-art background (own try so a bitmap error keeps the text)
+            bmp = self._widget_art_bitmap()
+            if bmp is not None:
+                rv.setImageViewBitmap(id_art, bmp)
+            else:
+                rv.setImageViewResource(id_art, 0)   # no art -> nothing
+        except Exception:
+            traceback.print_exc()
+        try:   # button intents + tap-elsewhere opens the app
+            if id_root:
+                content = self._content_pi()
+                if content is not None:
+                    rv.setOnClickPendingIntent(id_root, content)
+            rv.setOnClickPendingIntent(id_play, self._action_pi(ACTION_TOGGLE, 11))
+            rv.setOnClickPendingIntent(id_next, self._action_pi(ACTION_NEXT, 12))
+            rv.setOnClickPendingIntent(id_prev, self._action_pi(ACTION_PREV, 13))
+        except Exception:
+            traceback.print_exc()
+        try:   # push to all widget instances
+            mgr = AppWidgetManager.getInstance(ctx)
+            # Use ComponentName(String pkg, String cls): passing the Context
+            # makes pyjnius mis-resolve to ComponentName(String, String) and
+            # reject the Context ("Invalid instance ... for java/lang/String").
+            comp = ComponentName(ctx.getPackageName(),
+                                 _PKG + ".PlayerWidgetProvider")
+            mgr.updateAppWidget(comp, rv)
+        except Exception:
+            traceback.print_exc()
 
     # -- playback engine -----------------------------------------------------
     def _release(self) -> None:
@@ -528,22 +642,55 @@ class AudioService:
         self.push_state()
 
     def set_volume(self, volume: float) -> None:
-        """Set the playback volume (0.0..1.0), remembered across tracks."""
+        """
+        Set the *system* media volume from the slider (0.0..1.0).
+
+        The slider now drives the device's STREAM_MUSIC volume directly, so it
+        matches what the hardware volume keys change. The MediaPlayer's own
+        (software) volume stays at full and is only lowered for ducking.
+        """
         self._volume = max(0.0, min(1.0, volume))
+        self._set_system_volume(self._volume)
         self._apply_player_volume()
 
-    # -- audio focus ---------------------------------------------------------
+    # -- audio focus / volume ------------------------------------------------
     def _audio_manager(self):
         """Return the system AudioManager."""
         return cast("android.media.AudioManager",
                     self._service.getSystemService(Context.AUDIO_SERVICE))
 
+    def _set_system_volume(self, fraction: float) -> None:
+        """Set the STREAM_MUSIC system volume to *fraction* (0.0..1.0)."""
+        try:
+            am = self._audio_manager()
+            max_vol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            level = int(round(max(0.0, min(1.0, fraction)) * max_vol))
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
+        except Exception:
+            traceback.print_exc()
+
+    def _system_volume_fraction(self) -> float:
+        """Return the current STREAM_MUSIC volume as a 0.0..1.0 fraction."""
+        try:
+            am = self._audio_manager()
+            max_vol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if max_vol <= 0:
+                return self._volume
+            return am.getStreamVolume(AudioManager.STREAM_MUSIC) / float(max_vol)
+        except Exception:
+            return self._volume
+
     def _apply_player_volume(self) -> None:
-        """Apply the current volume to the player, accounting for ducking."""
+        """
+        Apply the MediaPlayer's software volume (ducking only).
+
+        Loudness is governed by the system volume now, so the player stays at
+        full unless audio focus asks us to duck.
+        """
         player = self._player   # read once; a command thread may swap it
         if player is None:
             return
-        vol = self._volume * (_DUCK_FACTOR if self._ducked else 1.0)
+        vol = _DUCK_FACTOR if self._ducked else 1.0
         try:
             player.setVolume(vol, vol)
         except Exception:
@@ -653,7 +800,7 @@ class AudioService:
         payload = ipc.make_state(
             playing=self._is_playing(), path=self._path, title=self._title,
             subtitle=self._subtitle, position=pos, length=length,
-            index=self._index,
+            index=self._index, volume=self._system_volume_fraction(),
         )
         try:
             self._client.send_message(ipc.ADDR_STATE, [payload.encode("utf-8")])
@@ -680,6 +827,11 @@ class AudioService:
             if playing:
                 self._was_playing = True
                 self.push_state()
+                # Keep the home widget current (and populate it if it was just
+                # added mid-playback) without repainting on every 0.5s tick.
+                self._widget_tick = (self._widget_tick + 1) % 4
+                if self._widget_tick == 0:
+                    self.update_widget()
             elif self._was_playing and not self._paused:
                 self._was_playing = False
                 self._advance_ended()

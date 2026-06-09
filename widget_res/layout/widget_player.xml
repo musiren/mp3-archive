@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget: album-art background + centred title/artist + transport.
+     Tapping anywhere but the buttons (widget_root) opens the app. A translucent
+     scrim band keeps the text/icons legible over bright album art. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Album art background (cleared to nothing when the track has no art). -->
+    <ImageView
+        android:id="@+id/widget_art"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null" />
+
+    <!-- Centred content band with a translucent scrim for legibility. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#73000000"
+        android:padding="10dp">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textStyle="bold"
+            android:textSize="15sp"
+            android:shadowColor="#FF000000"
+            android:shadowRadius="4" />
+
+        <TextView
+            android:id="@+id/widget_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:shadowColor="#FF000000"
+            android:shadowRadius="4" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/widget_prev"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:selectableItemBackground"
+                android:src="@android:drawable/ic_media_previous"
+                android:contentDescription="previous" />
+
+            <ImageButton
+                android:id="@+id/widget_play_pause"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:selectableItemBackground"
+                android:src="@android:drawable/ic_media_play"
+                android:contentDescription="play/pause" />
+
+            <ImageButton
+                android:id="@+id/widget_next"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:selectableItemBackground"
+                android:src="@android:drawable/ic_media_next"
+                android:contentDescription="next" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

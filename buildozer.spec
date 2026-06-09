@@ -43,6 +43,11 @@ services = audioplayback:audio_service.py:foreground
 # to the service as broadcasts. Source lives under java/<package path>/.
 android.add_src = java
 
+# Home-screen widget resources (RemoteViews layout + AppWidgetProviderInfo),
+# copied into the APK res/ directory. The widget <receiver> is injected into
+# the manifest by the p4a.hook below (no stock buildozer key adds a receiver).
+android.add_resources = widget_res
+
 # READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE cover API < 33;
 # READ_MEDIA_AUDIO covers API 33+ (Android 13). MANAGE_EXTERNAL_STORAGE
 # ("All files access") is required to browse and scan arbitrary directories
@@ -75,6 +80,10 @@ android.allow_backup = True
 # 3.14, e.g. _PyList_Extend and the 6-arg _PyLong_AsByteArray). This
 # release supports NDK r25 only, hence android.ndk = 25b above.
 p4a.branch = v2024.01.21
+
+# Build hook: injects the App Widget <receiver> into the rendered manifest
+# (p4a v2024.01.21 has no buildozer key for an <application>-child receiver).
+p4a.hook = p4a_hooks.py
 
 [buildozer]
 log_level = 2

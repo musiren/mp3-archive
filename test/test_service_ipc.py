@@ -110,7 +110,8 @@ class TestState(unittest.TestCase):
     def test_round_trip(self):
         """make_state -> parse_state preserves every field."""
         s = ipc.make_state(playing=True, path="/a.mp3", title="a",
-                           subtitle="x", position=10.0, length=200.0, index=3)
+                           subtitle="x", position=10.0, length=200.0, index=3,
+                           volume=0.5)
         st = ipc.parse_state(s)
         self.assertTrue(st["playing"])
         self.assertEqual(st["path"], "/a.mp3")
@@ -119,6 +120,11 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["position"], 10.0)
         self.assertEqual(st["length"], 200.0)
         self.assertEqual(st["index"], 3)
+        self.assertEqual(st["volume"], 0.5)
+
+    def test_volume_clamped_in_state(self):
+        """A state volume above 1.0 is clamped on parse."""
+        self.assertEqual(ipc.parse_state(json.dumps({"volume": 9}))["volume"], 1.0)
 
     def test_defaults_when_empty(self):
         """parse_state of an empty object yields a fully-defaulted idle state."""
@@ -128,6 +134,7 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["position"], 0.0)
         self.assertEqual(st["length"], 0.0)
         self.assertEqual(st["index"], -1)
+        self.assertEqual(st["volume"], 1.0)
 
     def test_malformed_payload_yields_idle_state(self):
         """A malformed (non-JSON) state payload degrades to an idle state."""
