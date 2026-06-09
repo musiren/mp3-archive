@@ -1,9 +1,10 @@
 """
-make_android_preview.py - Compose the Android UI preview montage.
+make_android_preview.py - Compose the Android UI preview images.
 
 Tiles the on-device screenshots in assets/android-shots/ into
-docs/android-ui-preview.jpg (the Android counterpart of docs/ui-preview.jpg
-used in README.md). Re-run after replacing the source shots:
+docs/android-ui-preview.jpg (the four portrait app screens) and frames the
+landscape home-screen widget shot into docs/android-widget-preview.jpg. Both
+are referenced from README.md. Re-run after replacing the source shots:
 
     python assets/make_android_preview.py
 """
@@ -16,6 +17,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 _SHOTS = os.path.join(_HERE, "android-shots")
 _OUT = os.path.join(_ROOT, "docs", "android-ui-preview.jpg")
+_WIDGET_OUT = os.path.join(_ROOT, "docs", "android-widget-preview.jpg")
 
 # (source filename, caption) in left-to-right display order.
 SCREENS = [
@@ -24,6 +26,12 @@ SCREENS = [
     ("03-table.png", "표 보기 (다크)"),
     ("04-player.png", "재생 · 재생목록"),
 ]
+
+# Home-screen widget preview: a landscape on-device crop, framed on its own
+# (the portrait phone montage above cannot hold a wide widget shot).
+WIDGET_SHOT = "05-widget.png"
+WIDGET_CAPTION = "홈 화면 위젯 — 앨범아트 위 곡 정보 + 재생 컨트롤"
+WIDGET_W = 900                   # width the widget shot is scaled to (px)
 
 PHONE_H = 1040                   # height each phone shot is scaled to (px)
 GAP = 44                         # horizontal gap between phones
@@ -88,5 +96,31 @@ def main() -> None:
     print(f"wrote {_OUT} ({canvas.size[0]}x{canvas.size[1]})")
 
 
+def make_widget_preview() -> None:
+    """Frame the landscape widget shot into docs/android-widget-preview.jpg."""
+    shot = Image.open(os.path.join(_SHOTS, WIDGET_SHOT)).convert("RGB")
+    height = round(shot.height * WIDGET_W / shot.width)
+    shot = _rounded(shot.resize((WIDGET_W, height), Image.LANCZOS), RADIUS)
+
+    total_w = WIDGET_W + PAD * 2
+    total_h = PAD + height + CAP_GAP + CAP_H + PAD
+    canvas = Image.new("RGB", (total_w, total_h), BG)
+    draw = ImageDraw.Draw(canvas)
+    font = _font(38)
+
+    canvas.paste(shot, (PAD, PAD), shot)
+    draw.rounded_rectangle(
+        [PAD, PAD, PAD + WIDGET_W - 1, PAD + height - 1],
+        radius=RADIUS, outline=BORDER, width=2,
+    )
+    text_w = draw.textlength(WIDGET_CAPTION, font=font)
+    draw.text((PAD + (WIDGET_W - text_w) / 2, PAD + height + CAP_GAP),
+              WIDGET_CAPTION, font=font, fill=CAP_FILL)
+
+    canvas.save(_WIDGET_OUT, quality=90)
+    print(f"wrote {_WIDGET_OUT} ({canvas.size[0]}x{canvas.size[1]})")
+
+
 if __name__ == "__main__":
     main()
+    make_widget_preview()
