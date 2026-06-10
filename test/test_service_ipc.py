@@ -8,6 +8,7 @@ the pure playlist module (for PLAY_MODES validation).
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -18,34 +19,36 @@ import service_ipc as ipc  # noqa: E402
 class TestMakeCommand(unittest.TestCase):
     """Verify command payloads are built and normalised correctly."""
 
-    def test_sync_round_trips_items_index_mode(self):
-        """A sync command keeps its items/index/mode through a round trip."""
-        items = [{"path": "/a.mp3", "title": "a", "subtitle": "x"}]
-        s = ipc.make_command(ipc.OP_SYNC, items=items, index=0, mode="shuffle")
+    def test_sync_round_trips_index_mode(self):
+        """A sync command keeps its index/mode through a round trip."""
+        s = ipc.make_command(ipc.OP_SYNC, index=0, mode="shuffle")
         data = ipc.parse_command(s)
         self.assertEqual(data["op"], ipc.OP_SYNC)
         self.assertEqual(data["index"], 0)
         self.assertEqual(data["mode"], "shuffle")
-        self.assertEqual(data["items"], items)
 
-    def test_sync_normalises_items(self):
-        """Items are coerced to path/title/subtitle dicts; bad entries dropped."""
-        s = ipc.make_command(ipc.OP_SYNC,
-                             items=[{"path": "/a.mp3", "title": "a"},
-                                    {"no_path": 1}, "junk"])
+    def test_sync_strips_items_from_wire_payload(self):
+        """Items passed to make_command are NOT placed on the wire.
+
+        Items go through the shared queue file (``write_queue_items``); the
+        OSC datagram would otherwise blow past the ~64 KB UDP cap for queues
+        of a few hundred tracks and be silently dropped.
+        """
+        items = [{"path": "/a.mp3", "title": "a", "subtitle": "x"}]
+        s = ipc.make_command(ipc.OP_SYNC, items=items, index=0, mode="shuffle")
         data = ipc.parse_command(s)
-        self.assertEqual(len(data["items"]), 1)
-        self.assertEqual(data["items"][0],
-                         {"path": "/a.mp3", "title": "a", "subtitle": ""})
+        self.assertNotIn("items", data)
+        # The payload should be small (no items embedded).
+        self.assertLess(len(s.encode("utf-8")), 200)
 
     def test_sync_unknown_mode_defaults(self):
         """An unrecognised mode falls back to the first PLAY_MODES value."""
-        s = ipc.make_command(ipc.OP_SYNC, items=[], index=-1, mode="bogus")
+        s = ipc.make_command(ipc.OP_SYNC, index=-1, mode="bogus")
         self.assertEqual(ipc.parse_command(s)["mode"], ipc.PLAY_MODES[0])
 
     def test_sync_non_int_index_defaults_minus_one(self):
         """A non-integer index normalises to -1."""
-        s = ipc.make_command(ipc.OP_SYNC, items=[], index="oops")
+        s = ipc.make_command(ipc.OP_SYNC, index="oops")
         self.assertEqual(ipc.parse_command(s)["index"], -1)
 
     def test_unknown_op_rejected(self):
@@ -84,6 +87,74 @@ class TestParseCommand(unittest.TestCase):
         """A payload with an unknown op raises ValueError."""
         with self.assertRaises(ValueError):
             ipc.parse_command(json.dumps({"op": "nope"}))
+
+
+class TestQueueFile(unittest.TestCase):
+    """Verify the shared queue-file helpers used to bypass the OSC size cap."""
+
+    def setUp(self):
+        """Use a fresh temp directory as the storage dir per test."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.storage_dir = self._tmp.name
+
+    def tearDown(self):
+        """Remove the temp directory."""
+        self._tmp.cleanup()
+
+    def test_round_trips_items(self):
+        """write_queue_items + read_queue_items preserves a normalised list."""
+        items = [
+            {"path": "/a.mp3", "title": "A", "subtitle": "Artist A"},
+            {"path": "/b.mp3", "title": "B", "subtitle": "Artist B"},
+        ]
+        ipc.write_queue_items(self.storage_dir, items)
+        self.assertEqual(ipc.read_queue_items(self.storage_dir), items)
+
+    def test_round_trips_korean_unicode(self):
+        """Non-ASCII titles survive the file round trip (UTF-8 / ensure_ascii=False)."""
+        items = [{"path": "/한.mp3", "title": "노래", "subtitle": "가수 — 노래"}]
+        ipc.write_queue_items(self.storage_dir, items)
+        self.assertEqual(ipc.read_queue_items(self.storage_dir), items)
+
+    def test_normalises_on_write(self):
+        """Items missing a path are dropped; other fields coerced to strings."""
+        ipc.write_queue_items(
+            self.storage_dir,
+            [{"path": "/a.mp3", "title": 5}, {"no_path": True}],
+        )
+        self.assertEqual(
+            ipc.read_queue_items(self.storage_dir),
+            [{"path": "/a.mp3", "title": "5", "subtitle": ""}],
+        )
+
+    def test_handles_huge_queue(self):
+        """The file path bypasses the ~64 KB UDP cap that broke OP_SYNC inline."""
+        items = [{"path": f"/song_{i}.mp3",
+                  "title": "노래 " + ("가" * 30) + str(i),
+                  "subtitle": "Artist — " + ("나" * 30)} for i in range(400)]
+        ipc.write_queue_items(self.storage_dir, items)
+        out = ipc.read_queue_items(self.storage_dir)
+        self.assertEqual(len(out), 400)
+        # And the on-disk encoding is comfortably bigger than a UDP datagram.
+        size = os.path.getsize(ipc.queue_file_path(self.storage_dir))
+        self.assertGreater(size, 70_000)
+
+    def test_read_missing_file_returns_empty(self):
+        """A missing queue file yields an empty list, not an exception."""
+        self.assertEqual(ipc.read_queue_items(self.storage_dir), [])
+
+    def test_read_malformed_file_returns_empty(self):
+        """Garbage JSON in the queue file degrades to an empty list."""
+        with open(ipc.queue_file_path(self.storage_dir), "w",
+                  encoding="utf-8") as fh:
+            fh.write("{not json")
+        self.assertEqual(ipc.read_queue_items(self.storage_dir), [])
+
+    def test_write_is_atomic(self):
+        """write_queue_items leaves no .tmp file behind after success."""
+        ipc.write_queue_items(self.storage_dir, [{"path": "/a.mp3"}])
+        tmp = ipc.queue_file_path(self.storage_dir) + ".tmp"
+        self.assertFalse(os.path.exists(tmp))
 
 
 class TestNormalizeItems(unittest.TestCase):

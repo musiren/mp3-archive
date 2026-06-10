@@ -57,6 +57,58 @@ class TestAppDirectory(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestRowInfosForPaths(unittest.TestCase):
+    """Tests for the bulk queue-item lookup used by the add-to-queue paths."""
+
+    def _stub_app(self, files):
+        """Build a minimal stand-in exposing _files and the DB fallback."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace(_files=files)
+        stub._row_info_for_path = (
+            lambda path: Mp3ArchiveApp._row_info_for_path(stub, path))
+        stub._manager = types.SimpleNamespace(get_by_path=lambda path: None)
+        return stub
+
+    def test_resolves_in_list_order(self):
+        """Verifies paths in the list resolve to queue dicts, order preserved."""
+        from main_window_android import Mp3ArchiveApp
+        files = [{"path": f"/m/{i}.mp3", "filename": f"{i}.mp3",
+                  "artist": f"a{i}", "title": f"t{i}"} for i in range(3)]
+        infos = Mp3ArchiveApp._row_infos_for_paths(
+            self._stub_app(files), [f["path"] for f in files])
+        self.assertEqual([i["title"] for i in infos], ["t0", "t1", "t2"])
+        self.assertEqual(infos[0],
+                         {"path": "/m/0.mp3", "filename": "0.mp3",
+                          "artist": "a0", "title": "t0"})
+
+    def test_unknown_paths_dropped(self):
+        """Verifies paths absent from the list and the DB are dropped."""
+        from main_window_android import Mp3ArchiveApp
+        files = [{"path": "/m/0.mp3", "filename": "0.mp3",
+                  "artist": "a", "title": "t"}]
+        infos = Mp3ArchiveApp._row_infos_for_paths(
+            self._stub_app(files), ["/gone.mp3", "/m/0.mp3"])
+        self.assertEqual(len(infos), 1)
+        self.assertEqual(infos[0]["path"], "/m/0.mp3")
+
+    def test_scales_linearly(self):
+        """Verifies a 30k-path bulk lookup stays fast (single index pass)."""
+        import time
+        from main_window_android import Mp3ArchiveApp
+        n = 30_000
+        files = [{"path": f"/m/{i}.mp3", "filename": f"{i}.mp3",
+                  "artist": "a", "title": "t"} for i in range(n)]
+        start = time.perf_counter()
+        infos = Mp3ArchiveApp._row_infos_for_paths(
+            self._stub_app(files), [f["path"] for f in files])
+        elapsed = time.perf_counter() - start
+        self.assertEqual(len(infos), n)
+        # The old per-path linear rescan took ~20s+ at this size; the indexed
+        # pass is tens of milliseconds. 2s leaves headroom for slow machines.
+        self.assertLess(elapsed, 2.0)
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestKvLayout(unittest.TestCase):
     """Tests for the KivyMD KV layout string."""
 

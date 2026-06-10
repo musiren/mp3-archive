@@ -1,6 +1,34 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260610 (2026-06-10) — second batch
+===========================================================================
+
+Large-playlist playback fix and replace-on-pick scanning for Android.
+
+Bug fixes (Android)
+-------------------
+- Playing a large queue did nothing: the queue was shipped to the
+  playback service inside a single OSC/UDP datagram, which is capped at
+  ~64 KB. A few hundred tracks with Korean paths/titles (e.g. a 347-song
+  folder serialises to ~91 KB) failed with "Message too long", the
+  service never received the queue, and pressing play had no effect.
+  The queue items now go through a shared playback_queue.json file in
+  app storage; the sync datagram carries only the index and play mode.
+- Bulk "재생목록에 추가" (selection bar and long-press menu) looked up
+  every selected song by rescanning the whole list, an O(n^2) loop that
+  would freeze the UI for minutes on a library-scale selection (30,000
+  songs). The list is now indexed once, making the add near-instant.
+
+Changed behaviour (Android)
+---------------------------
+- Picking a folder in the in-app file manager now REPLACES the library:
+  previously scanned records are cleared first, so the list shows
+  exactly the chosen folder's contents instead of merging every folder
+  scanned so far. The refresh button still rescans the current folder
+  in place.
+
+===========================================================================
 v20260610 (2026-06-10)
 ===========================================================================
 

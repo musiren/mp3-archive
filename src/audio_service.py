@@ -138,6 +138,10 @@ class AudioService:
         """Initialise empty state; the engine is created lazily per track."""
         _install_service_classloader()   # before any PythonJavaClass proxy
         self._service = PythonService.mService
+        # The UI writes the queue items to ``getFilesDir()/playback_queue.json``
+        # before sending OP_SYNC (see service_ipc.write_queue_items); the
+        # service reads them back from the same path on each sync.
+        self._storage_dir = self._service.getFilesDir().getAbsolutePath()
         self._player = None
         self._items = []              # queue: list of {path,title,subtitle}
         self._index = -1              # current index into _items
@@ -939,7 +943,10 @@ class AudioService:
         op = cmd.get("op")
         with self._lock:
             if op == ipc.OP_SYNC:
-                self.sync(cmd.get("items", []), cmd.get("index", -1),
+                # Items are not in the OSC payload; the UI persisted them to
+                # the shared queue file before sending this command.
+                items = ipc.read_queue_items(self._storage_dir)
+                self.sync(items, cmd.get("index", -1),
                           cmd.get("mode", PLAY_MODES[0]))
             elif op == ipc.OP_TOGGLE:
                 self.toggle()
