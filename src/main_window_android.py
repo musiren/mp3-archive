@@ -2,10 +2,11 @@
 main_window_android.py - KivyMD UI for the MP3 archive manager (Android).
 
 Provides a Material Design interface split into two bottom-navigation tabs:
-  - "목록" (List): pick a directory with the in-app file manager, scan it
-    (incremental or full rescan), search by filename or tags, browse the
-    stored MP3 records, select rows to delete, and long-press a row to view
-    or edit its tags (자세히) or read its lyrics (가사).
+  - "목록" (List): pick a directory with the in-app file manager and scan it
+    (picking replaces the library with that folder's songs; the refresh
+    button re-reads the same folder in place), search by filename or tags,
+    browse the stored MP3 records, select rows to delete, and long-press a
+    row to view or edit its tags (자세히) or read its lyrics (가사).
   - "재생" (Player): play a tapped track with play/pause and stop controls
     and a position indicator, backed by kivy.core.audio.SoundLoader.
 
@@ -1210,11 +1211,15 @@ class Mp3ArchiveApp(MDApp):
         """
         Handle a directory chosen in the file manager: close it and scan.
 
+        Picking a folder REPLACES the library: previously scanned records are
+        cleared so the list shows only the chosen folder's songs, instead of
+        merging every folder ever scanned.
+
         Args:
             path: The selected directory path.
         """
         self._close_file_manager()
-        self._start_scan(path)
+        self._start_scan(path, replace=True)
 
     def _close_file_manager(self, *args) -> None:
         """Close the file manager if it is open."""
@@ -1312,13 +1317,17 @@ class Mp3ArchiveApp(MDApp):
             return
         self._start_scan(self._last_dir, force=True)
 
-    def _start_scan(self, directory: str, force: bool = False) -> None:
+    def _start_scan(self, directory: str, force: bool = False,
+                    replace: bool = False) -> None:
         """
         Launch a background thread to scan the given directory.
 
         Args:
             directory: Root path to scan for MP3 files.
             force:     When True, re-read every file and drop stale records.
+            replace:   When True, clear ALL existing records first so the
+                       library becomes exactly this directory's contents
+                       (used when the user picks a folder).
         """
         self._last_dir = directory
         label = "전체 스캔 중" if force else "스캔 중"
@@ -1327,18 +1336,22 @@ class Mp3ArchiveApp(MDApp):
         self._set_progress(0)
         thread = threading.Thread(
             target=self._scan_worker,
-            args=(directory, force),
+            args=(directory, force, replace),
             daemon=True,
         )
         thread.start()
 
-    def _scan_worker(self, directory: str, force: bool = False) -> None:
+    def _scan_worker(self, directory: str, force: bool = False,
+                     replace: bool = False) -> None:
         """
         Run Mp3Manager.scan() in a background thread and post UI updates.
 
         Args:
             directory: Directory path passed to Mp3Manager.scan().
             force:     Whether to force a full rescan.
+            replace:   Whether to clear every existing record before scanning
+                       (folder picking replaces the library; see
+                       _on_dir_selected).
         """
         def on_progress(current: int, total: int, path: str) -> None:
             """Schedule a progress bar update on the main thread."""
@@ -1352,10 +1365,13 @@ class Mp3ArchiveApp(MDApp):
         # connection in _on_scan_done.
         scan_manager = Mp3Manager(self._db_path)
         try:
-            # Incremental by design: keep existing records so scanning another
-            # folder merges into the library, and an unchanged file is skipped
-            # by mtime. The refresh button passes force=True to re-read every
-            # file and prune records for files now missing under this directory.
+            # Picking a folder replaces the library: drop all previous records
+            # so the list shows only the chosen folder (clearing also empties
+            # the mtime cache, so every file is re-read). The refresh button
+            # instead passes force=True to re-read every file in place and
+            # prune records for files now missing under this directory.
+            if replace:
+                scan_manager.clear()
             result = scan_manager.scan(
                 directory, progress_callback=on_progress, force=force
             )
