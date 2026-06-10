@@ -1585,16 +1585,12 @@ class Mp3ArchiveApp(MDApp):
         paths = [f["path"] for f in self._files if f["path"] in self._selected]
         if not paths:
             paths = list(self._selected)
-        added = 0
-        for path in paths:
-            info = self._row_info_for_path(path)
-            if info:
-                self._queue.add(info)
-                added += 1
+        infos = self._row_infos_for_paths(paths)
+        self._queue.add_many(infos)
         self._refresh_queue()
         self._sync_queue()
         self.exit_selection_mode()
-        Snackbar(text=f"재생목록에 {added}곡 추가됨").open()
+        Snackbar(text=f"재생목록에 {len(infos)}곡 추가됨").open()
 
     # ------------------------------------------------------------------
     # View mode (목록 / 자세히)
@@ -2175,6 +2171,35 @@ class Mp3ArchiveApp(MDApp):
                 "artist": info.get("artist") or "-",
                 "title": info.get("title") or "-"}
 
+    def _row_infos_for_paths(self, paths: list) -> list:
+        """
+        Build queue item dicts for *paths* in order, dropping unknown paths.
+
+        Indexes the current list once instead of calling _row_info_for_path
+        per path: that helper rescans self._files linearly, which turns a
+        bulk add into O(n^2) — selecting tens of thousands of songs would
+        freeze the UI for minutes (an ANR) instead of milliseconds.
+
+        Args:
+            paths: Audio file paths to look up.
+
+        Returns:
+            A list of {path,filename,artist,title} dicts, one per path that
+            resolved via the current list or the database.
+        """
+        by_path = {f.get("path"): f for f in self._files}
+        infos = []
+        for path in paths:
+            f = by_path.get(path)
+            if f is not None:
+                infos.append({"path": path, "filename": f["filename"],
+                              "artist": f["artist"], "title": f["title"]})
+                continue
+            info = self._row_info_for_path(path)   # stale path: DB fallback
+            if info:
+                infos.append(info)
+        return infos
+
     def _add_to_queue(self, row) -> None:
         """
         Append track(s) to the queue without playing (long-press action).
@@ -2194,16 +2219,14 @@ class Mp3ArchiveApp(MDApp):
             paths = [path] if path else []
         if not paths:
             return
-        for path in paths:
-            info = self._row_info_for_path(path)
-            if info:
-                self._queue.add(info)
+        infos = self._row_infos_for_paths(paths)
+        self._queue.add_many(infos)
         self._refresh_queue()
         self._sync_queue()   # update the service's queue (no playback change)
         if used_selection:
             self._selected.clear()
             self._refresh_list()   # clear the now-consumed selection checkboxes
-        Snackbar(text=f"재생목록에 {len(paths)}곡 추가됨").open()
+        Snackbar(text=f"재생목록에 {len(infos)}곡 추가됨").open()
 
     def remove_from_queue(self, index: int) -> None:
         """
