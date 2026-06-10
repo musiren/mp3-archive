@@ -9,13 +9,18 @@ that encoding plus the value normalisation (volume/seek clamping, op/mode
 validation, state defaults) so the logic is testable without Kivy, jnius, or a
 device.
 
-Since Stage 1 the service owns the queue: the UI sends the whole queue + the
-desired current index + the play mode in a single ``sync`` command, and the
-service plays/auto-advances on its own. The UI renders the now-playing
-highlight and labels from the pushed state's ``index``/``path``/``title``.
+Since Stage 1 the service owns the queue. The UI persists the queue items to a
+shared file (``write_queue_items``) and then sends a ``sync`` command carrying
+only the desired index + play mode; the service reads the items back from the
+file (``read_queue_items``) and plays / auto-advances on its own. Items are
+NOT carried in the OSC datagram itself because a queue of a few hundred Korean
+filenames easily exceeds the ~64 KB UDP cap and the packet would be silently
+dropped (the original bug). The UI renders the now-playing highlight and
+labels from the pushed state's ``index``/``path``/``title``.
 """
 
 import json
+import os
 
 from playlist import PLAY_MODES
 
@@ -37,6 +42,11 @@ OP_VOLUME = "volume"    # field: volume (0.0..1.0)
 OP_PING = "ping"        # ask the service to push its current state
 
 _OPS = frozenset({OP_SYNC, OP_TOGGLE, OP_STOP, OP_SEEK, OP_VOLUME, OP_PING})
+
+# Filename used inside the app's internal storage to share the queue items
+# between the UI process and the playback service process (see write_queue_items
+# / read_queue_items).
+QUEUE_FILE_NAME = "playback_queue.json"
 
 
 def _clamp01(value) -> float:
@@ -91,14 +101,72 @@ def normalize_items(items) -> list:
     return out
 
 
+def queue_file_path(storage_dir: str) -> str:
+    """
+    Return the absolute path of the shared queue items file in *storage_dir*.
+
+    Both the UI and the service compute this from their own process's
+    ``Context.getFilesDir()`` (same path for the same package/UID), so the file
+    is a reliable rendezvous point that does not travel through the OSC
+    datagram.
+    """
+    return os.path.join(storage_dir, QUEUE_FILE_NAME)
+
+
+def write_queue_items(storage_dir: str, items: list) -> str:
+    """
+    Atomically write *items* to the shared queue file under *storage_dir*.
+
+    A queue of a few hundred tracks (paths + Korean titles + subtitles in
+    UTF-8) easily blows past the ~64 KB UDP datagram cap, which silently drops
+    the OSC packet — leaving the service with no queue and no playback. We
+    persist the items to a file instead and ship only the small ``sync``
+    command through OSC; the service reads the items back from the file.
+
+    Args:
+        storage_dir: Directory to write into (typically ``getFilesDir()``).
+        items:       Queue items; coerced through :func:`normalize_items`.
+
+    Returns:
+        The absolute path of the file written.
+    """
+    path = queue_file_path(storage_dir)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(normalize_items(items), fh, ensure_ascii=False)
+    os.replace(tmp, path)
+    return path
+
+
+def read_queue_items(storage_dir: str) -> list:
+    """
+    Read the queue items previously written by :func:`write_queue_items`.
+
+    Args:
+        storage_dir: Directory the UI wrote the file into.
+
+    Returns:
+        The normalised items list, or ``[]`` if the file is absent or
+        unreadable (e.g. the UI has not synced yet, or a partial write).
+    """
+    try:
+        with open(queue_file_path(storage_dir), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    return normalize_items(data)
+
+
 def make_command(op: str, **fields) -> str:
     """
     Build a JSON command payload for the service.
 
     Args:
         op:     One of the ``OP_*`` constants.
-        fields: Op-specific fields. For ``sync``: items (list of
-                {path,title,subtitle}), index (int), mode (a PLAY_MODES value).
+        fields: Op-specific fields. For ``sync``: index (int) and mode (a
+                PLAY_MODES value). Items live in the shared queue file and are
+                NOT included here (see :func:`write_queue_items`); if an
+                ``items`` field is passed it is stripped from the wire payload.
                 For ``seek``: position (seconds, clamped >= 0). For ``volume``:
                 volume (clamped to [0, 1]).
 
@@ -117,7 +185,10 @@ def make_command(op: str, **fields) -> str:
     if op == OP_SEEK:
         payload["position"] = _non_negative(payload.get("position", 0.0))
     if op == OP_SYNC:
-        payload["items"] = normalize_items(payload.get("items"))
+        # Items live in the shared queue file, not in the OSC datagram. Drop
+        # any 'items' a caller passed so the wire payload stays small enough
+        # to fit a UDP packet.
+        payload.pop("items", None)
         payload["index"] = _as_int(payload.get("index", -1))
         mode = payload.get("mode")
         payload["mode"] = mode if mode in PLAY_MODES else PLAY_MODES[0]

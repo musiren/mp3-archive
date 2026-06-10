@@ -2386,6 +2386,11 @@ class Mp3ArchiveApp(MDApp):
         """
         Push the queue + play mode to the background service.
 
+        The queue items go through a shared file (``ipc.write_queue_items``)
+        because a few hundred Korean filenames serialise to well over the
+        ~64 KB UDP datagram cap and the OSC packet would be silently dropped;
+        the OSC ``sync`` command carries only the small index + mode payload.
+
         Args:
             play_index: The queue index the service should play. -1 means
                 "just adopt the updated queue/mode, keep current playback"
@@ -2394,8 +2399,16 @@ class Mp3ArchiveApp(MDApp):
         """
         if not self._svc_active():
             return
-        self._player_svc.send(ipc.OP_SYNC, items=self._serialize_queue(),
-                              index=play_index, mode=self._play_mode)
+        try:
+            ipc.write_queue_items(self._storage_directory(),
+                                  self._serialize_queue())
+        except OSError:
+            # Without the file the service cannot read the queue, so do not
+            # send a sync that would leave it desynced from the UI.
+            import traceback
+            traceback.print_exc()
+            return
+        self._player_svc.send(ipc.OP_SYNC, index=play_index, mode=self._play_mode)
 
     def _set_now_playing_ui(self, path: str, title: str, subtitle: str) -> None:
         """Reset the player tab's labels, art, and position display for a track."""
