@@ -94,6 +94,29 @@ def get_album_art(path: str) -> bytes | None:
     return None
 
 
+def get_album(path: str) -> str | None:
+    """
+    Read the album name embedded in an audio file.
+
+    Args:
+        path: Absolute path to the audio file.
+
+    Returns:
+        The (mojibake-repaired) album name, or None if absent or the file
+        is unreadable.
+    """
+    try:
+        audio = MutagenFile(path, easy=True)
+        if audio is not None and audio.tags:
+            val = audio.tags.get("album")
+            text = val[0] if isinstance(val, list) and val else val
+            if text:
+                return fix_mojibake(str(text))
+    except Exception:
+        pass
+    return None
+
+
 def get_lyrics(path: str) -> str | None:
     """
     Extract embedded lyrics text from an audio file.

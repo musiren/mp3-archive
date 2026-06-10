@@ -112,6 +112,27 @@ exercised.
 
 2. **When any UI file in `src/` changes, regenerate the corresponding preview image under `docs/` before committing.** Do not push UI changes without updating the preview image.
 
+### **[MANDATORY] Branch Workflow on New Requests**
+
+When a **new request** arrives, decide the branch before starting work:
+
+1. **Same line of work?** If the request is related to — or a direct
+   extension of — what the current working branch already covers, **keep
+   working on the current branch**; do not create a new one.
+   - **Exception:** if that branch has already been **opened as a PR or
+     merged**, do not silently keep committing to it. **Ask the user**
+     whether to create a new branch.
+
+2. **Unrelated / new line of work?** Create a **new development branch** for
+   it. But first, **check the existing branches** for any that still need to
+   go to `main` (committed/pushed work with no merged PR yet), and **ask the
+   user** whether to open a PR for those before branching off.
+
+Always surface what you found (which branches are unmerged, whether the
+current branch is already PR'd/merged) and let the user decide — never open a
+PR or switch branches on your own.
+
+
 ### Commit Message Style
 
 - Follow Linux kernel style.

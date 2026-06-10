@@ -1,6 +1,25 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260610 (2026-06-10)
+===========================================================================
+
+Richer now-playing info for Bluetooth car head units and the lock
+screen, plus headset/Bluetooth-aware pause and resume.
+
+New features (Android)
+----------------------
+- MediaSession metadata now includes the album name, track duration and
+  the album-art bitmap in addition to title/artist, so car displays and
+  other Bluetooth (AVRCP) consumers render a full now-playing card with
+  cover art and a working progress bar.
+- Playback pauses automatically when the audio output disappears (a
+  Bluetooth device disconnects or a headset is unplugged) instead of
+  continuing on the phone speaker. When the pause was caused by such a
+  disconnect, playback resumes automatically once a Bluetooth audio
+  output reconnects; a manual pause/stop cancels the auto-resume.
+
+===========================================================================
 v20260609 (2026-06-09) — second batch
 ===========================================================================
 

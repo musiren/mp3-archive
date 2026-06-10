@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from audio_meta import (  # noqa: E402
     STANDARD_EASY_KEYS, _clean_lyrics, fix_mojibake, format_summary_rows,
-    get_album_art, get_lyrics, get_stream_info, read_all_tags,
+    get_album, get_album_art, get_lyrics, get_stream_info, read_all_tags,
     tag_display_label, to_easy_tags,
 )
 
@@ -159,6 +159,28 @@ class TestGetAlbumArt(unittest.TestCase):
             path = f.name
         try:
             self.assertIsNone(get_album_art(path))
+        finally:
+            os.remove(path)
+
+
+class TestGetAlbum(unittest.TestCase):
+    """Tests for get_album()."""
+
+    def test_returns_none_for_empty_path(self):
+        """Verifies get_album returns None for an empty path."""
+        self.assertIsNone(get_album(""))
+
+    def test_returns_none_for_nonexistent_file(self):
+        """Verifies get_album returns None for a missing file."""
+        self.assertIsNone(get_album("/no/such/file.mp3"))
+
+    def test_returns_none_for_non_audio_file(self):
+        """Verifies get_album returns None for a plain text file."""
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            f.write(b"not audio")
+            path = f.name
+        try:
+            self.assertIsNone(get_album(path))
         finally:
             os.remove(path)
 
