@@ -10,7 +10,12 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from tree_util import build_tree_rows, files_under_folder  # noqa: E402
+from tree_util import (  # noqa: E402
+    TreeIndex,
+    build_tree_rows,
+    files_under_folder,
+    refresh_selection_flags,
+)
 
 
 def _files(*paths):
@@ -154,6 +159,146 @@ class TestBuildTreeRows(unittest.TestCase):
         leaf = next(r for r in rows if not r["is_dir"])
         self.assertEqual(folder["key"], "A")
         self.assertEqual(leaf["path"], r"C:\m\A\1.mp3")
+
+    def test_rows_carry_level(self):
+        """Verifies rows expose their indentation depth for in-place updates."""
+        files = _files("/m/A/B/deep.mp3", "/m/top.mp3")
+        rows = build_tree_rows(files, "/m", {"A", "A/B"})
+        by_text = {r["text"].strip(): r["level"] for r in rows}
+        self.assertEqual(by_text["▼ A"], 0)
+        self.assertEqual(by_text["▼ B"], 1)
+        self.assertEqual(by_text["♪ deep.mp3"], 2)
+        self.assertEqual(by_text["♪ top.mp3"], 0)
+
+
+class TestTreeIndex(unittest.TestCase):
+    """Tests for the cached TreeIndex used by the 트리 view's hot paths."""
+
+    def test_rows_match_build_tree_rows(self):
+        """Verifies a reused index renders the same rows as the wrapper."""
+        files = _files("/m/A/1.mp3", "/m/A/sub/2.mp3", "/m/B/3.mp3",
+                       "/m/top.mp3")
+        index = TreeIndex(files, "/m")
+        for expanded in (set(), {"A"}, {"A", "A/sub", "B"}):
+            self.assertEqual(index.rows(expanded),
+                             build_tree_rows(files, "/m", expanded))
+
+    def test_collapsed_children_not_materialised(self):
+        """Verifies collapsed folders contribute no child rows (lazy render)."""
+        files = _files(*[f"/m/A/{i}.mp3" for i in range(100)], "/m/top.mp3")
+        rows = TreeIndex(files, "/m").rows(set())
+        self.assertEqual(len(rows), 2)   # the A folder row + top.mp3
+
+    def test_paths_under_matches_files_under_folder(self):
+        """Verifies the precomputed folder contents agree with the O(N) scan."""
+        files = _files("/m/A/1.mp3", "/m/A/sub/2.mp3", "/m/B/3.mp3")
+        index = TreeIndex(files, "/m")
+        for key in ("A", "A/sub", "B"):
+            expected = {f["path"]
+                        for f in files_under_folder(files, "/m", key)}
+            self.assertEqual(set(index.paths_under(key)), expected)
+
+    def test_paths_under_unknown_or_empty_key(self):
+        """Verifies an unknown or empty key yields no paths."""
+        index = TreeIndex(_files("/m/A/1.mp3"), "/m")
+        self.assertEqual(index.paths_under("nope"), [])
+        self.assertEqual(index.paths_under(""), [])
+
+    def test_selected_flags(self):
+        """Verifies file flags and the all-files-selected folder flag."""
+        files = _files("/m/A/1.mp3", "/m/A/2.mp3")
+        index = TreeIndex(files, "/m")
+        rows = index.rows({"A"}, selected={"/m/A/1.mp3"})
+        flags = {r["text"].strip(): r["selected"] for r in rows}
+        self.assertFalse(flags["▼ A"])       # only one of two selected
+        self.assertTrue(flags["♪ 1.mp3"])
+        self.assertFalse(flags["♪ 2.mp3"])
+        rows = index.rows({"A"}, selected={"/m/A/1.mp3", "/m/A/2.mp3"})
+        self.assertTrue(next(r for r in rows if r["is_dir"])["selected"])
+
+    def test_render_is_fast_once_indexed(self):
+        """Verifies repeated renders on a big tree avoid re-indexing costs."""
+        import time
+        files = _files(*[f"/m/d{i // 100}/{i}.mp3" for i in range(20_000)])
+        index = TreeIndex(files, "/m")
+        start = time.perf_counter()
+        for i in range(50):                 # 50 expand/collapse taps
+            index.rows({f"d{i}"})
+        elapsed = time.perf_counter() - start
+        # The old per-tap rebuild took O(N) + O(N) per visible folder row
+        # (~200 folders x 20k files); the indexed render walks only visible
+        # rows. 2s leaves generous headroom for slow machines.
+        self.assertLess(elapsed, 2.0)
+
+
+class TestRefreshSelectionFlags(unittest.TestCase):
+    """Tests for the in-place selection-flag updater."""
+
+    def _setup(self):
+        """Return (index, expanded rows) for a two-folder tree."""
+        files = _files("/m/A/1.mp3", "/m/A/2.mp3", "/m/A/sub/3.mp3",
+                       "/m/B/4.mp3")
+        index = TreeIndex(files, "/m")
+        rows = index.rows({"A", "A/sub", "B"})
+        return index, rows
+
+    def _row_at(self, rows, label):
+        """Return the index of the row whose stripped text equals *label*."""
+        return next(i for i, r in enumerate(rows)
+                    if r["text"].strip() == label)
+
+    def test_file_toggle_updates_row_and_ancestors(self):
+        """Verifies selecting the last file flips it and its folder chain."""
+        index, rows = self._setup()
+        selected = {"/m/A/1.mp3", "/m/A/2.mp3", "/m/A/sub/3.mp3"}
+        start = self._row_at(rows, "♪ 3.mp3")
+        refresh_selection_flags(rows, start, selected, index.paths_under)
+        self.assertTrue(rows[start]["selected"])
+        self.assertTrue(rows[self._row_at(rows, "▼ sub")]["selected"])
+        self.assertTrue(rows[self._row_at(rows, "▼ A")]["selected"])
+        self.assertFalse(rows[self._row_at(rows, "▼ B")]["selected"])
+
+    def test_folder_toggle_updates_descendants(self):
+        """Verifies selecting a folder flips its visible descendant rows."""
+        index, rows = self._setup()
+        selected = set(index.paths_under("A"))
+        start = self._row_at(rows, "▼ A")
+        refresh_selection_flags(rows, start, selected, index.paths_under)
+        for label in ("▼ A", "♪ 1.mp3", "♪ 2.mp3", "▼ sub", "♪ 3.mp3"):
+            self.assertTrue(rows[self._row_at(rows, label)]["selected"], label)
+        self.assertFalse(rows[self._row_at(rows, "▼ B")]["selected"])
+
+    def test_deselect_propagates_up(self):
+        """Verifies deselecting one file clears its ancestors' flags."""
+        index, rows = self._setup()
+        all_a = set(index.paths_under("A"))
+        start = self._row_at(rows, "▼ A")
+        refresh_selection_flags(rows, start, all_a, index.paths_under)
+        all_a.discard("/m/A/sub/3.mp3")     # then deselect the nested file
+        start = self._row_at(rows, "♪ 3.mp3")
+        refresh_selection_flags(rows, start, all_a, index.paths_under)
+        self.assertFalse(rows[self._row_at(rows, "♪ 3.mp3")]["selected"])
+        self.assertFalse(rows[self._row_at(rows, "▼ sub")]["selected"])
+        self.assertFalse(rows[self._row_at(rows, "▼ A")]["selected"])
+        self.assertTrue(rows[self._row_at(rows, "♪ 1.mp3")]["selected"])
+
+    def test_does_not_touch_unrelated_rows(self):
+        """Verifies rows outside the affected groups keep their stale flags."""
+        index, rows = self._setup()
+        b_file = self._row_at(rows, "♪ 4.mp3")
+        rows[b_file]["selected"] = True     # deliberately stale
+        start = self._row_at(rows, "♪ 1.mp3")
+        refresh_selection_flags(rows, start, {"/m/A/1.mp3"},
+                                index.paths_under)
+        self.assertTrue(rows[b_file]["selected"])   # untouched by design
+
+    def test_out_of_range_start_is_noop(self):
+        """Verifies an out-of-range start index changes nothing."""
+        index, rows = self._setup()
+        before = [dict(r) for r in rows]
+        refresh_selection_flags(rows, 99, {"/m/A/1.mp3"}, index.paths_under)
+        refresh_selection_flags(rows, -1, {"/m/A/1.mp3"}, index.paths_under)
+        self.assertEqual(rows, before)
 
 
 if __name__ == "__main__":

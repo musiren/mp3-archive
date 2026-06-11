@@ -629,6 +629,72 @@ class TestSessionPersistence(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestTreeSelection(unittest.TestCase):
+    """Tests for the lazily-indexed 트리 view selection paths."""
+
+    def _stub_app(self):
+        """Build a minimal app stand-in exposing the tree selection state."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace(
+            _files=[{"path": p} for p in
+                    ("/m/A/1.mp3", "/m/A/2.mp3", "/m/B/3.mp3")],
+            _last_dir="/m", _tree_index=None, _expanded=set(),
+            _selected=set(), selection_count=0, _refreshed_at=[],
+        )
+        stub._get_tree_index = (
+            lambda: Mp3ArchiveApp._get_tree_index(stub))
+        stub._tree_rows = lambda: Mp3ArchiveApp._tree_rows(stub)
+        stub.tree_toggle_select = (
+            lambda row: Mp3ArchiveApp.tree_toggle_select(stub, row))
+        # Capture the in-place refresh instead of touching widgets.
+        stub._refresh_tree_selection = (
+            lambda start: stub._refreshed_at.append(start))
+        return stub
+
+    def test_tree_index_is_cached(self):
+        """Verifies repeated renders reuse one TreeIndex (no per-tap rebuild)."""
+        stub = self._stub_app()
+        stub._tree_rows()
+        first = stub._tree_index
+        self.assertIsNotNone(first)
+        stub._tree_rows()
+        self.assertIs(stub._tree_index, first)
+
+    def test_folder_toggle_selects_all_then_deselects(self):
+        """Verifies a folder tap selects every file under it, then clears."""
+        stub = self._stub_app()
+        row = types.SimpleNamespace(is_dir=True, key="A", path="", index=0)
+        stub.tree_toggle_select(row)
+        self.assertEqual(stub._selected, {"/m/A/1.mp3", "/m/A/2.mp3"})
+        self.assertEqual(stub.selection_count, 2)
+        stub.tree_toggle_select(row)
+        self.assertEqual(stub._selected, set())
+        self.assertEqual(stub._refreshed_at, [0, 0])
+
+    def test_file_toggle_flips_single_path(self):
+        """Verifies a file tap toggles just that path via the in-place path."""
+        stub = self._stub_app()
+        row = types.SimpleNamespace(is_dir=False, key="",
+                                    path="/m/B/3.mp3", index=4)
+        stub.tree_toggle_select(row)
+        self.assertEqual(stub._selected, {"/m/B/3.mp3"})
+        stub.tree_toggle_select(row)
+        self.assertEqual(stub._selected, set())
+        self.assertEqual(stub._refreshed_at, [4, 4])
+
+    def test_rows_carry_selection_flags(self):
+        """Verifies _tree_rows tags rows from the live selection set."""
+        stub = self._stub_app()
+        stub._expanded = {"A"}
+        stub._selected = {"/m/A/1.mp3", "/m/A/2.mp3"}
+        rows = stub._tree_rows()
+        flags = {r["text"].strip(): r["selected"] for r in rows}
+        self.assertTrue(flags["▼ A"])
+        self.assertTrue(flags["♪ 1.mp3"])
+        self.assertFalse(flags["▶ B"])
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestFontFamilies(unittest.TestCase):
     """Tests that the Korean font targets every KivyMD font family, not just Roboto."""
 
