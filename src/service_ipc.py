@@ -34,7 +34,7 @@ SERVICE_PORT = 38291
 UI_PORT = 38292
 
 # Command ops (UI -> service).
-OP_SYNC = "sync"        # fields: items (list of {path,title,subtitle}), index, mode
+OP_SYNC = "sync"        # fields: index, mode, seed, position (items go via file)
 OP_TOGGLE = "toggle"    # play/pause flip
 OP_STOP = "stop"
 OP_SEEK = "seek"        # field: position (seconds)
@@ -163,10 +163,12 @@ def make_command(op: str, **fields) -> str:
 
     Args:
         op:     One of the ``OP_*`` constants.
-        fields: Op-specific fields. For ``sync``: index (int) and mode (a
-                PLAY_MODES value). Items live in the shared queue file and are
-                NOT included here (see :func:`write_queue_items`); if an
-                ``items`` field is passed it is stripped from the wire payload.
+        fields: Op-specific fields. For ``sync``: index (int), mode (a
+                PLAY_MODES value), seed (the shuffle seed, int, 0 = unset) and
+                position (seconds to seek to after starting *index*, clamped
+                >= 0). Items live in the shared queue file and are NOT
+                included here (see :func:`write_queue_items`); if an ``items``
+                field is passed it is stripped from the wire payload.
                 For ``seek``: position (seconds, clamped >= 0). For ``volume``:
                 volume (clamped to [0, 1]).
 
@@ -192,6 +194,8 @@ def make_command(op: str, **fields) -> str:
         payload["index"] = _as_int(payload.get("index", -1))
         mode = payload.get("mode")
         payload["mode"] = mode if mode in PLAY_MODES else PLAY_MODES[0]
+        payload["seed"] = _as_int(payload.get("seed", 0), 0)
+        payload["position"] = _non_negative(payload.get("position", 0.0))
     return json.dumps(payload)
 
 
@@ -223,7 +227,7 @@ def parse_command(payload: str) -> dict:
 
 def make_state(*, playing: bool, path: str = "", title: str = "",
                subtitle: str = "", position: float = 0.0, length: float = 0.0,
-               index: int = -1, volume: float = 1.0) -> str:
+               index: int = -1, volume: float = 1.0, seed: int = 0) -> str:
     """
     Build a JSON state snapshot for the UI.
 
@@ -237,6 +241,8 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         index:    Index of the current track within the queue (-1 if none).
         volume:   Current system media volume as a 0.0..1.0 fraction, so the
                   UI slider can mirror it (incl. hardware volume keys).
+        seed:     The service's active shuffle seed (0 = unset), so the UI
+                  adopts a reseed the service performed (cycle exhausted).
 
     Returns:
         A JSON string suitable as the single OSC argument on ``ADDR_STATE``.
@@ -250,6 +256,7 @@ def make_state(*, playing: bool, path: str = "", title: str = "",
         "length": _non_negative(length),
         "index": _as_int(index, -1),
         "volume": _clamp01(volume),
+        "seed": _as_int(seed, 0),
     })
 
 
@@ -262,8 +269,9 @@ def parse_state(payload: str) -> dict:
 
     Returns:
         A dict with keys playing, path, title, subtitle, position, length,
-        index — always present and of the right type, even if *payload* was
-        malformed (in which case an idle/empty state is returned).
+        index, volume, seed — always present and of the right type, even if
+        *payload* was malformed (in which case an idle/empty state is
+        returned).
     """
     try:
         data = json.loads(payload)
@@ -280,4 +288,5 @@ def parse_state(payload: str) -> dict:
         "length": _non_negative(data.get("length", 0.0)),
         "index": _as_int(data.get("index", -1), -1),
         "volume": _clamp01(data.get("volume", 1.0)),
+        "seed": _as_int(data.get("seed", 0), 0),
     }

@@ -37,7 +37,7 @@ from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
 from audio_meta import get_album, get_album_art
-from playlist import PLAY_MODES, next_index, prev_index
+from playlist import PLAY_MODES, advance, retreat
 
 RemoteViews = autoclass("android.widget.RemoteViews")
 AppWidgetManager = autoclass("android.appwidget.AppWidgetManager")
@@ -146,6 +146,7 @@ class AudioService:
         self._items = []              # queue: list of {path,title,subtitle}
         self._index = -1              # current index into _items
         self._mode = PLAY_MODES[0]
+        self._seed = 0                # shuffle seed shared with the UI (0=unset)
         self._path = ""               # currently-loaded track path
         self._title = ""
         self._subtitle = ""
@@ -560,19 +561,23 @@ class AudioService:
                         item.get("subtitle", ""))
 
     # -- commands ------------------------------------------------------------
-    def sync(self, items: list, index: int, mode: str) -> None:
+    def sync(self, items: list, index: int, mode: str, seed: int = 0,
+             position: float = 0.0) -> None:
         """
-        Replace the queue/mode and play *index* (the one sync command).
+        Replace the queue/mode/seed and play *index* (the one sync command).
 
         - Empty queue: stop and go idle.
         - index in range and different from the currently-playing track:
-          start playing it.
+          start playing it (seeking to *position* when given — used to resume
+          a restored session at the saved spot).
         - index in range but already the current track: keep playing, just
           adopt the updated queue/mode (e.g. the user appended songs).
         - index out of range (e.g. -1): keep current playback, adopt queue/mode.
         """
         self._items = items
         self._mode = mode if mode in PLAY_MODES else PLAY_MODES[0]
+        if seed:
+            self._seed = seed
         # Re-derive the current index from the playing path so auto-advance
         # stays correct after the queue was edited (insert/remove shifts).
         # Keep the existing index if it still points at the playing track
@@ -603,6 +608,8 @@ class AudioService:
                 self.push_state()   # already playing this track; keep going
             else:
                 self._play_index(index)
+                if position > 0:
+                    self.seek(position)   # resume a restored session mid-track
         else:
             # index < 0 / out of range: keep current playback, queue updated.
             self.push_state()
@@ -660,14 +667,16 @@ class AudioService:
 
     def play_next(self) -> None:
         """Skip to the next track per the play mode (notification/lock-screen)."""
-        idx = next_index(self._index, len(self._items), self._mode, ended=False)
+        idx, self._seed = advance(self._index, len(self._items), self._mode,
+                                  self._seed, ended=False)
         if idx is not None and self._items:
             self._play_index(idx)
             self.push_state()
 
     def play_prev(self) -> None:
         """Skip to the previous track per the play mode."""
-        idx = prev_index(self._index, len(self._items), self._mode)
+        idx, self._seed = retreat(self._index, len(self._items), self._mode,
+                                  self._seed)
         if idx is not None and self._items:
             self._play_index(idx)
             self.push_state()
@@ -820,7 +829,8 @@ class AudioService:
 
     def _advance_ended(self) -> None:
         """Auto-advance to the next track per the play mode, or stop."""
-        idx = next_index(self._index, len(self._items), self._mode, ended=True)
+        idx, self._seed = advance(self._index, len(self._items), self._mode,
+                                  self._seed, ended=True)
         if idx is not None and self._items:
             self._play_index(idx)
             self.push_state()
@@ -892,6 +902,7 @@ class AudioService:
             playing=self._is_playing(), path=self._path, title=self._title,
             subtitle=self._subtitle, position=pos, length=length,
             index=self._index, volume=self._system_volume_fraction(),
+            seed=self._seed,
         )
         try:
             self._client.send_message(ipc.ADDR_STATE, [payload.encode("utf-8")])
@@ -947,7 +958,9 @@ class AudioService:
                 # the shared queue file before sending this command.
                 items = ipc.read_queue_items(self._storage_dir)
                 self.sync(items, cmd.get("index", -1),
-                          cmd.get("mode", PLAY_MODES[0]))
+                          cmd.get("mode", PLAY_MODES[0]),
+                          seed=cmd.get("seed", 0),
+                          position=float(cmd.get("position", 0.0)))
             elif op == ipc.OP_TOGGLE:
                 self.toggle()
             elif op == ipc.OP_STOP:
