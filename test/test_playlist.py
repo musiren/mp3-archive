@@ -1,8 +1,8 @@
 """
 test_playlist.py - Tests for the GUI-independent playlist/queue logic.
 
-Runs locally (no Kivy needed); playlist imports only stdlib. Shuffle is tested
-with an injected fake rng so the result is deterministic.
+Runs locally (no Kivy needed); playlist imports only stdlib. Shuffle is a
+deterministic seeded permutation, so its tests use fixed seeds.
 """
 
 import os
@@ -14,24 +14,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from playlist import (  # noqa: E402
     PLAY_MODES,
     PlayQueue,
+    advance,
+    new_shuffle_seed,
     next_index,
     next_play_mode,
     parse_playlist,
     prev_index,
+    retreat,
     serialize_playlist,
+    shuffle_order,
+    start_index,
 )
-
-
-class _FakeRng:
-    """A fake rng whose randrange always returns a fixed index."""
-
-    def __init__(self, value):
-        """Store the index randrange() will return."""
-        self._value = value
-
-    def randrange(self, _count):
-        """Return the canned index regardless of count."""
-        return self._value
 
 
 class TestNextPlayMode(unittest.TestCase):
@@ -82,23 +75,6 @@ class TestNextIndex(unittest.TestCase):
         self.assertEqual(next_index(4, 5, "repeat_all", ended=True), 0)
         self.assertEqual(next_index(2, 5, "repeat_all"), 3)
 
-    def test_shuffle_uses_rng_excluding_current(self):
-        """Verify shuffle maps the rng pick over the other tracks (excludes current)."""
-        # current=0: rng picks among count-1 others; 7 maps past index 0 -> 8.
-        self.assertEqual(next_index(0, 10, "shuffle", rng=_FakeRng(7)), 8)
-
-    def test_shuffle_never_returns_current(self):
-        """Verify shuffle never re-picks the current index when alternatives exist."""
-        for pick in range(4):  # rng over count-1 == 4 candidates for count=5
-            result = next_index(3, 5, "shuffle", rng=_FakeRng(pick))
-            self.assertNotEqual(result, 3)
-            self.assertIn(result, range(5))
-
-    def test_shuffle_single_track_returns_zero(self):
-        """Verify shuffle returns 0 for a one-track queue."""
-        self.assertEqual(next_index(0, 1, "shuffle", rng=_FakeRng(0)), 0)
-
-
 class TestPrevIndex(unittest.TestCase):
     """Tests for prev_index()."""
 
@@ -119,15 +95,165 @@ class TestPrevIndex(unittest.TestCase):
         """Verify repeat_one prev returns the same index."""
         self.assertEqual(prev_index(2, 5, "repeat_one"), 2)
 
-    def test_shuffle_uses_rng(self):
-        """Verify shuffle prev returns the injected rng's choice (excluding current)."""
-        # current=3: pick 1 < 3 maps straight through to 1.
-        self.assertEqual(prev_index(3, 10, "shuffle", rng=_FakeRng(1)), 1)
-
     def test_no_current_starts_at_first_in_every_mode(self):
         """Verify prev with current=-1 returns 0 (not repeat_all's count-2)."""
-        for mode in ("sequential", "repeat_one", "repeat_all", "shuffle"):
+        for mode in ("sequential", "repeat_one", "repeat_all"):
             self.assertEqual(prev_index(-1, 5, mode), 0, mode)
+
+
+class TestShuffleOrder(unittest.TestCase):
+    """Tests for the deterministic seeded shuffle order."""
+
+    def test_same_seed_same_order(self):
+        """Verify the same (count, seed) always yields the same permutation."""
+        self.assertEqual(shuffle_order(20, 1234), shuffle_order(20, 1234))
+
+    def test_is_a_permutation(self):
+        """Verify the order contains every index exactly once."""
+        self.assertEqual(sorted(shuffle_order(50, 7)), list(range(50)))
+
+    def test_different_seeds_differ(self):
+        """Verify different seeds give different orders (for a sane size)."""
+        self.assertNotEqual(shuffle_order(50, 1), shuffle_order(50, 2))
+
+    def test_empty_and_negative_counts(self):
+        """Verify count <= 0 yields an empty order."""
+        self.assertEqual(shuffle_order(0, 5), [])
+        self.assertEqual(shuffle_order(-3, 5), [])
+
+    def test_new_seed_is_nonzero(self):
+        """Verify generated seeds never collide with the 0 'unset' sentinel."""
+        for _ in range(100):
+            self.assertGreater(new_shuffle_seed(), 0)
+
+    def test_new_seed_avoids_first(self):
+        """Verify avoid_first re-draws until the order starts elsewhere."""
+        for _ in range(20):
+            seed = new_shuffle_seed(avoid_first=3, count=5)
+            self.assertNotEqual(shuffle_order(5, seed)[0], 3)
+
+
+class TestAdvance(unittest.TestCase):
+    """Tests for advance() — the mode-aware next-track chooser."""
+
+    def test_empty_queue_returns_none(self):
+        """Verify a zero-length queue yields None in every mode."""
+        for mode in PLAY_MODES:
+            index, seed = advance(0, 0, mode, 42)
+            self.assertIsNone(index)
+            self.assertEqual(seed, 42)
+
+    def test_non_shuffle_delegates_and_keeps_seed(self):
+        """Verify non-shuffle modes match next_index and keep the seed."""
+        self.assertEqual(advance(1, 5, "sequential", 42), (2, 42))
+        self.assertEqual(advance(3, 5, "repeat_one", 42), (3, 42))
+        self.assertEqual(advance(4, 5, "repeat_all", 42), (0, 42))
+        index, seed = advance(4, 5, "sequential", 42, ended=True)
+        self.assertIsNone(index)          # auto-advance stops past the end
+        self.assertEqual(seed, 42)
+
+    def test_shuffle_follows_seeded_order(self):
+        """Verify shuffle steps through the seeded order, seed unchanged."""
+        seed = 1234
+        order = shuffle_order(5, seed)
+        current = -1
+        played = []
+        for _ in range(5):
+            current, seed = advance(current, 5, "shuffle", seed)
+            played.append(current)
+        self.assertEqual(played, order)   # exactly the fixed order
+        self.assertEqual(seed, 1234)      # untouched until the cycle ends
+
+    def test_shuffle_no_repeat_within_cycle(self):
+        """Verify no track plays twice before every track has played once."""
+        seed = 99
+        current = -1
+        played = []
+        for _ in range(30):
+            current, seed = advance(current, 30, "shuffle", seed)
+            played.append(current)
+        self.assertEqual(sorted(played), list(range(30)))
+
+    def test_shuffle_reseeds_after_full_cycle(self):
+        """Verify finishing the order generates a new seed and a new order."""
+        seed = 1234
+        last = shuffle_order(5, seed)[-1]
+        nxt, new_seed = advance(last, 5, "shuffle", seed)
+        self.assertNotEqual(new_seed, seed)
+        self.assertEqual(nxt, shuffle_order(5, new_seed)[0])
+        self.assertNotEqual(nxt, last)    # the last track never replays first
+
+    def test_shuffle_from_idle_starts_order(self):
+        """Verify shuffle with no current track starts the order's first slot."""
+        seed = 7
+        self.assertEqual(advance(-1, 5, "shuffle", seed),
+                         (shuffle_order(5, seed)[0], seed))
+
+    def test_shuffle_single_track(self):
+        """Verify a one-track queue keeps playing track 0 (reseeding cycles)."""
+        index, _seed = advance(-1, 1, "shuffle", 5)
+        self.assertEqual(index, 0)
+        index, _seed = advance(0, 1, "shuffle", 5)
+        self.assertEqual(index, 0)
+
+
+class TestRetreat(unittest.TestCase):
+    """Tests for retreat() — the mode-aware previous-track chooser."""
+
+    def test_empty_queue_returns_none(self):
+        """Verify a zero-length queue yields None in every mode."""
+        for mode in PLAY_MODES:
+            index, seed = retreat(0, 0, mode, 42)
+            self.assertIsNone(index)
+            self.assertEqual(seed, 42)
+
+    def test_non_shuffle_delegates_and_keeps_seed(self):
+        """Verify non-shuffle modes match prev_index and keep the seed."""
+        self.assertEqual(retreat(3, 5, "sequential", 42), (2, 42))
+        self.assertEqual(retreat(2, 5, "repeat_one", 42), (2, 42))
+        self.assertEqual(retreat(0, 5, "repeat_all", 42), (4, 42))
+
+    def test_shuffle_prev_undoes_next(self):
+        """Verify prev steps back through the same fixed order as next."""
+        seed = 1234
+        first, seed = advance(-1, 8, "shuffle", seed)
+        second, seed = advance(first, 8, "shuffle", seed)
+        back, seed = retreat(second, 8, "shuffle", seed)
+        self.assertEqual(back, first)
+        self.assertEqual(seed, 1234)
+
+    def test_shuffle_prev_wraps_to_last_slot(self):
+        """Verify prev at the order's first slot wraps to its last slot."""
+        seed = 1234
+        order = shuffle_order(5, seed)
+        index, new_seed = retreat(order[0], 5, "shuffle", seed)
+        self.assertEqual(index, order[-1])
+        self.assertEqual(new_seed, seed)  # going back never reseeds
+
+    def test_shuffle_no_current_starts_order(self):
+        """Verify prev with current=-1 returns the order's first slot."""
+        seed = 7
+        index, _ = retreat(-1, 5, "shuffle", seed)
+        self.assertEqual(index, 0)        # falls back to prev_index's 0
+
+
+class TestStartIndex(unittest.TestCase):
+    """Tests for start_index() — the play-from-idle starting track."""
+
+    def test_non_shuffle_starts_at_zero(self):
+        """Verify every non-shuffle mode starts at the first track."""
+        for mode in ("sequential", "repeat_one", "repeat_all"):
+            self.assertEqual(start_index(5, mode, 42), 0, mode)
+
+    def test_shuffle_starts_at_order_head(self):
+        """Verify shuffle starts at the seeded order's first slot."""
+        seed = 1234
+        self.assertEqual(start_index(5, "shuffle", seed),
+                         shuffle_order(5, seed)[0])
+
+    def test_empty_queue_returns_zero(self):
+        """Verify an empty queue yields 0 (callers guard on emptiness)."""
+        self.assertEqual(start_index(0, "shuffle", 42), 0)
 
 
 class TestSerializeParse(unittest.TestCase):

@@ -456,5 +456,107 @@ class TestGetByPath(unittest.TestCase):
         mgr.close()
 
 
+class TestAppState(unittest.TestCase):
+    """Tests for the app_state key/value persistence (set_state/get_state)."""
+
+    def test_round_trips_value(self):
+        """Verify a saved state value is returned by get_state."""
+        mgr = make_manager()
+        mgr.set_state("play_mode", "shuffle")
+        self.assertEqual(mgr.get_state("play_mode"), "shuffle")
+        mgr.close()
+
+    def test_overwrites_existing_key(self):
+        """Verify saving a key again replaces its previous value."""
+        mgr = make_manager()
+        mgr.set_state("theme", "light")
+        mgr.set_state("theme", "dark")
+        self.assertEqual(mgr.get_state("theme"), "dark")
+        mgr.close()
+
+    def test_missing_key_returns_default(self):
+        """Verify an unsaved key yields the caller's default."""
+        mgr = make_manager()
+        self.assertIsNone(mgr.get_state("nope"))
+        self.assertEqual(mgr.get_state("nope", "fallback"), "fallback")
+        mgr.close()
+
+    def test_non_string_values_stored_as_text(self):
+        """Verify ints/floats are stored via str() and read back as text."""
+        mgr = make_manager()
+        mgr.set_state("now_index", 7)
+        mgr.set_state("now_pos", 12.5)
+        self.assertEqual(mgr.get_state("now_index"), "7")
+        self.assertEqual(mgr.get_state("now_pos"), "12.5")
+        mgr.close()
+
+    def test_none_deletes_key(self):
+        """Verify saving None removes the key entirely."""
+        mgr = make_manager()
+        mgr.set_state("queue_source", "/m/x.list")
+        mgr.set_state("queue_source", None)
+        self.assertIsNone(mgr.get_state("queue_source"))
+        mgr.close()
+
+    def test_survives_reopen(self):
+        """Verify state persists across closing and reopening the DB file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            with Mp3Manager(db_path) as mgr:
+                mgr.set_state("view_mode", "tree")
+            with Mp3Manager(db_path) as mgr:
+                self.assertEqual(mgr.get_state("view_mode"), "tree")
+        finally:
+            os.unlink(db_path)
+
+
+class TestPlayQueuePersistence(unittest.TestCase):
+    """Tests for the play_queue persistence (save_queue/load_queue)."""
+
+    def test_round_trips_paths_in_order(self):
+        """Verify saved queue paths come back in the same order."""
+        mgr = make_manager()
+        paths = ["/m/c.mp3", "/m/a.mp3", "/m/b.mp3"]
+        mgr.save_queue(paths)
+        self.assertEqual(mgr.load_queue(), paths)
+        mgr.close()
+
+    def test_save_replaces_previous_queue(self):
+        """Verify saving again fully replaces the stored queue."""
+        mgr = make_manager()
+        mgr.save_queue(["/m/old.mp3", "/m/older.mp3"])
+        mgr.save_queue(["/m/new.mp3"])
+        self.assertEqual(mgr.load_queue(), ["/m/new.mp3"])
+        mgr.close()
+
+    def test_empty_save_clears_queue(self):
+        """Verify saving an empty list clears the stored queue."""
+        mgr = make_manager()
+        mgr.save_queue(["/m/a.mp3"])
+        mgr.save_queue([])
+        self.assertEqual(mgr.load_queue(), [])
+        mgr.close()
+
+    def test_keeps_duplicate_paths(self):
+        """Verify duplicate queue entries are preserved (they are distinct slots)."""
+        mgr = make_manager()
+        mgr.save_queue(["/m/a.mp3", "/m/a.mp3"])
+        self.assertEqual(mgr.load_queue(), ["/m/a.mp3", "/m/a.mp3"])
+        mgr.close()
+
+    def test_survives_reopen(self):
+        """Verify the queue persists across closing and reopening the DB file."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            with Mp3Manager(db_path) as mgr:
+                mgr.save_queue(["/m/a.mp3", "/m/b.mp3"])
+            with Mp3Manager(db_path) as mgr:
+                self.assertEqual(mgr.load_queue(), ["/m/a.mp3", "/m/b.mp3"])
+        finally:
+            os.unlink(db_path)
+
+
 if __name__ == "__main__":
     unittest.main()

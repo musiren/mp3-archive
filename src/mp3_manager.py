@@ -317,6 +317,69 @@ class Mp3Manager:
             )
             self._conn.commit()
 
+    def set_state(self, key: str, value) -> None:
+        """
+        Persist one app-state entry (upsert into the app_state table).
+
+        Used to save UI/session state (play mode, theme, view mode, paused
+        track/position, …) so it survives an app restart.
+
+        Args:
+            key:   State key (e.g. 'play_mode').
+            value: Value to store; saved as str(value). None deletes the key.
+        """
+        if value is None:
+            self._conn.execute("DELETE FROM app_state WHERE key = ?", (key,))
+        else:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)",
+                (key, str(value)),
+            )
+        self._conn.commit()
+
+    def get_state(self, key: str, default: str | None = None) -> str | None:
+        """
+        Return one app-state entry saved by set_state().
+
+        Args:
+            key:     State key to look up.
+            default: Value to return when the key has never been saved.
+
+        Returns:
+            The stored string value, or *default* when absent.
+        """
+        row = self._conn.execute(
+            "SELECT value FROM app_state WHERE key = ?", (key,)
+        ).fetchone()
+        return row[0] if row else default
+
+    def save_queue(self, paths: list) -> None:
+        """
+        Replace the persisted play queue with *paths* (in order).
+
+        Args:
+            paths: Audio file paths in queue order; an empty list clears the
+                   stored queue.
+        """
+        self._conn.execute("DELETE FROM play_queue")
+        self._conn.executemany(
+            "INSERT INTO play_queue (pos, path) VALUES (?, ?)",
+            list(enumerate(paths)),
+        )
+        self._conn.commit()
+
+    def load_queue(self) -> list:
+        """
+        Return the play queue paths persisted by save_queue(), in order.
+
+        Returns:
+            A list of path strings (empty when nothing was saved).
+        """
+        cursor = self._conn.execute(
+            "SELECT path FROM play_queue ORDER BY pos"
+        )
+        return [row[0] for row in cursor.fetchall()]
+
     def delete(self, path: str) -> None:
         """
         Remove an audio record from the database by its file path.
@@ -377,6 +440,21 @@ def _create_table(conn: sqlite3.Connection) -> None:
     _migrate_add_column(conn, "genre", "TEXT")
     _migrate_add_column(conn, "year", "TEXT")
     _migrate_add_column(conn, "comment", "TEXT")
+
+    # Session persistence: simple key/value app state plus the ordered play
+    # queue, so the app can restore its last state after a restart.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS app_state (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS play_queue (
+            pos  INTEGER PRIMARY KEY,
+            path TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
 

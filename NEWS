@@ -1,6 +1,42 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260611 (2026-06-11)
+===========================================================================
+
+Session persistence across app restarts and a deterministic shuffle
+order for the Android app.
+
+New features (Android)
+----------------------
+- The app now saves its state when paused or closed and restores it on
+  the next launch: the play queue, the track that was playing (shown
+  paused at its saved position — pressing play resumes from there), the
+  play mode, the 재생 tab's album-art visibility, the 목록 tab's view
+  mode (목록/자세히/트리/타일/표), and the colour theme.
+- When the queue was loaded verbatim from a .list playlist file, only
+  the file path is remembered and the file is re-read on launch, so
+  later edits to the playlist file are picked up automatically. An
+  edited queue is stored row by row instead.
+
+Changed behaviour (Android)
+---------------------------
+- Shuffle now plays a fixed random order: the order is drawn once (a
+  seeded permutation) and never changes until the queue changes, so
+  next/prev retrace the same sequence and no song repeats until every
+  song has played once. Finishing the whole order draws a new one
+  (never starting with the song that just ended); switching away from
+  shuffle and back also starts a fresh order. A song queued twice
+  counts as two slots and may play twice. The unchanged-queue order
+  even survives an app restart (the seed is part of the saved state).
+
+Bug fixes
+---------
+- The 트리 view and its folder enqueue silently matched nothing for
+  Windows-style backslash paths on Android/Linux hosts (e.g. a .list
+  written on a PC); paths are now normalised before comparison.
+
+===========================================================================
 v20260610 (2026-06-10) — second batch
 ===========================================================================
 

@@ -27,6 +27,26 @@ class TestMakeCommand(unittest.TestCase):
         self.assertEqual(data["index"], 0)
         self.assertEqual(data["mode"], "shuffle")
 
+    def test_sync_round_trips_seed_and_position(self):
+        """A sync command carries the shuffle seed and the resume position."""
+        s = ipc.make_command(ipc.OP_SYNC, index=2, mode="shuffle",
+                             seed=987654321, position=42.5)
+        data = ipc.parse_command(s)
+        self.assertEqual(data["seed"], 987654321)
+        self.assertEqual(data["position"], 42.5)
+
+    def test_sync_seed_defaults_to_zero(self):
+        """A sync without a seed (or a junk seed) normalises to 0 (unset)."""
+        s = ipc.make_command(ipc.OP_SYNC, index=0, mode="shuffle")
+        self.assertEqual(ipc.parse_command(s)["seed"], 0)
+        s = ipc.make_command(ipc.OP_SYNC, index=0, mode="shuffle", seed="junk")
+        self.assertEqual(ipc.parse_command(s)["seed"], 0)
+
+    def test_sync_position_clamped_non_negative(self):
+        """A negative sync resume position is clamped to 0.0."""
+        s = ipc.make_command(ipc.OP_SYNC, index=0, mode="shuffle", position=-9)
+        self.assertEqual(ipc.parse_command(s)["position"], 0.0)
+
     def test_sync_strips_items_from_wire_payload(self):
         """Items passed to make_command are NOT placed on the wire.
 
@@ -182,7 +202,7 @@ class TestState(unittest.TestCase):
         """make_state -> parse_state preserves every field."""
         s = ipc.make_state(playing=True, path="/a.mp3", title="a",
                            subtitle="x", position=10.0, length=200.0, index=3,
-                           volume=0.5)
+                           volume=0.5, seed=4242)
         st = ipc.parse_state(s)
         self.assertTrue(st["playing"])
         self.assertEqual(st["path"], "/a.mp3")
@@ -192,6 +212,7 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["length"], 200.0)
         self.assertEqual(st["index"], 3)
         self.assertEqual(st["volume"], 0.5)
+        self.assertEqual(st["seed"], 4242)
 
     def test_volume_clamped_in_state(self):
         """A state volume above 1.0 is clamped on parse."""
@@ -206,6 +227,7 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["length"], 0.0)
         self.assertEqual(st["index"], -1)
         self.assertEqual(st["volume"], 1.0)
+        self.assertEqual(st["seed"], 0)
 
     def test_malformed_payload_yields_idle_state(self):
         """A malformed (non-JSON) state payload degrades to an idle state."""

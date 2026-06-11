@@ -500,6 +500,135 @@ class TestSnackbarShim(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestSessionPersistence(unittest.TestCase):
+    """Tests for the save-on-exit / restore-on-launch session helpers."""
+
+    @staticmethod
+    def _memory_manager():
+        """Return an Mp3Manager backed by an in-memory SQLite database."""
+        import sqlite3
+        from mp3_manager import Mp3Manager, _create_table
+        mgr = Mp3Manager.__new__(Mp3Manager)
+        mgr._conn = sqlite3.connect(":memory:")
+        _create_table(mgr._conn)
+        return mgr
+
+    def _stub_app(self, mgr, **overrides):
+        """Build a minimal app stand-in carrying the persisted session state."""
+        from main_window_android import Mp3ArchiveApp
+        from playlist import PlayQueue
+        stub = types.SimpleNamespace(
+            _manager=mgr, _play_mode="shuffle", _shuffle_seed=777,
+            _theme_choice="dark", _view_mode="table", _show_art=False,
+            _queue_source=None, _queue=PlayQueue(), _playing_path="",
+            _resume_index=-1, _resume_pos=0.0, _svc_pos=0.0,
+            _sound=None, _elapsed=0.0, _paused_pos=0.0,
+        )
+        stub._svc_active = lambda: False
+        stub._current_position = (
+            lambda: Mp3ArchiveApp._current_position(stub))
+        stub._save_app_state = (
+            lambda: Mp3ArchiveApp._save_app_state(stub))
+        for key, value in overrides.items():
+            setattr(stub, key, value)
+        return stub
+
+    def test_save_persists_prefs(self):
+        """Verifies mode/seed/theme/view/art preferences reach the DB."""
+        mgr = self._memory_manager()
+        self._stub_app(mgr)._save_app_state()
+        self.assertEqual(mgr.get_state("play_mode"), "shuffle")
+        self.assertEqual(mgr.get_state("shuffle_seed"), "777")
+        self.assertEqual(mgr.get_state("theme"), "dark")
+        self.assertEqual(mgr.get_state("view_mode"), "table")
+        self.assertEqual(mgr.get_state("show_art"), "0")
+        mgr.close()
+
+    def test_save_stores_queue_rows_without_source(self):
+        """Verifies a hand-built queue persists its ordered paths."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr)
+        stub._queue.add_many([{"path": "/m/b.mp3"}, {"path": "/m/a.mp3"}])
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("queue_source"), "")
+        self.assertEqual(mgr.load_queue(), ["/m/b.mp3", "/m/a.mp3"])
+        mgr.close()
+
+    def test_save_stores_only_list_source(self):
+        """Verifies a .list-mirrored queue persists just the file path."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr, _queue_source="/m/주말.list")
+        stub._queue.add_many([{"path": "/m/a.mp3"}])
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("queue_source"), "/m/주말.list")
+        self.assertEqual(mgr.load_queue(), [])   # the file is the source
+        mgr.close()
+
+    def test_save_records_paused_track_and_position(self):
+        """Verifies the loaded track, queue index, and position are saved."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr, _playing_path="/m/a.mp3", _svc_pos=83.4)
+        stub._svc_active = lambda: True
+        stub._queue.add_many([{"path": "/m/x.mp3"}, {"path": "/m/a.mp3"}])
+        stub._queue.set_current(1)
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("now_path"), "/m/a.mp3")
+        self.assertEqual(mgr.get_state("now_index"), "1")
+        self.assertEqual(mgr.get_state("now_pos"), "83.4")
+        mgr.close()
+
+    def test_save_keeps_unresumed_restore_target(self):
+        """Verifies quitting again before pressing play keeps the saved spot."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr, _resume_index=0, _resume_pos=42.0)
+        stub._queue.add_many([{"path": "/m/a.mp3"}])
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("now_path"), "/m/a.mp3")
+        self.assertEqual(mgr.get_state("now_index"), "0")
+        self.assertEqual(mgr.get_state("now_pos"), "42.0")
+        mgr.close()
+
+    def test_restore_pref_validates_values(self):
+        """Verifies saved prefs are validated against the allowed set."""
+        from main_window_android import Mp3ArchiveApp
+        mgr = self._memory_manager()
+        stub = types.SimpleNamespace(_manager=mgr)
+        mgr.set_state("view_mode", "tree")
+        self.assertEqual(
+            Mp3ArchiveApp._restore_pref(stub, "view_mode", "details",
+                                        ("details", "tree")), "tree")
+        mgr.set_state("view_mode", "bogus")
+        self.assertEqual(
+            Mp3ArchiveApp._restore_pref(stub, "view_mode", "details",
+                                        ("details", "tree")), "details")
+        self.assertEqual(
+            Mp3ArchiveApp._restore_pref(stub, "unsaved", "fallback",
+                                        ("fallback", "x")), "fallback")
+        mgr.close()
+
+    def test_restore_seed_round_trips(self):
+        """Verifies the saved seed is reused; absence generates a fresh one."""
+        from main_window_android import Mp3ArchiveApp
+        mgr = self._memory_manager()
+        stub = types.SimpleNamespace(_manager=mgr)
+        mgr.set_state("shuffle_seed", 12345)
+        self.assertEqual(Mp3ArchiveApp._restore_seed(stub), 12345)
+        mgr.set_state("shuffle_seed", None)
+        self.assertGreater(Mp3ArchiveApp._restore_seed(stub), 0)
+        mgr.close()
+
+    def test_queue_changed_reseeds_and_clears_source(self):
+        """Verifies any queue edit invalidates the seed and the .list source."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace(_shuffle_seed=777,
+                                     _queue_source="/m/주말.list")
+        Mp3ArchiveApp._queue_changed(stub)
+        self.assertNotEqual(stub._shuffle_seed, 777)
+        self.assertGreater(stub._shuffle_seed, 0)
+        self.assertIsNone(stub._queue_source)
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestFontFamilies(unittest.TestCase):
     """Tests that the Korean font targets every KivyMD font family, not just Roboto."""
 

@@ -8,6 +8,30 @@ without Kivy. The Android UI feeds the returned rows to a RecycleView.
 import os
 
 
+def _relative(path: str, base: str) -> str:
+    """
+    Return *path* relative to *base* with "/" separators.
+
+    Backslashes are normalised to "/" BEFORE the relpath computation: a POSIX
+    host treats "\\" as an ordinary character, so a Windows-style path (e.g. a
+    `.list` written on a PC) would otherwise never match *base* and the whole
+    path would come back as one opaque component.
+
+    Args:
+        path: The file path (either separator style).
+        base: The scanned-root path, or empty/None to keep the full path.
+
+    Returns:
+        The (possibly relative) path using "/" separators only.
+    """
+    path = (path or "").replace("\\", "/")
+    base = (base or "").replace("\\", "/")
+    try:
+        return os.path.relpath(path, base) if base else path
+    except ValueError:
+        return path
+
+
 def build_tree_rows(files: list, base: str, expanded: set) -> list:
     """
     Flatten the directory hierarchy of *files* into RecycleView tree rows.
@@ -33,18 +57,14 @@ def build_tree_rows(files: list, base: str, expanded: set) -> list:
     """
     tree: dict = {}
     for f in files:
-        path = f["path"]
-        try:
-            rel = os.path.relpath(path, base) if base else path
-        except ValueError:
-            rel = path
-        parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
+        rel = _relative(f["path"], base)
+        parts = [p for p in rel.split("/") if p and p != "."]
         if not parts:
             continue
         node = tree
         for part in parts[:-1]:
             node = node.setdefault(part, {})
-        node.setdefault("__files__", []).append((parts[-1], path))
+        node.setdefault("__files__", []).append((parts[-1], f["path"]))
 
     rows: list = []
 
@@ -93,17 +113,13 @@ def files_under_folder(files: list, base: str, key: str) -> list:
     prefix = key.replace("\\", "/") + "/"
     matched = []
     for record in files:
-        path = record.get("path", "")
-        try:
-            rel = os.path.relpath(path, base) if base else path
-        except ValueError:
-            rel = path
+        rel = _relative(record.get("path", ""), base)
         # Normalise exactly like build_tree_rows (split on "/", drop empty/"."
         # segments, rejoin) so the folder keys agree in BOTH cases: a real
         # relative base, and an empty base where rel is the full path (e.g.
         # after an app relaunch with no scan dir) — otherwise the leading "/"
         # of an absolute path makes the prefix never match.
-        parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
+        parts = [p for p in rel.split("/") if p and p != "."]
         rel = "/".join(parts)
         if rel.startswith(prefix):
             matched.append((rel, record))

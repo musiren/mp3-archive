@@ -146,6 +146,15 @@ class TestBuildTreeRows(unittest.TestCase):
         self.assertIn("A/B", keys)
         self.assertTrue(any("deep.mp3" in r["text"] for r in rows))
 
+    def test_backslash_paths_build_folders(self):
+        """Verifies Windows-style paths group under folders on any host OS."""
+        files = [{"path": r"C:\m\A\1.mp3"}]
+        rows = build_tree_rows(files, r"C:\m", {"A"})
+        folder = next(r for r in rows if r["is_dir"])
+        leaf = next(r for r in rows if not r["is_dir"])
+        self.assertEqual(folder["key"], "A")
+        self.assertEqual(leaf["path"], r"C:\m\A\1.mp3")
+
 
 if __name__ == "__main__":
     unittest.main()
