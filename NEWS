@@ -1,6 +1,20 @@
 mp3-archive NEWS
 
 ===========================================================================
+Unreleased
+===========================================================================
+
+Performance (Android)
+---------------------
+- 트리 view taps no longer freeze on large libraries. Expanding a
+  folder or toggling a selection used to rebuild the whole tree from
+  every file AND rescan all files once per visible folder row
+  (~14 s per tap at 20k files / 200 folders); the tree is now indexed
+  once per list refresh and each tap only renders the visible rows,
+  with selection taps updating just the affected rows in place
+  (<1 ms per tap on the same library).
+
+===========================================================================
 v20260611 (2026-06-11)
 ===========================================================================
 

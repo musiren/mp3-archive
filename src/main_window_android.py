@@ -101,7 +101,7 @@ from online_meta import (
 import service_ipc as ipc
 from service_bridge import ServiceBridge
 import table_util
-from tree_util import build_tree_rows, files_under_folder
+from tree_util import TreeIndex, files_under_folder, refresh_selection_flags
 from ui_util import latest_news_version, resolve_theme_style, sort_files
 
 
@@ -1065,6 +1065,7 @@ class Mp3ArchiveApp(MDApp):
         self._table_sort_reverse = False
         self._table_cols_dialog = None
         self._expanded: set = set()    # expanded folder keys (트리 view)
+        self._tree_index = None        # cached TreeIndex for the current list
         self._art_cache: dict = {}     # path -> album-art file path ("" if none)
         self._art_dir = os.path.join(self._storage_directory(), "art_cache")
         try:
@@ -1675,6 +1676,7 @@ class Mp3ArchiveApp(MDApp):
             }
             for f in files
         ]
+        self._tree_index = None   # the list changed; re-index the tree lazily
         if self._view_mode == "tiles":
             self.root.ids.mp3_grid.data = self._files
         elif self._view_mode == "tree":
@@ -2174,47 +2176,67 @@ class Mp3ArchiveApp(MDApp):
         Toggle selection for a tree row.
 
         A file row toggles its own path; a folder row toggles every song under
-        it (recursively): selecting if any are unselected, else deselecting all.
+        it (recursively): selecting if any are unselected, else deselecting
+        all. The folder's song list comes from the cached TreeIndex and only
+        the affected rows are updated in place, so the tap stays fast on a
+        large tree (the previous full rescan + rebuild froze the UI).
         """
         if row.is_dir and row.key:
-            paths = [rec["path"] for rec in files_under_folder(
-                self._files, self._last_dir or "", row.key)]
+            paths = self._get_tree_index().paths_under(row.key)
             if not paths:
                 return
             select = not all(p in self._selected for p in paths)
-            for p in paths:
-                if select:
-                    self._selected.add(p)
-                else:
-                    self._selected.discard(p)
+            if select:
+                self._selected.update(paths)
+            else:
+                self._selected.difference_update(paths)
         elif row.path:
             if row.path in self._selected:
                 self._selected.discard(row.path)
             else:
                 self._selected.add(row.path)
+        else:
+            return
         self.selection_count = len(self._selected)
-        self._refresh_tree_rows()
+        self._refresh_tree_selection(row.index)
+
+    def _get_tree_index(self) -> TreeIndex:
+        """Return the TreeIndex for the current list, (re)building it lazily."""
+        if self._tree_index is None:
+            self._tree_index = TreeIndex(self._files, self._last_dir or "")
+        return self._tree_index
 
     def _tree_rows(self) -> list:
         """Build the visible tree rows, tagged with their selection state."""
-        rows = build_tree_rows(
-            self._files, self._last_dir or "", self._expanded
-        )
-        base = self._last_dir or ""
-        for r in rows:
-            if r.get("is_dir"):
-                paths = [rec["path"] for rec in files_under_folder(
-                    self._files, base, r.get("key", ""))]
-                r["selected"] = bool(paths) and all(
-                    p in self._selected for p in paths)
-            else:
-                r["selected"] = r.get("path", "") in self._selected
-        return rows
+        return self._get_tree_index().rows(self._expanded, self._selected)
 
     def _refresh_tree_rows(self) -> None:
-        """Re-assign the tree RecycleView data (e.g. after a selection change)."""
+        """Re-assign the tree RecycleView data (e.g. after expand/collapse)."""
         if self.root is not None:
             self.root.ids.mp3_list.data = self._tree_rows()
+
+    def _refresh_tree_selection(self, start) -> None:
+        """
+        Update the tree rows' selection flags in place after one toggle.
+
+        Only the toggled row, its visible descendants, and its ancestor
+        folders can have changed, so mutate just those data entries and let
+        the RecycleView refresh the bound widgets — re-assigning the whole
+        data list would rebuild every visible row.
+
+        Args:
+            start: Data index of the toggled row; a full re-render is used as
+                   the fallback when it is unknown.
+        """
+        if self.root is None:
+            return
+        if not isinstance(start, int):
+            self._refresh_tree_rows()
+            return
+        rv = self.root.ids.mp3_list
+        refresh_selection_flags(rv.data, start, self._selected,
+                                self._get_tree_index().paths_under)
+        rv.refresh_from_data()
 
     def toggle_tree_folder(self, key: str) -> None:
         """Expand/collapse a tree folder and rebuild the visible tree rows."""
