@@ -42,7 +42,9 @@ def build_tree_rows(files: list, base: str, expanded: set) -> list:
     indexing cost is paid once per file list rather than once per tap.
 
     Args:
-        files:    List of record dicts, each with a "path" key.
+        files:    List of record dicts, each with a "path" key. File rows keep
+                  this list's order within each folder, so pass the list
+                  pre-sorted in the desired display order.
         base:     Absolute path of the scanned root (paths are shown relative
                   to it). May be empty/None to use the full path.
         expanded: Set of folder keys (slash-joined relative dir paths) that are
@@ -63,34 +65,49 @@ class TreeIndex:
     subsequent render then only walks the VISIBLE rows. The previous approach
     rebuilt the whole tree — plus one O(N) folder scan per visible folder row —
     on every tap, which froze the UI on large libraries.
+
+    Within a folder, files keep the input list's order (the caller pre-sorts
+    the list in its display order); folders are ordered by *dir_sort*.
     """
 
-    def __init__(self, files: list, base: str) -> None:
+    def __init__(self, files: list, base: str, dir_sort: str = "name") -> None:
         """
         Index *files* into a nested folder tree.
 
         Args:
-            files: List of record dicts, each with a "path" key.
-            base:  Absolute path of the scanned root (paths are shown relative
-                   to it). May be empty/None to use the full path.
+            files:    List of record dicts, each with a "path" key and
+                      optionally a "created"/"file_created_at" timestamp
+                      (ISO-8601 string) used by the "date" folder order.
+            base:     Absolute path of the scanned root (paths are shown
+                      relative to it). May be empty/None to use the full path.
+            dir_sort: Folder ordering — "name" (case-insensitive, default) or
+                      "date" (newest descendant file first; folders without a
+                      timestamp last). Only these two apply to folders; the
+                      finer file orders (artist/title) come from the input
+                      list's order.
         """
         self._root = {"dirs": {}, "files": []}
         self._paths: dict = {}    # folder key -> descendant file paths
+        self._dir_sort = dir_sort if dir_sort in ("name", "date") else "name"
         for f in files:
             rel = _relative(f.get("path", ""), base)
             parts = [p for p in rel.split("/") if p and p != "."]
             if not parts:
                 continue
+            created = (f.get("created") or f.get("file_created_at") or "")
             node = self._root
             for part in parts[:-1]:
-                node = node["dirs"].setdefault(part,
-                                               {"dirs": {}, "files": []})
+                node = node["dirs"].setdefault(
+                    part, {"dirs": {}, "files": [], "newest": ""})
+                # Track each folder's newest descendant for the "date" order.
+                if created > node["newest"]:
+                    node["newest"] = created
             node["files"].append((parts[-1], f.get("path", "")))
         self._finalise(self._root, "")
 
     def _finalise(self, node: dict, key: str) -> list:
         """
-        Sort *node*'s children and aggregate its descendant file paths.
+        Order *node*'s child folders and aggregate its descendant file paths.
 
         Args:
             node: The tree node to finalise (its subtree is finalised too).
@@ -99,8 +116,12 @@ class TreeIndex:
         Returns:
             Every file path under *node*, folders first (tree display order).
         """
-        node["files"].sort(key=lambda pair: pair[0].lower())
-        node["dir_names"] = sorted(node["dirs"])
+        names = sorted(node["dirs"], key=str.lower)
+        if self._dir_sort == "date":
+            # Stable: newest-first by timestamp, name order breaking ties;
+            # reverse=True drops folders without a timestamp ("") to the end.
+            names.sort(key=lambda d: node["dirs"][d]["newest"], reverse=True)
+        node["dir_names"] = names
         paths = []
         for dname in node["dir_names"]:
             child_key = (key + "/" + dname) if key else dname

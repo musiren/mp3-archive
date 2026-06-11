@@ -216,6 +216,65 @@ class TestTreeIndex(unittest.TestCase):
         rows = index.rows({"A"}, selected={"/m/A/1.mp3", "/m/A/2.mp3"})
         self.assertTrue(next(r for r in rows if r["is_dir"])["selected"])
 
+    def test_files_keep_input_order(self):
+        """Verifies file rows follow the input list order (caller pre-sorts)."""
+        files = _files("/m/A/zebra.mp3", "/m/A/apple.mp3", "/m/A/mango.mp3")
+        rows = TreeIndex(files, "/m").rows({"A"})
+        names = [r["text"].strip() for r in rows if not r["is_dir"]]
+        self.assertEqual(names, ["♪ zebra.mp3", "♪ apple.mp3", "♪ mango.mp3"])
+
+    def test_dirs_sorted_by_name_case_insensitively(self):
+        """Verifies the default folder order ignores case."""
+        files = _files("/m/banana/1.mp3", "/m/Apple/2.mp3", "/m/cherry/3.mp3")
+        rows = TreeIndex(files, "/m").rows(set())
+        self.assertEqual([r["key"] for r in rows],
+                         ["Apple", "banana", "cherry"])
+
+    def test_dir_sort_date_newest_first(self):
+        """Verifies dir_sort="date" orders folders by newest descendant file."""
+        files = [
+            {"path": "/m/old/1.mp3", "created": "2024-01-01 00:00:00"},
+            {"path": "/m/new/2.mp3", "created": "2026-05-01 00:00:00"},
+            {"path": "/m/mid/3.mp3", "created": "2025-03-01 00:00:00"},
+            # A second, older file must not drag the "new" folder down.
+            {"path": "/m/new/0.mp3", "created": "2020-01-01 00:00:00"},
+        ]
+        rows = TreeIndex(files, "/m", dir_sort="date").rows(set())
+        self.assertEqual([r["key"] for r in rows], ["new", "mid", "old"])
+
+    def test_dir_sort_date_undated_folders_last(self):
+        """Verifies folders with no timestamps sort after dated ones."""
+        files = [
+            {"path": "/m/undated/1.mp3"},
+            {"path": "/m/dated/2.mp3", "created": "2024-01-01 00:00:00"},
+        ]
+        rows = TreeIndex(files, "/m", dir_sort="date").rows(set())
+        self.assertEqual([r["key"] for r in rows], ["dated", "undated"])
+
+    def test_dir_sort_date_uses_nested_descendants(self):
+        """Verifies a folder's date comes from files nested at any depth."""
+        files = [
+            {"path": "/m/A/sub/deep.mp3", "created": "2026-05-01 00:00:00"},
+            {"path": "/m/B/1.mp3", "created": "2025-01-01 00:00:00"},
+        ]
+        rows = TreeIndex(files, "/m", dir_sort="date").rows(set())
+        self.assertEqual([r["key"] for r in rows], ["A", "B"])
+
+    def test_dir_sort_accepts_file_created_at_key(self):
+        """Verifies raw DB rows (file_created_at) feed the date order too."""
+        files = [
+            {"path": "/m/old/1.mp3", "file_created_at": "2024-01-01 00:00:00"},
+            {"path": "/m/new/2.mp3", "file_created_at": "2026-01-01 00:00:00"},
+        ]
+        rows = TreeIndex(files, "/m", dir_sort="date").rows(set())
+        self.assertEqual([r["key"] for r in rows], ["new", "old"])
+
+    def test_unknown_dir_sort_falls_back_to_name(self):
+        """Verifies an unrecognised dir_sort value behaves like "name"."""
+        files = _files("/m/b/1.mp3", "/m/a/2.mp3")
+        rows = TreeIndex(files, "/m", dir_sort="bogus").rows(set())
+        self.assertEqual([r["key"] for r in rows], ["a", "b"])
+
     def test_render_is_fast_once_indexed(self):
         """Verifies repeated renders on a big tree avoid re-indexing costs."""
         import time

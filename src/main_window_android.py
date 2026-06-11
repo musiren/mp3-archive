@@ -1673,6 +1673,8 @@ class Mp3ArchiveApp(MDApp):
                 "title": f["title"] or "-",
                 "path": f["path"],
                 "selected": f["path"] in self._selected,
+                # Folder ordering in the 트리 view's "date" sort.
+                "created": f.get("file_created_at") or "",
             }
             for f in files
         ]
@@ -2201,9 +2203,18 @@ class Mp3ArchiveApp(MDApp):
         self._refresh_tree_selection(row.index)
 
     def _get_tree_index(self) -> TreeIndex:
-        """Return the TreeIndex for the current list, (re)building it lazily."""
+        """
+        Return the TreeIndex for the current list, (re)building it lazily.
+
+        Files inside each folder follow the list's sort order (the index keeps
+        the pre-sorted ``_files`` order); folders themselves support only the
+        orders that make sense for them — newest-first in the 날짜 mode, name
+        order in every other mode.
+        """
         if self._tree_index is None:
-            self._tree_index = TreeIndex(self._files, self._last_dir or "")
+            self._tree_index = TreeIndex(
+                self._files, self._last_dir or "",
+                dir_sort="date" if self._sort_mode == "date" else "name")
         return self._tree_index
 
     def _tree_rows(self) -> list:

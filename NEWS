@@ -4,6 +4,16 @@ mp3-archive NEWS
 Unreleased
 ===========================================================================
 
+New features (Android)
+----------------------
+- The 트리 view now follows the sort menu: files inside each folder use
+  the selected order (이름/아티스트/제목/날짜), and folders themselves
+  are ordered by name — or newest-first by their files' creation dates
+  in the 날짜 mode (only those two orders make sense for folders).
+- The home-screen widget shows the app icon as its background when the
+  current track has no embedded album art (or nothing is playing),
+  instead of a blank/transparent area.
+
 Performance (Android)
 ---------------------
 - 트리 view taps no longer freeze on large libraries. Expanding a
