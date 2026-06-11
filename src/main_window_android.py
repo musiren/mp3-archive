@@ -21,7 +21,6 @@ Entry point for buildozer:
 """
 
 import os
-import random
 import threading
 
 from kivy.clock import Clock, mainthread
@@ -80,12 +79,15 @@ import itunes_fetcher
 import mb_fetcher
 from mp3_manager import Mp3Manager
 from playlist import (
+    PLAY_MODES,
     PlayQueue,
-    next_index,
+    advance,
+    new_shuffle_seed,
     next_play_mode,
     parse_playlist,
-    prev_index,
+    retreat,
     serialize_playlist,
+    start_index,
 )
 from online_meta import (
     SOURCE_BOTH,
@@ -1012,10 +1014,17 @@ class Mp3ArchiveApp(MDApp):
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._suppress_next_queue_play = False  # skip queue play after long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
-        self._play_mode = "sequential"  # see playlist.PLAY_MODES
+        self._play_mode = self._restore_pref("play_mode", "sequential",
+                                             PLAY_MODES)
+        self._shuffle_seed = self._restore_seed()  # deterministic shuffle order
+        self._queue_source = None      # .list file the queue mirrors, or None
+        self._resume_index = -1        # queue index to resume after a restart
+        self._resume_pos = 0.0         # saved position (s) for that track
+        self._svc_pos = 0.0            # last position reported by the service
         self._playing_path = ""        # path of the track currently loaded
         self._lower_view = "queue"     # 재생 tab lower area: "queue" or "lyrics"
-        self._show_art = True          # whether to show album art on the 재생 tab
+        # Whether to show album art on the 재생 tab.
+        self._show_art = self._restore_pref("show_art", "1", ("0", "1")) == "1"
         # Placeholder shown on the player tab when a track has no album art.
         self._default_art = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "default_art.png"
@@ -1025,6 +1034,7 @@ class Mp3ArchiveApp(MDApp):
         self._save_dialog = None       # the "save playlist" filename dialog
         self._load_choice_dialog = None  # append-vs-replace prompt on load
         self._pending_load_paths = []  # parsed paths awaiting the load choice
+        self._pending_load_source = None  # the .list those paths came from
 
         # Folder picker (MDFileManager) state
         self._file_manager = None      # lazily-created MDFileManager
@@ -1036,13 +1046,18 @@ class Mp3ArchiveApp(MDApp):
         self._last_dir = None          # last scanned directory (for full rescan)
         self._search_event = None      # debounce timer for live search
 
-        # View mode (목록 tab): "details" (album art) / "list" / "tree"
-        self._view_mode = "details"
+        # View mode (목록 tab): "details" (album art) / "list" / "tree" /
+        # "tiles" / "table".
+        self._view_mode = self._restore_pref(
+            "view_mode", "details",
+            ("details", "list", "tree", "tiles", "table"))
         self._view_menu = None
         self._sort_mode = "artist"     # list sort order (see ui_util.sort_files)
         self._sort_menu = None
         self._more_menu = None         # the ⋮ overflow menu
-        self._theme_choice = "system"  # "system" / "light" / "dark"
+        # Colour theme: "system" / "light" / "dark".
+        self._theme_choice = self._restore_pref(
+            "theme", "system", ("system", "light", "dark"))
         self._theme_menu = None
         # 표 (table) view state
         self._table_columns = list(table_util.DEFAULT_COLUMNS)
@@ -1096,7 +1111,9 @@ class Mp3ArchiveApp(MDApp):
         # in-process SoundLoader and the app behaves as before.
         self._player_svc = ServiceBridge(self._on_service_state)
         self._player_svc.start()
+        self._apply_view_mode()        # restored 목록 view (tree/table/…)
         self._refresh_list()
+        self._restore_session()        # restored queue + paused track + icons
 
     # KivyMD 1.2.0 maps its font styles to several family names, not just
     # "Roboto": H1/H2 use "RobotoLight" and H6/Button use "RobotoMedium" (see
@@ -1155,8 +1172,11 @@ class Mp3ArchiveApp(MDApp):
 
         Returning True keeps the UI process and its OSC server alive while the
         app is in the background, so the foreground service's audio keeps
-        playing and the player UI stays in sync on resume.
+        playing and the player UI stays in sync on resume. The session state
+        is saved here too because Android may kill a backgrounded process
+        without ever calling on_stop.
         """
+        self._save_app_state()
         return True
 
     def on_resume(self) -> None:
@@ -1165,12 +1185,215 @@ class Mp3ArchiveApp(MDApp):
             self._player_svc.send(ipc.OP_PING)
 
     def on_stop(self) -> None:
-        """Stop playback and close the database connection when the app exits."""
+        """Save the session, stop playback, and close the DB when the app exits."""
+        self._save_app_state()
         if self._player_svc and self._player_svc.available:
             self._player_svc.send(ipc.OP_STOP)
             self._player_svc.stop_server()
         self._stop_sound()
         self._manager.close()
+
+    # ------------------------------------------------------------------
+    # Session persistence (saved on pause/exit, restored on launch)
+    # ------------------------------------------------------------------
+
+    def _restore_pref(self, key: str, default: str, allowed) -> str:
+        """
+        Load one saved preference, falling back to *default* when invalid.
+
+        Args:
+            key:     The app_state key (see _save_app_state).
+            default: Value to use when the key is unsaved or unreadable.
+            allowed: Iterable of valid values; anything else maps to default.
+
+        Returns:
+            The validated stored value, or *default*.
+        """
+        try:
+            value = self._manager.get_state(key, default)
+        except Exception:
+            return default
+        return value if value in allowed else default
+
+    def _restore_seed(self) -> int:
+        """
+        Load the saved shuffle seed, or generate a fresh one.
+
+        The queue is restored verbatim on launch, so keeping the seed keeps
+        the exact shuffle order across an app restart (the playlist did not
+        change, hence the seed must not either).
+
+        Returns:
+            A non-zero shuffle seed.
+        """
+        try:
+            return int(self._manager.get_state("shuffle_seed", "0")) or \
+                new_shuffle_seed()
+        except (TypeError, ValueError):
+            return new_shuffle_seed()
+
+    def _current_position(self) -> float:
+        """
+        Return the current playback position in seconds (best-effort).
+
+        Service-driven playback reports its position in state pushes
+        (``_svc_pos``); the SoundLoader fallback tracks ``_elapsed`` while
+        playing and ``_paused_pos`` while paused.
+
+        Returns:
+            The position in seconds (0.0 when nothing is loaded).
+        """
+        if self._svc_active():
+            return self._svc_pos
+        if self._sound is not None:
+            return self._elapsed or self._paused_pos
+        return self._paused_pos
+
+    def _save_app_state(self) -> None:
+        """
+        Persist the session to the DB so the next launch can restore it.
+
+        Saves the play mode, shuffle seed, theme, 목록 view mode, the 재생
+        tab's album-art visibility, the queue (just its source ``.list`` path
+        when the queue mirrors one, else the ordered paths), and the
+        track/position that was playing or paused — restored as paused.
+        """
+        try:
+            m = self._manager
+            m.set_state("play_mode", self._play_mode)
+            m.set_state("shuffle_seed", self._shuffle_seed)
+            m.set_state("theme", self._theme_choice)
+            m.set_state("view_mode", self._view_mode)
+            m.set_state("show_art", "1" if self._show_art else "0")
+            m.set_state("queue_source", self._queue_source or "")
+            if self._queue_source:
+                m.save_queue([])   # the .list file is the single source
+            else:
+                m.save_queue([item.get("path", "")
+                              for item in self._queue.items
+                              if item.get("path")])
+            # The paused/playing track: prefer the loaded one; fall back to
+            # the pending resume target so quitting again before pressing
+            # play does not lose the restored spot.
+            if self._playing_path:
+                path, index = self._playing_path, self._queue.current_index
+                pos = self._current_position()
+            elif 0 <= self._resume_index < len(self._queue):
+                path = self._queue.items[self._resume_index].get("path", "")
+                index, pos = self._resume_index, self._resume_pos
+            else:
+                path, index, pos = "", -1, 0.0
+            m.set_state("now_path", path)
+            m.set_state("now_index", index)
+            m.set_state("now_pos", f"{pos:.1f}")
+        except Exception:
+            import traceback
+            traceback.print_exc()   # saving state must never crash shutdown
+
+    def _restore_session(self) -> None:
+        """
+        Restore the saved queue and paused track, and sync the saved icons.
+
+        Runs once from on_start (the widgets exist by then). The queue comes
+        from its source ``.list`` file when one was recorded (so edits to the
+        file are honoured), else from the rows saved in the DB; missing files
+        are skipped. The last track is shown paused at its saved position —
+        pressing play resumes it from there (see toggle_play_pause).
+        """
+        # Reflect the restored prefs on their toolbar/transport widgets.
+        self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
+            self._play_mode, "playlist-play")
+        self.root.ids.art_toggle.icon = (
+            "image" if self._show_art else "image-off")
+
+        source = ""
+        try:
+            source = self._manager.get_state("queue_source", "") or ""
+        except Exception:
+            pass
+        paths = []
+        if source and os.path.isfile(source):
+            try:
+                with open(source, encoding="utf-8") as fh:
+                    paths = parse_playlist(fh.read())
+            except Exception:
+                paths = []
+        used_source = bool(paths)
+        if not paths:
+            try:
+                paths = self._manager.load_queue()
+            except Exception:
+                paths = []
+        paths = [p for p in paths if os.path.isfile(p)]
+        if not paths:
+            return
+        for p in paths:
+            info = self._manager.get_by_path(p) or {}
+            stem = os.path.splitext(os.path.basename(p))[0]
+            self._queue.add({
+                "path": p,
+                "filename": os.path.basename(p),
+                "artist": info.get("artist") or "-",
+                "title": info.get("title") or stem,
+            })
+        self._queue_source = source if used_source else None
+
+        self._restore_now_playing()
+        self._refresh_queue()
+        self._sync_queue()   # hand the restored queue/mode/seed to the service
+
+    def _restore_now_playing(self) -> None:
+        """
+        Show the saved track paused at its saved position (no autoplay).
+
+        Validates that the saved index still points at the saved path (the
+        ``.list`` source may have changed); falls back to locating the path
+        in the queue, and gives up silently when it is gone.
+        """
+        try:
+            path = self._manager.get_state("now_path", "") or ""
+            index = int(self._manager.get_state("now_index", "-1"))
+            pos = float(self._manager.get_state("now_pos", "0"))
+        except (TypeError, ValueError):
+            return
+        if not path:
+            return
+        items = self._queue.items
+        if not (0 <= index < len(items)
+                and items[index].get("path") == path):
+            index = next((i for i, it in enumerate(items)
+                          if it.get("path") == path), -1)
+        if index < 0:
+            return
+        self._queue.set_current(index)
+        self._resume_index = index
+        self._resume_pos = max(0.0, pos)
+        item = items[index]
+        self.root.ids.now_playing.text = item.get("filename", "")
+        self.root.ids.now_playing_sub.text = (
+            f"{item.get('artist', '-')} — {item.get('title', '-')}")
+        self._show_now_art(path)
+        # Paint the saved position on the bar using the DB's duration (the
+        # track is not loaded yet, so the player cannot report a length).
+        info = self._manager.get_by_path(path) or {}
+        length = info.get("duration") or 0
+        self.root.ids.position_bar.value = (
+            min(100.0, pos / length * 100) if length else 0)
+        self.root.ids.pos_label.text = self._format_time(pos)
+        self.root.ids.dur_label.text = self._format_time(length)
+        self.root.ids.play_button.icon = "play"
+
+    def _queue_changed(self) -> None:
+        """
+        Note that the queue's contents changed.
+
+        A changed queue invalidates two things: the shuffle order (a new seed
+        starts a fresh order — until then the order never changes) and the
+        ``.list`` source (the queue no longer mirrors the file verbatim, so
+        the rows themselves get persisted on exit).
+        """
+        self._shuffle_seed = new_shuffle_seed()
+        self._queue_source = None
 
     # ------------------------------------------------------------------
     # Folder picking
@@ -2044,10 +2267,20 @@ class Mp3ArchiveApp(MDApp):
     def _enqueue_and_play(self, info: dict) -> None:
         """Append an item to the queue and start playing it."""
         index = self._queue.add(info)
+        self._queue_changed()
         self._play_queue_index(index)
 
-    def _play_queue_index(self, index: int) -> None:
-        """Make the queued track at *index* current, play it, refresh the list."""
+    def _play_queue_index(self, index: int, position: float = 0.0) -> None:
+        """
+        Make the queued track at *index* current, play it, refresh the list.
+
+        Args:
+            index:    The queue index to play.
+            position: Seconds to start from (used when resuming the restored
+                      session); 0 starts from the beginning.
+        """
+        self._resume_index = -1   # an explicit play invalidates a pending resume
+        self._resume_pos = 0.0
         self._queue.set_current(index)
         item = self._queue.current_item()
         if not item:
@@ -2059,9 +2292,10 @@ class Mp3ArchiveApp(MDApp):
             self._stop_sound()
             self._set_now_playing_ui(item["path"], item["filename"], subtitle)
             self.root.ids.play_button.icon = "pause"
-            self._sync_queue(play_index=index)
+            self._sync_queue(play_index=index, position=position)
         else:
-            self._play(item["path"], item["filename"], subtitle)
+            self._play(item["path"], item["filename"], subtitle,
+                       position=position)
         self._refresh_queue()
         # Bring the now-playing row into view (next frame, after the RV relays).
         Clock.schedule_once(lambda _dt: self._scroll_queue_to_current(), 0)
@@ -2122,15 +2356,17 @@ class Mp3ArchiveApp(MDApp):
 
     def play_prev(self) -> None:
         """Play the previous track in the queue per the current play mode."""
-        index = prev_index(self._queue.current_index, len(self._queue),
-                           self._play_mode)
+        index, self._shuffle_seed = retreat(
+            self._queue.current_index, len(self._queue),
+            self._play_mode, self._shuffle_seed)
         if index is not None:
             self._play_queue_index(index)
 
     def play_next(self) -> None:
         """Play the next track in the queue per the current play mode."""
-        index = next_index(self._queue.current_index, len(self._queue),
-                           self._play_mode, ended=False)
+        index, self._shuffle_seed = advance(
+            self._queue.current_index, len(self._queue),
+            self._play_mode, self._shuffle_seed, ended=False)
         if index is not None:
             self._play_queue_index(index)
 
@@ -2151,6 +2387,10 @@ class Mp3ArchiveApp(MDApp):
     def cycle_play_mode(self) -> None:
         """Advance to the next play mode and update the button icon + label."""
         self._play_mode = next_play_mode(self._play_mode)
+        if self._play_mode == "shuffle":
+            # Re-entering shuffle starts a fresh order: new seed, and any
+            # tracks played before the mode change no longer count.
+            self._shuffle_seed = new_shuffle_seed()
         self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
             self._play_mode, "playlist-play"
         )
@@ -2221,6 +2461,7 @@ class Mp3ArchiveApp(MDApp):
             return
         infos = self._row_infos_for_paths(paths)
         self._queue.add_many(infos)
+        self._queue_changed()
         self._refresh_queue()
         self._sync_queue()   # update the service's queue (no playback change)
         if used_selection:
@@ -2239,6 +2480,7 @@ class Mp3ArchiveApp(MDApp):
         removing_current = (index == self._queue.current_index
                             and (self._svc_active() or self._sound is not None))
         self._queue.remove(index)
+        self._queue_changed()
         if removing_current:
             self.stop_playback()
         else:
@@ -2271,6 +2513,7 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="재생목록이 비어 있습니다.").open()
             return
         self._queue.clear()
+        self._queue_changed()
         self._refresh_queue()
         self._sync_queue()   # empty queue -> the service stops and goes idle
         Snackbar(text="재생목록을 비웠습니다.").open()
@@ -2346,9 +2589,10 @@ class Mp3ArchiveApp(MDApp):
             Snackbar(text="재생목록을 읽을 수 없습니다.").open()
             return
         if self._queue.is_empty:
-            self._apply_loaded_paths(paths, replace=False)
+            self._apply_loaded_paths(paths, replace=False, source=path)
             return
         self._pending_load_paths = paths
+        self._pending_load_source = path
         self._load_choice_dialog = MDDialog(
             title="재생목록 불러오기",
             text="기존 재생목록에 추가할까요, 교체할까요?",
@@ -2367,11 +2611,26 @@ class Mp3ArchiveApp(MDApp):
         """Apply the pending loaded paths after the append/replace choice."""
         if self._load_choice_dialog is not None:
             self._load_choice_dialog.dismiss()
-        self._apply_loaded_paths(self._pending_load_paths, replace=replace)
+        # After "교체" the queue mirrors the file verbatim; after "추가" it is
+        # a mix, so only the replace case records the .list as the source.
+        source = self._pending_load_source if replace else None
+        self._apply_loaded_paths(self._pending_load_paths, replace=replace,
+                                 source=source)
         self._pending_load_paths = []
+        self._pending_load_source = None
 
-    def _apply_loaded_paths(self, paths: list, replace: bool) -> None:
-        """Enqueue loaded paths (replacing the queue first if asked); skip missing."""
+    def _apply_loaded_paths(self, paths: list, replace: bool,
+                            source: str = None) -> None:
+        """
+        Enqueue loaded paths (replacing the queue first if asked); skip missing.
+
+        Args:
+            paths:   The file paths parsed from the ``.list`` file.
+            replace: True to clear the queue (and stop playback) first.
+            source:  The ``.list`` file path when the resulting queue mirrors
+                     it verbatim — recorded so only the file path needs to be
+                     persisted on exit (None when the queue becomes a mix).
+        """
         if replace:
             self._queue.clear()
             if self._svc_active() or self._sound is not None:
@@ -2393,6 +2652,8 @@ class Mp3ArchiveApp(MDApp):
                 added += 1
             else:
                 missing += 1
+        self._queue_changed()
+        self._queue_source = source   # set after the change reset it
         self._refresh_queue()
         self._sync_queue()   # push the loaded queue to the service
         msg = f"{added}곡 불러옴"
@@ -2421,20 +2682,24 @@ class Mp3ArchiveApp(MDApp):
             for it in self._queue.items
         ]
 
-    def _sync_queue(self, play_index: int = -1) -> None:
+    def _sync_queue(self, play_index: int = -1, position: float = 0.0) -> None:
         """
-        Push the queue + play mode to the background service.
+        Push the queue + play mode + shuffle seed to the background service.
 
         The queue items go through a shared file (``ipc.write_queue_items``)
         because a few hundred Korean filenames serialise to well over the
         ~64 KB UDP datagram cap and the OSC packet would be silently dropped;
-        the OSC ``sync`` command carries only the small index + mode payload.
+        the OSC ``sync`` command carries only the small index/mode/seed
+        payload. Sharing the seed keeps the deterministic shuffle order
+        identical in both processes.
 
         Args:
             play_index: The queue index the service should play. -1 means
                 "just adopt the updated queue/mode, keep current playback"
                 (the service re-derives its position from the playing path);
                 a valid index asks the service to play that track.
+            position:   Seconds to seek to after starting *play_index* (used
+                to resume the restored session mid-track).
         """
         if not self._svc_active():
             return
@@ -2447,7 +2712,9 @@ class Mp3ArchiveApp(MDApp):
             import traceback
             traceback.print_exc()
             return
-        self._player_svc.send(ipc.OP_SYNC, index=play_index, mode=self._play_mode)
+        self._player_svc.send(ipc.OP_SYNC, index=play_index,
+                              mode=self._play_mode, seed=self._shuffle_seed,
+                              position=position)
 
     def _set_now_playing_ui(self, path: str, title: str, subtitle: str) -> None:
         """Reset the player tab's labels, art, and position display for a track."""
@@ -2463,7 +2730,8 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
 
-    def _play(self, path: str, title: str, subtitle: str) -> None:
+    def _play(self, path: str, title: str, subtitle: str,
+              position: float = 0.0) -> None:
         """
         Load and start playing an audio file with the in-process SoundLoader.
 
@@ -2476,6 +2744,7 @@ class Mp3ArchiveApp(MDApp):
             path:     Absolute path to the audio file.
             title:    Primary label text (typically the filename).
             subtitle: Secondary label text (typically "artist — title").
+            position: Seconds to seek to after starting (0 = from the top).
         """
         self._stop_sound()
         sound = SoundLoader.load(path)
@@ -2499,6 +2768,12 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.pos_label.text = self._format_time(0)
         self.root.ids.dur_label.text = self._format_time(0)
         sound.play()
+        if position > 0:
+            try:
+                sound.seek(position)
+            except Exception:
+                pass  # some providers ignore early seeks
+            self._elapsed = position
         self.root.ids.play_button.icon = "pause"
         self._schedule_pos()
 
@@ -2506,24 +2781,23 @@ class Mp3ArchiveApp(MDApp):
         """
         Pick the queue index to start from when play is pressed while idle.
 
-        Shuffle picks a random track; every other mode starts at the first
-        track in the queue.
+        Shuffle starts at the first slot of the seeded shuffle order (so the
+        whole cycle plays without repeats); every other mode starts at the
+        first track in the queue.
         """
-        count = len(self._queue)
-        if count <= 0:
-            return 0
-        if self._play_mode == "shuffle":
-            return random.randrange(count)
-        return 0
+        return start_index(len(self._queue), self._play_mode,
+                           self._shuffle_seed)
 
     def toggle_play_pause(self) -> None:
         """
         Toggle play/pause, or start the queue when nothing is loaded yet.
 
-        If no track is loaded, the play button begins playing from the queue
-        (random track for shuffle, otherwise the first). Otherwise it toggles
-        the current track. In the SoundLoader fallback, pausing remembers the
-        position (Kivy's Sound has no pause) and resuming seeks back to it.
+        If no track is loaded, the play button starts the queue: a restored
+        session resumes its saved track at the saved position; otherwise the
+        queue starts per the play mode (the seeded order's first slot for
+        shuffle, else the first track). Otherwise it toggles the current
+        track. In the SoundLoader fallback, pausing remembers the position
+        (Kivy's Sound has no pause) and resuming seeks back to it.
         """
         # Nothing loaded yet: the play button starts the queue per the mode.
         nothing_loaded = (not self._playing_path
@@ -2531,6 +2805,11 @@ class Mp3ArchiveApp(MDApp):
         if nothing_loaded:
             if self._queue.is_empty:
                 Snackbar(text="재생목록이 비어 있습니다.").open()
+            elif 0 <= self._resume_index < len(self._queue):
+                # Resume the track restored from the last session, paused at
+                # its saved position (cleared by _play_queue_index).
+                self._play_queue_index(self._resume_index,
+                                       position=self._resume_pos)
             else:
                 self._play_queue_index(self._start_index())
             return
@@ -2659,8 +2938,9 @@ class Mp3ArchiveApp(MDApp):
         poll returns False and the next track schedules its own poll.
         """
         self._unschedule_pos()
-        index = next_index(self._queue.current_index, len(self._queue),
-                           self._play_mode, ended=True)
+        index, self._shuffle_seed = advance(
+            self._queue.current_index, len(self._queue),
+            self._play_mode, self._shuffle_seed, ended=True)
         if index is not None and not self._queue.is_empty:
             self._play_queue_index(index)
         else:
@@ -2693,6 +2973,12 @@ class Mp3ArchiveApp(MDApp):
         if not self._svc_active():
             return
         self._svc_length = state.get("length", 0.0)
+        self._svc_pos = state.get("position", 0.0)   # kept for session save
+        # Adopt a reseed the service performed (shuffle cycle exhausted), so
+        # both processes keep walking the same deterministic order.
+        seed = state.get("seed", 0)
+        if seed:
+            self._shuffle_seed = seed
         index = state.get("index", -1)
         path = state.get("path", "")
         # Follow the service's current index (e.g. after it auto-advanced).
@@ -2963,6 +3249,7 @@ class Mp3ArchiveApp(MDApp):
                 "artist": record.get("artist") or "-",
                 "title": record.get("title") or "-",
             })
+        self._queue_changed()
         self._refresh_queue()
         self._sync_queue()   # push the enlarged queue to the service
         Snackbar(text=f"재생목록에 {len(records)}곡 추가됨").open()
