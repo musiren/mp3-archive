@@ -518,7 +518,8 @@ class TestSessionPersistence(unittest.TestCase):
         from main_window_android import Mp3ArchiveApp
         from playlist import PlayQueue
         stub = types.SimpleNamespace(
-            _manager=mgr, _play_mode="shuffle", _shuffle_seed=777,
+            _state=mgr, _manager=mgr, _db_path="",
+            _play_mode="shuffle", _shuffle_seed=777,
             _theme_choice="dark", _view_mode="table", _show_art=False,
             _queue_source=None, _queue=PlayQueue(), _playing_path="",
             _resume_index=-1, _resume_pos=0.0, _svc_pos=0.0,
@@ -592,7 +593,7 @@ class TestSessionPersistence(unittest.TestCase):
         """Verifies saved prefs are validated against the allowed set."""
         from main_window_android import Mp3ArchiveApp
         mgr = self._memory_manager()
-        stub = types.SimpleNamespace(_manager=mgr)
+        stub = types.SimpleNamespace(_state=mgr)
         mgr.set_state("view_mode", "tree")
         self.assertEqual(
             Mp3ArchiveApp._restore_pref(stub, "view_mode", "details",
@@ -610,7 +611,7 @@ class TestSessionPersistence(unittest.TestCase):
         """Verifies the saved seed is reused; absence generates a fresh one."""
         from main_window_android import Mp3ArchiveApp
         mgr = self._memory_manager()
-        stub = types.SimpleNamespace(_manager=mgr)
+        stub = types.SimpleNamespace(_state=mgr)
         mgr.set_state("shuffle_seed", 12345)
         self.assertEqual(Mp3ArchiveApp._restore_seed(stub), 12345)
         mgr.set_state("shuffle_seed", None)
@@ -626,6 +627,209 @@ class TestSessionPersistence(unittest.TestCase):
         self.assertNotEqual(stub._shuffle_seed, 777)
         self.assertGreater(stub._shuffle_seed, 0)
         self.assertIsNone(stub._queue_source)
+
+    def test_save_records_external_library_db(self):
+        """Verifies the active external library DB path is saved for relaunch."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr, _manager=object(),
+                              _db_path="/m/mp3_archive.db")
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("library_db"), "/m/mp3_archive.db")
+        mgr.close()
+
+    def test_save_clears_library_db_for_internal(self):
+        """Verifies the pointer is emptied when the internal DB is the library."""
+        mgr = self._memory_manager()
+        self._stub_app(mgr)._save_app_state()
+        self.assertEqual(mgr.get_state("library_db"), "")
+        mgr.close()
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestLibraryDb(unittest.TestCase):
+    """Tests for the per-directory library DB switching and restore."""
+
+    def _stub_app(self, tmp):
+        """Build a stand-in with a real state DB inside the *tmp* directory."""
+        from main_window_android import Mp3ArchiveApp
+        from mp3_manager import Mp3Manager
+        stub = types.SimpleNamespace(
+            _state_db_path=os.path.join(tmp, "state.db"), _last_dir=None)
+        stub._state = Mp3Manager(stub._state_db_path)
+        stub._manager = stub._state
+        stub._db_path = stub._state_db_path
+        stub._set_library_db = (
+            lambda p: Mp3ArchiveApp._set_library_db(stub, p))
+        return stub
+
+    def test_set_library_db_switches_and_records(self):
+        """Verifies switching to an external DB opens it and saves the pointer."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self._stub_app(tmp)
+            ext = os.path.join(tmp, "music", "mp3_archive.db")
+            os.makedirs(os.path.dirname(ext))
+            stub._set_library_db(ext)
+            self.assertIsNot(stub._manager, stub._state)
+            self.assertEqual(stub._db_path, ext)
+            self.assertEqual(stub._state.get_state("library_db"), ext)
+            self.assertTrue(os.path.isfile(ext))
+            stub._manager.close()
+            stub._state.close()
+
+    def test_set_library_db_back_to_internal(self):
+        """Verifies pointing back at the internal DB reuses the state manager."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self._stub_app(tmp)
+            ext = os.path.join(tmp, "mp3_archive.db")
+            stub._set_library_db(ext)
+            stub._set_library_db(stub._state_db_path)
+            self.assertIs(stub._manager, stub._state)
+            self.assertEqual(stub._state.get_state("library_db"), "")
+            stub._state.close()
+
+    def test_restore_reopens_saved_library_db(self):
+        """Verifies the saved external DB is reopened with its scan directory."""
+        import tempfile
+        from main_window_android import Mp3ArchiveApp
+        from mp3_manager import Mp3Manager
+        with tempfile.TemporaryDirectory() as tmp:
+            ext = os.path.join(tmp, "music", "mp3_archive.db")
+            os.makedirs(os.path.dirname(ext))
+            Mp3Manager(ext).close()   # the file the last session scanned into
+            stub = self._stub_app(tmp)
+            stub._state.set_state("library_db", ext)
+            Mp3ArchiveApp._restore_library_db(stub)
+            self.assertEqual(stub._db_path, ext)
+            self.assertEqual(stub._last_dir, os.path.dirname(ext))
+            stub._manager.close()
+            stub._state.close()
+
+    def test_restore_ignores_missing_or_unsaved_db(self):
+        """Verifies launch keeps the internal DB when no saved DB exists."""
+        import tempfile
+        from main_window_android import Mp3ArchiveApp
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self._stub_app(tmp)
+            Mp3ArchiveApp._restore_library_db(stub)   # never scanned
+            self.assertIs(stub._manager, stub._state)
+            stub._state.set_state("library_db", os.path.join(tmp, "gone.db"))
+            Mp3ArchiveApp._restore_library_db(stub)   # file disappeared
+            self.assertIs(stub._manager, stub._state)
+            self.assertIsNone(stub._last_dir)
+            stub._state.close()
+
+    def _picker_stub(self):
+        """Build a stand-in recording how a file-manager pick was routed."""
+        calls = []
+        stub = types.SimpleNamespace()
+        stub._close_file_manager = lambda *a: None
+        stub._load_database = lambda p: calls.append(("load", p))
+        stub._scan_directory = lambda d: calls.append(("scan", d))
+        return stub, calls
+
+    def test_pick_routes_db_file_to_load(self):
+        """Verifies picking a .db file loads it instead of scanning."""
+        import tempfile
+        from main_window_android import Mp3ArchiveApp
+        with tempfile.TemporaryDirectory() as tmp:
+            db = os.path.join(tmp, "mp3_archive.db")
+            open(db, "w").close()
+            stub, calls = self._picker_stub()
+            Mp3ArchiveApp._on_dir_selected(stub, db)
+            self.assertEqual(calls, [("load", db)])
+
+    def test_pick_routes_directory_to_scan(self):
+        """Verifies picking a directory starts a scan as before."""
+        import tempfile
+        from main_window_android import Mp3ArchiveApp
+        with tempfile.TemporaryDirectory() as tmp:
+            stub, calls = self._picker_stub()
+            Mp3ArchiveApp._on_dir_selected(stub, tmp)
+            self.assertEqual(calls, [("scan", tmp)])
+
+    def test_pick_rejects_other_files(self):
+        """Verifies a non-.db file pick neither loads nor scans."""
+        import tempfile
+        from unittest import mock
+        import main_window_android
+        from main_window_android import Mp3ArchiveApp
+        with tempfile.TemporaryDirectory() as tmp:
+            other = os.path.join(tmp, "song.mp3")
+            open(other, "w").close()
+            stub, calls = self._picker_stub()
+            with mock.patch.object(main_window_android, "Snackbar") as snack:
+                Mp3ArchiveApp._on_dir_selected(stub, other)
+            self.assertEqual(calls, [])
+            snack.assert_called_once()
+
+    def test_scan_directory_uses_per_directory_db(self):
+        """Verifies a picked folder scans into <folder>/mp3_archive.db."""
+        from main_window_android import LIBRARY_DB_NAME, Mp3ArchiveApp
+        calls = []
+        stub = types.SimpleNamespace(_state_db_path="/internal/state.db")
+        stub._set_library_db = lambda p: calls.append(("db", p))
+        stub._start_scan = (
+            lambda d, force=False, replace=False:
+            calls.append(("scan", d, replace)))
+        Mp3ArchiveApp._scan_directory(stub, "/music")
+        self.assertEqual(calls, [
+            ("db", os.path.join("/music", LIBRARY_DB_NAME)),
+            ("scan", "/music", False),
+        ])
+
+    def test_scan_directory_falls_back_to_internal_db(self):
+        """Verifies an unwritable folder scans into the internal DB, replacing."""
+        from main_window_android import Mp3ArchiveApp
+        calls = []
+        stub = types.SimpleNamespace(_state_db_path="/internal/state.db")
+
+        def set_db(path):
+            """Reject any DB outside the internal one, like a read-only dir."""
+            if path != "/internal/state.db":
+                raise OSError("unable to open database file")
+            calls.append(("db", path))
+
+        stub._set_library_db = set_db
+        stub._start_scan = (
+            lambda d, force=False, replace=False:
+            calls.append(("scan", d, replace)))
+        Mp3ArchiveApp._scan_directory(stub, "/readonly")
+        self.assertEqual(calls, [
+            ("db", "/internal/state.db"),
+            ("scan", "/readonly", True),
+        ])
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestQueueTagDetail(unittest.TestCase):
+    """Tests for the 재생목록 long-press 자세히 (tag detail) action."""
+
+    def test_show_tag_detail_ignores_empty_path(self):
+        """Verifies a queue item without a path opens nothing (no crash)."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace()   # any attribute access would raise
+        self.assertIsNone(Mp3ArchiveApp._show_tag_detail(stub, ""))
+
+    def test_open_detail_delegates_to_show_tag_detail(self):
+        """Verifies the list-row 자세히 action reuses the shared dialog body."""
+        from main_window_android import Mp3ArchiveApp
+        calls = []
+        stub = types.SimpleNamespace(
+            _actions_dialog=types.SimpleNamespace(dismiss=lambda: None))
+        stub._show_tag_detail = lambda p: calls.append(p)
+        row = types.SimpleNamespace(path="/m/a.mp3")
+        Mp3ArchiveApp._open_detail(stub, row)
+        self.assertEqual(calls, ["/m/a.mp3"])
+
+    def test_queue_actions_include_tag_detail(self):
+        """Verifies the queue long-press menu wires a 자세히 action."""
+        import inspect
+        from main_window_android import Mp3ArchiveApp
+        source = inspect.getsource(Mp3ArchiveApp.open_queue_actions)
+        self.assertIn("자세히", source)
+        self.assertIn("_show_tag_detail", source)
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
