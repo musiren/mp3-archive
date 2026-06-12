@@ -1,8 +1,11 @@
 mp3-archive NEWS
 
 ===========================================================================
-Unreleased
+v20260612 (2026-06-12)
 ===========================================================================
+
+Faster 트리 view on large libraries, tree sorting, and a widget
+default background.
 
 New features (Android)
 ----------------------
