@@ -7,12 +7,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Album art background (cleared to nothing when the track has no art). -->
+    <!-- Album art background; the app icon (packaged by p4a as @mipmap/icon)
+         fills in when the track has no embedded art or nothing is playing. -->
     <ImageView
         android:id="@+id/widget_art"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
+        android:src="@mipmap/icon"
         android:contentDescription="@null" />
 
     <!-- Centred content band with a translucent scrim for legibility. -->

@@ -639,7 +639,8 @@ class TestTreeSelection(unittest.TestCase):
             _files=[{"path": p} for p in
                     ("/m/A/1.mp3", "/m/A/2.mp3", "/m/B/3.mp3")],
             _last_dir="/m", _tree_index=None, _expanded=set(),
-            _selected=set(), selection_count=0, _refreshed_at=[],
+            _selected=set(), _sort_mode="artist", selection_count=0,
+            _refreshed_at=[],
         )
         stub._get_tree_index = (
             lambda: Mp3ArchiveApp._get_tree_index(stub))
@@ -692,6 +693,28 @@ class TestTreeSelection(unittest.TestCase):
         self.assertTrue(flags["▼ A"])
         self.assertTrue(flags["♪ 1.mp3"])
         self.assertFalse(flags["▶ B"])
+
+    def test_date_sort_mode_orders_folders_by_created(self):
+        """Verifies the 날짜 sort mode renders newest folders first."""
+        stub = self._stub_app()
+        stub._sort_mode = "date"
+        stub._files = [
+            {"path": "/m/old/1.mp3", "created": "2024-01-01 00:00:00"},
+            {"path": "/m/new/2.mp3", "created": "2026-01-01 00:00:00"},
+        ]
+        self.assertEqual([r["key"] for r in stub._tree_rows()],
+                         ["new", "old"])
+
+    def test_name_sort_mode_orders_folders_by_name(self):
+        """Verifies every non-date sort mode falls back to folder name order."""
+        stub = self._stub_app()
+        stub._sort_mode = "title"   # finer modes only apply to files
+        stub._files = [
+            {"path": "/m/zzz/1.mp3", "created": "2026-01-01 00:00:00"},
+            {"path": "/m/aaa/2.mp3", "created": "2024-01-01 00:00:00"},
+        ]
+        self.assertEqual([r["key"] for r in stub._tree_rows()],
+                         ["aaa", "zzz"])
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")

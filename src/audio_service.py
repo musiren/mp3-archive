@@ -487,7 +487,11 @@ class AudioService:
             if bmp is not None:
                 rv.setImageViewBitmap(id_art, bmp)
             else:
-                rv.setImageViewResource(id_art, 0)   # no art -> nothing
+                # No embedded art: fall back to the app icon (p4a packages the
+                # launcher icon as @mipmap/icon) instead of a blank background.
+                rv.setImageViewResource(
+                    id_art, self._res_id("icon", "mipmap")
+                    or self._res_id("icon", "drawable"))
         except Exception:
             traceback.print_exc()
         try:   # button intents + tap-elsewhere opens the app
