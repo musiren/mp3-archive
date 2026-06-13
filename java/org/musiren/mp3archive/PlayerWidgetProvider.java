@@ -11,9 +11,10 @@ import android.widget.RemoteViews;
  * Home-screen App Widget for MP3 Archive.
  *
  * The widget shows the current title/artist over the album art and three
- * transport buttons. The buttons broadcast the same actions the Python audio
- * service already handles (TOGGLE / NEXT / PREV), so playback is controlled
- * without any extra wiring. The service repaints the widget (text + art +
+ * transport buttons. The buttons send the service's actions (TOGGLE / NEXT /
+ * PREV) as explicit intents to WidgetActionReceiver, which relays them to the
+ * running audio service — or cold-starts it on the saved queue when the app
+ * process is gone. The service repaints the widget (text + art +
  * play/pause glyph) via AppWidgetManager.updateAppWidget whenever the track or
  * play state changes; this onUpdate just supplies the initial view and the
  * button intents (e.g. after a reboot or when the widget is first added).
@@ -23,7 +24,8 @@ public class PlayerWidgetProvider extends AppWidgetProvider {
     private static final String PKG = "org.musiren.mp3archive";
 
     private static PendingIntent broadcast(Context ctx, String action, int req) {
-        Intent intent = new Intent(action).setPackage(PKG);
+        Intent intent = new Intent(action)
+                .setClass(ctx, WidgetActionReceiver.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         return PendingIntent.getBroadcast(ctx, req, intent, flags);
     }

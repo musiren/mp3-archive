@@ -21,6 +21,7 @@ labels from the pushed state's ``index``/``path``/``title``.
 
 import json
 import os
+import sqlite3
 
 from playlist import PLAY_MODES
 
@@ -47,6 +48,11 @@ _OPS = frozenset({OP_SYNC, OP_TOGGLE, OP_STOP, OP_SEEK, OP_VOLUME, OP_PING})
 # between the UI process and the playback service process (see write_queue_items
 # / read_queue_items).
 QUEUE_FILE_NAME = "playback_queue.json"
+
+# Filename of the UI's state database inside the same internal storage. The
+# service reads the saved session from it on a cold start (read_resume_state);
+# the UI opens it as main_window_android.LIBRARY_DB_NAME.
+STATE_DB_NAME = "mp3_archive.db"
 
 
 def _clamp01(value) -> float:
@@ -155,6 +161,72 @@ def read_queue_items(storage_dir: str) -> list:
     except (OSError, ValueError):
         return []
     return normalize_items(data)
+
+
+def read_resume_state(db_path: str) -> dict:
+    """
+    Read the saved playback session from the UI's state database.
+
+    Lets a cold-started service (a widget button pressed while the app
+    process is gone) act on the 재생목록 the UI persisted on pause/exit:
+    the saved track, its queue index and position, the play mode, and the
+    shuffle seed (see Mp3ArchiveApp._save_app_state). The DB is opened
+    read-only so the service never creates or migrates anything.
+
+    Args:
+        db_path: Path of the internal state DB (``<files dir>/mp3_archive.db``).
+
+    Returns:
+        A dict with keys ``path`` (str), ``index`` (int, -1 when unsaved),
+        ``position`` (float seconds), ``mode`` (a PLAY_MODES value) and
+        ``seed`` (int, 0 = unset); safe defaults when the DB or any key is
+        missing or unreadable.
+    """
+    state = {"path": "", "index": -1, "position": 0.0,
+             "mode": PLAY_MODES[0], "seed": 0}
+    if not os.path.isfile(db_path):
+        return state
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = dict(conn.execute("SELECT key, value FROM app_state"))
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return state
+    state["path"] = str(rows.get("now_path") or "")
+    state["index"] = _as_int(rows.get("now_index"), -1)
+    state["position"] = _non_negative(rows.get("now_pos"))
+    mode = rows.get("play_mode")
+    if mode in PLAY_MODES:
+        state["mode"] = mode
+    state["seed"] = _as_int(rows.get("shuffle_seed"), 0)
+    return state
+
+
+def resolve_resume_index(items: list, path: str, index: int) -> int:
+    """
+    Validate a saved queue position against the restored queue items.
+
+    The saved index is trusted only while it still points at the saved
+    path (the queue file and the app_state rows are written at different
+    times, so they can drift); otherwise the path is located in the queue.
+
+    Args:
+        items: Queue item dicts (as from :func:`read_queue_items`).
+        path:  The saved track path ("" when nothing was saved).
+        index: The saved queue index.
+
+    Returns:
+        The index to resume at, or -1 when the saved track cannot be found
+        (callers then fall back to the mode's start index).
+    """
+    if not items or not path:
+        return -1
+    if 0 <= index < len(items) and items[index].get("path", "") == path:
+        return index
+    return next((i for i, it in enumerate(items)
+                 if it.get("path", "") == path), -1)
 
 
 def make_command(op: str, **fields) -> str:

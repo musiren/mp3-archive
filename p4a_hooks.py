@@ -16,7 +16,13 @@ import os
 
 PACKAGE = "org.musiren.mp3archive"
 
-RECEIVER_XML = """
+# Each entry is (marker, xml): the xml is injected before </application>
+# unless the marker class is already present (idempotent per receiver).
+# WidgetActionReceiver deliberately has NO intent filter: the widget targets
+# it with explicit intents, and a filter would double-handle the service's
+# own implicit notification broadcasts on older Android versions.
+RECEIVERS = [
+    ("PlayerWidgetProvider", """
         <receiver android:name="%s.PlayerWidgetProvider" android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -24,7 +30,11 @@ RECEIVER_XML = """
             <meta-data android:name="android.appwidget.provider"
                        android:resource="@xml/widget_player_info" />
         </receiver>
-""" % PACKAGE
+""" % PACKAGE),
+    ("WidgetActionReceiver", """
+        <receiver android:name="%s.WidgetActionReceiver" android:exported="false" />
+""" % PACKAGE),
+]
 
 
 def _is_app_manifest(text):
@@ -33,7 +43,7 @@ def _is_app_manifest(text):
 
 
 def _inject(path):
-    """Insert the widget <receiver> before </application> in the app manifest."""
+    """Insert the missing widget <receiver>s before </application>."""
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -41,25 +51,34 @@ def _inject(path):
         return False
     if not _is_app_manifest(text):
         return False   # a library/template manifest, not the app's
-    if (PACKAGE + ".PlayerWidgetProvider") in text:
+    new_text, _ = _patch_text(text)
+    if new_text == text:
         return True    # already injected (idempotent)
-    text = text.replace("</application>", RECEIVER_XML + "    </application>", 1)
     try:
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
+            fh.write(new_text)
     except OSError:
         return False
-    print("p4a_hooks: injected widget receiver into", path)
+    print("p4a_hooks: injected widget receivers into", path)
     return True
 
 
-def _patch_template_text(text):
-    """Insert the receiver before </application> in a manifest *template*."""
-    if "PlayerWidgetProvider" in text:
-        return text, True   # already patched (idempotent)
+def _patch_text(text):
+    """
+    Insert each missing receiver before </application> in *text*.
+
+    Returns:
+        (new_text, ok): ok is False when *text* has no </application> to
+        anchor on; receivers already present are skipped individually, so a
+        manifest patched by an older hook gains only the new receiver.
+    """
     if "</application>" not in text:
         return text, False
-    return text.replace("</application>", RECEIVER_XML + "    </application>", 1), True
+    for marker, xml in RECEIVERS:
+        if (PACKAGE + "." + marker) in text:
+            continue
+        text = text.replace("</application>", xml + "    </application>", 1)
+    return text, True
 
 
 def _template_paths():
@@ -97,7 +116,7 @@ def _patch_templates():
                 text = fh.read()
         except OSError:
             continue
-        new_text, ok = _patch_template_text(text)
+        new_text, ok = _patch_text(text)
         if not ok:
             continue
         if new_text != text:
