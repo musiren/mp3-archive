@@ -3,10 +3,12 @@ main_window_android.py - KivyMD UI for the MP3 archive manager (Android).
 
 Provides a Material Design interface split into two bottom-navigation tabs:
   - "목록" (List): pick a directory with the in-app file manager and scan it
-    (picking replaces the library with that folder's songs; the refresh
-    button re-reads the same folder in place), search by filename or tags,
-    browse the stored MP3 records, select rows to delete, and long-press a
-    row to view or edit its tags (자세히) or read its lyrics (가사).
+    into the directory's own DB file (<dir>/mp3_archive.db, reopened on the
+    next launch), or pick a saved .db file to load that library without
+    rescanning (the refresh button re-reads the folder in place), search by
+    filename or tags, browse the stored MP3 records, select rows to delete,
+    and long-press a row to view or edit its tags (자세히) or read its
+    lyrics (가사).
   - "재생" (Player): play a tapped track with play/pause and stop controls
     and a position indicator, backed by kivy.core.audio.SoundLoader.
 
@@ -103,6 +105,11 @@ from service_bridge import ServiceBridge
 import table_util
 from tree_util import TreeIndex, files_under_folder, refresh_selection_flags
 from ui_util import latest_news_version, resolve_theme_style, sort_files
+
+
+# Library DB file name, used both for the internal default DB (in app
+# storage) and for the per-directory DB written into each scanned folder.
+LIBRARY_DB_NAME = "mp3_archive.db"
 
 
 class Snackbar:
@@ -944,7 +951,7 @@ class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior
         return super().refresh_view_attrs(rv, index, data)
 
     def on_long_touch(self, *args) -> None:
-        """Open the queue-row actions menu (재생 / 제거) on a long press."""
+        """Open the queue-row actions menu (재생 / 자세히 / 제거) on a long press."""
         app = MDApp.get_running_app()
         if app is not None:
             app.open_queue_actions(self)
@@ -997,8 +1004,14 @@ class Mp3ArchiveApp(MDApp):
     def __init__(self, **kwargs) -> None:
         """Initialise the app, open the SQLite database, and reset player state."""
         super().__init__(**kwargs)
-        self._db_path = os.path.join(self._storage_directory(), "mp3_archive.db")
-        self._manager = Mp3Manager(self._db_path)
+        # The internal DB always stays open: it owns the session state
+        # (app_state/play_queue) and doubles as the default library until a
+        # scanned folder's own DB (or a picked .db file) takes over.
+        self._state_db_path = os.path.join(
+            self._storage_directory(), LIBRARY_DB_NAME)
+        self._state = Mp3Manager(self._state_db_path)
+        self._manager = self._state          # the active library DB
+        self._db_path = self._state_db_path
         self._selected: set[str] = set()   # selected file paths
         self._files: list = []             # current RecycleView data (list of dicts)
 
@@ -1044,6 +1057,7 @@ class Mp3ArchiveApp(MDApp):
         self._search_keyword = ""      # current search text
         self._search_tags = False      # search all tags vs filename only
         self._last_dir = None          # last scanned directory (for full rescan)
+        self._restore_library_db()     # reopen the library DB used last session
         self._search_event = None      # debounce timer for live search
 
         # View mode (목록 tab): "details" (album art) / "list" / "tree" /
@@ -1192,7 +1206,9 @@ class Mp3ArchiveApp(MDApp):
             self._player_svc.send(ipc.OP_STOP)
             self._player_svc.stop_server()
         self._stop_sound()
-        self._manager.close()
+        if self._manager is not self._state:
+            self._manager.close()
+        self._state.close()
 
     # ------------------------------------------------------------------
     # Session persistence (saved on pause/exit, restored on launch)
@@ -1211,7 +1227,7 @@ class Mp3ArchiveApp(MDApp):
             The validated stored value, or *default*.
         """
         try:
-            value = self._manager.get_state(key, default)
+            value = self._state.get_state(key, default)
         except Exception:
             return default
         return value if value in allowed else default
@@ -1228,7 +1244,7 @@ class Mp3ArchiveApp(MDApp):
             A non-zero shuffle seed.
         """
         try:
-            return int(self._manager.get_state("shuffle_seed", "0")) or \
+            return int(self._state.get_state("shuffle_seed", "0")) or \
                 new_shuffle_seed()
         except (TypeError, ValueError):
             return new_shuffle_seed()
@@ -1254,14 +1270,17 @@ class Mp3ArchiveApp(MDApp):
         """
         Persist the session to the DB so the next launch can restore it.
 
-        Saves the play mode, shuffle seed, theme, 목록 view mode, the 재생
+        Saves the play mode, shuffle seed, theme, 목록 view mode, the active
+        library DB file (empty when the internal default is in use), the 재생
         tab's album-art visibility, the queue (just its source ``.list`` path
         when the queue mirrors one, else the ordered paths), and the
         track/position that was playing or paused — restored as paused.
         """
         try:
-            m = self._manager
+            m = self._state
             m.set_state("play_mode", self._play_mode)
+            m.set_state("library_db",
+                        "" if self._manager is self._state else self._db_path)
             m.set_state("shuffle_seed", self._shuffle_seed)
             m.set_state("theme", self._theme_choice)
             m.set_state("view_mode", self._view_mode)
@@ -1309,7 +1328,7 @@ class Mp3ArchiveApp(MDApp):
 
         source = ""
         try:
-            source = self._manager.get_state("queue_source", "") or ""
+            source = self._state.get_state("queue_source", "") or ""
         except Exception:
             pass
         paths = []
@@ -1322,7 +1341,7 @@ class Mp3ArchiveApp(MDApp):
         used_source = bool(paths)
         if not paths:
             try:
-                paths = self._manager.load_queue()
+                paths = self._state.load_queue()
             except Exception:
                 paths = []
         paths = [p for p in paths if os.path.isfile(p)]
@@ -1352,9 +1371,9 @@ class Mp3ArchiveApp(MDApp):
         in the queue, and gives up silently when it is gone.
         """
         try:
-            path = self._manager.get_state("now_path", "") or ""
-            index = int(self._manager.get_state("now_index", "-1"))
-            pos = float(self._manager.get_state("now_pos", "0"))
+            path = self._state.get_state("now_path", "") or ""
+            index = int(self._state.get_state("now_index", "-1"))
+            pos = float(self._state.get_state("now_pos", "0"))
         except (TypeError, ValueError):
             return
         if not path:
@@ -1397,6 +1416,78 @@ class Mp3ArchiveApp(MDApp):
         self._queue_source = None
 
     # ------------------------------------------------------------------
+    # Library database (목록 DB) management
+    # ------------------------------------------------------------------
+
+    def _set_library_db(self, db_path: str) -> None:
+        """
+        Point the library at *db_path* and persist the choice for relaunch.
+
+        The internal state DB doubles as the default library; pointing at
+        it reuses the always-open state connection. Any other path opens a
+        new connection — when that fails (unwritable directory, not a
+        SQLite file) the current library is left untouched and the error
+        propagates to the caller.
+
+        Args:
+            db_path: SQLite file to use as the library database.
+        """
+        if os.path.abspath(db_path) == os.path.abspath(self._state_db_path):
+            new_manager = self._state
+        else:
+            new_manager = Mp3Manager(db_path)
+        if self._manager is not self._state and self._manager is not new_manager:
+            self._manager.close()
+        self._manager = new_manager
+        self._db_path = db_path
+        self._state.set_state(
+            "library_db", "" if new_manager is self._state else db_path)
+
+    def _restore_library_db(self) -> None:
+        """
+        Reopen the library DB file that was active in the previous session.
+
+        The path is recorded by _set_library_db / _save_app_state. When the
+        user never scanned (key empty) or the file has since disappeared or
+        become unreadable, the internal DB silently keeps serving as the
+        library, exactly as before this feature existed.
+        """
+        try:
+            saved = self._state.get_state("library_db", "") or ""
+        except Exception:
+            return
+        if not saved or not os.path.isfile(saved):
+            return
+        try:
+            self._set_library_db(saved)
+        except Exception:
+            return
+        self._last_dir = os.path.dirname(saved)
+
+    def _load_database(self, path: str) -> None:
+        """
+        Open a picked ``.db`` file as the library and show its songs.
+
+        The DB's directory becomes the rescan target, so the refresh button
+        re-reads the music folder the DB lives in.
+
+        Args:
+            path: The SQLite database file chosen in the file manager.
+        """
+        try:
+            self._set_library_db(path)
+        except Exception:
+            Snackbar(text="데이터베이스 파일을 열 수 없습니다.").open()
+            return
+        self._last_dir = os.path.dirname(path)
+        self._refresh_list()
+        try:
+            count = len(self._manager.list_files())
+        except Exception:
+            count = 0
+        self._set_status(f"DB 불러옴: {os.path.basename(path)} · {count}곡")
+
+    # ------------------------------------------------------------------
     # Folder picking
     # ------------------------------------------------------------------
 
@@ -1415,13 +1506,21 @@ class Mp3ArchiveApp(MDApp):
         self._show_file_manager()
 
     def _show_file_manager(self) -> None:
-        """Open MDFileManager rooted at external storage, in folder-select mode."""
+        """
+        Open MDFileManager rooted at external storage.
+
+        ``selector="any"`` lets the user pick either a folder (toolbar check
+        button → scan it) or a file; ``ext=[".db"]`` keeps the listing to
+        folders plus saved library DB files, so a tapped ``.db`` loads that
+        library without rescanning (see _on_dir_selected).
+        """
         try:
             if self._file_manager is None:
                 self._file_manager = MDFileManager(
                     select_path=self._on_dir_selected,
                     exit_manager=self._close_file_manager,
-                    selector="folder",
+                    selector="any",
+                    ext=[".db"],
                 )
             self._fm_open = True
             self._file_manager.show(self._storage_root())
@@ -1429,21 +1528,26 @@ class Mp3ArchiveApp(MDApp):
             # If the manager cannot open, fall back to the default music dir.
             self._fm_open = False
             Snackbar(text="파일 관리자를 열 수 없어 /sdcard/Music을 스캔합니다.").open()
-            self._start_scan("/sdcard/Music")
+            self._scan_directory("/sdcard/Music")
 
     def _on_dir_selected(self, path: str) -> None:
         """
-        Handle a directory chosen in the file manager: close it and scan.
+        Handle a pick in the file manager: load a ``.db`` or scan a folder.
 
-        Picking a folder REPLACES the library: previously scanned records are
-        cleared so the list shows only the chosen folder's songs, instead of
-        merging every folder ever scanned.
+        A ``.db`` file becomes the library as-is (its list shows without any
+        rescan); a directory is scanned into that directory's own DB file.
 
         Args:
-            path: The selected directory path.
+            path: The selected directory or ``.db`` file path.
         """
         self._close_file_manager()
-        self._start_scan(path, replace=True)
+        if os.path.isfile(path):
+            if path.lower().endswith(".db"):
+                self._load_database(path)
+            else:
+                Snackbar(text="폴더 또는 .db 파일을 선택하세요.").open()
+            return
+        self._scan_directory(path)
 
     def _close_file_manager(self, *args) -> None:
         """Close the file manager if it is open."""
@@ -1541,6 +1645,29 @@ class Mp3ArchiveApp(MDApp):
             return
         self._start_scan(self._last_dir, force=True)
 
+    def _scan_directory(self, directory: str) -> None:
+        """
+        Scan a picked directory into its own DB file.
+
+        The DB is written as <directory>/mp3_archive.db so it is saved with
+        the music and can be picked again later (or on another device)
+        instead of rescanning; re-picking the folder resumes its existing DB
+        incrementally. When the directory is not writable the scan falls
+        back to the internal DB with the legacy replace-the-library
+        semantics, so unscannable storage still works as before.
+
+        Args:
+            directory: The directory chosen in the file manager.
+        """
+        db_path = os.path.join(directory, LIBRARY_DB_NAME)
+        try:
+            self._set_library_db(db_path)
+            replace = False
+        except Exception:
+            self._set_library_db(self._state_db_path)
+            replace = True
+        self._start_scan(directory, replace=replace)
+
     def _start_scan(self, directory: str, force: bool = False,
                     replace: bool = False) -> None:
         """
@@ -1574,8 +1701,8 @@ class Mp3ArchiveApp(MDApp):
             directory: Directory path passed to Mp3Manager.scan().
             force:     Whether to force a full rescan.
             replace:   Whether to clear every existing record before scanning
-                       (folder picking replaces the library; see
-                       _on_dir_selected).
+                       (used when a scan falls back to the shared internal
+                       DB; see _scan_directory).
         """
         def on_progress(current: int, total: int, path: str) -> None:
             """Schedule a progress bar update on the main thread."""
@@ -1589,11 +1716,13 @@ class Mp3ArchiveApp(MDApp):
         # connection in _on_scan_done.
         scan_manager = Mp3Manager(self._db_path)
         try:
-            # Picking a folder replaces the library: drop all previous records
-            # so the list shows only the chosen folder (clearing also empties
-            # the mtime cache, so every file is re-read). The refresh button
-            # instead passes force=True to re-read every file in place and
-            # prune records for files now missing under this directory.
+            # Scanning into the shared internal DB replaces the library: drop
+            # all previous records so the list shows only the chosen folder
+            # instead of merging every folder ever scanned (clearing also
+            # empties the mtime cache, so every file is re-read). Per-
+            # directory DBs only ever hold their own folder, so they scan
+            # incrementally; the refresh button passes force=True to re-read
+            # every file in place and prune records for missing files.
             if replace:
                 scan_manager.clear()
             result = scan_manager.scan(
@@ -2359,11 +2488,15 @@ class Mp3ArchiveApp(MDApp):
         self._play_queue_index(index)
 
     def open_queue_actions(self, row) -> None:
-        """Show the queue-row actions menu (재생 / 재생목록에서 제거)."""
+        """Show the queue-row actions menu (재생 / 자세히 / 재생목록에서 제거)."""
         self._suppress_next_queue_play = True   # the long-press also fires on_release
         index = row.index
+        queue_items = self._queue.items
+        path = (queue_items[index].get("path", "")
+                if 0 <= index < len(queue_items) else "")
         items = [
             ("재생", lambda: self._play_queue_index(index)),
+            ("자세히", lambda: self._show_tag_detail(path)),
             ("재생목록에서 제거", lambda: self.remove_from_queue(index)),
         ]
         box = MDBoxLayout(orientation="vertical", spacing=dp(4),
@@ -3304,13 +3437,28 @@ class Mp3ArchiveApp(MDApp):
         self._lyrics_dialog.open()
 
     def _open_detail(self, row) -> None:
-        """Show an editable tag form for a track, prefilled from the database."""
+        """Show the tag form for a long-pressed list row (자세히 action)."""
         self._actions_dialog.dismiss()
-        info = self._manager.get_by_path(row.path) or {}
+        self._show_tag_detail(row.path)
+
+    def _show_tag_detail(self, path: str) -> None:
+        """
+        Show an editable tag form for a track, prefilled from the database.
+
+        Also used for 재생목록 rows: a track missing from the library DB
+        (info is empty then) still shows its embedded tags and stream info,
+        which are read from the file itself.
+
+        Args:
+            path: Path of the audio file whose tags to show.
+        """
+        if not path:
+            return
+        info = self._manager.get_by_path(path) or {}
         content = TagEditContent()
         # Show the embedded album art at the top when present; collapse the
         # image area to nothing when the track has no art.
-        art = self._album_source(row.path)
+        art = self._album_source(path)
         content.ids.art_image.source = art
         if art:
             content.ids.art_image.opacity = 1
@@ -3319,7 +3467,7 @@ class Mp3ArchiveApp(MDApp):
             content.ids.art_image.opacity = 0
             content.ids.art_image.height = 0
         # Read-only file + stream summary (size/duration/dates/samplerate/…).
-        rows = format_summary_rows(info, get_stream_info(row.path))
+        rows = format_summary_rows(info, get_stream_info(path))
         content.ids.tag_info.text = "\n".join(
             f"{label}: {value}" for label, value in rows
         )
@@ -3333,14 +3481,14 @@ class Mp3ArchiveApp(MDApp):
         # (albumartist, tracknumber, composer, …) as its own editable field so
         # the full tag set can be edited, matching the desktop dialog.
         self._detail_extra = []
-        for label, key, value in read_all_tags(row.path):
+        for label, key, value in read_all_tags(path):
             if key in STANDARD_EASY_KEYS:
                 continue
             field = MDTextField(hint_text=label, text=value)
             content.ids.fields_box.add_widget(field)
             self._detail_extra.append((key, field))
         self._detail_content = content
-        self._detail_path = row.path
+        self._detail_path = path
         self._detail_dialog = MDDialog(
             title="자세히",
             type="custom",
