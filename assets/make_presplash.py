@@ -40,11 +40,13 @@ def _read_version() -> str:
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     """Load a TrueType font at *size*, falling back to PIL's default."""
-    names = (["arialbd.ttf", "segoeuib.ttf"] if bold
-             else ["arial.ttf", "segoeui.ttf"])
-    for name in names:
+    paths = (["C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/segoeuib.ttf",
+              "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"] if bold
+             else ["C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/segoeui.ttf",
+                   "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"])
+    for path in paths:
         try:
-            return ImageFont.truetype(f"C:/Windows/Fonts/{name}", size)
+            return ImageFont.truetype(path, size)
         except Exception:
             continue
     return ImageFont.load_default()
