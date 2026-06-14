@@ -37,7 +37,7 @@ from oscpy.server import OSCThreadServer
 
 import service_ipc as ipc
 from audio_meta import get_album, get_album_art
-from playlist import PLAY_MODES, advance, retreat
+from playlist import PLAY_MODES, advance, retreat, start_index
 
 RemoteViews = autoclass("android.widget.RemoteViews")
 AppWidgetManager = autoclass("android.appwidget.AppWidgetManager")
@@ -244,6 +244,24 @@ class AudioService:
         """Build a broadcast PendingIntent carrying *action* back to us."""
         intent = Intent(action)
         intent.setPackage(_PKG)
+        return PendingIntent.getBroadcast(self._service, request_code, intent,
+                                          _PI_FLAGS)
+
+    def _widget_action_pi(self, action: str, request_code: int):
+        """
+        Build a widget-button PendingIntent targeting WidgetActionReceiver.
+
+        The home widget outlives this process, so its buttons must not rely
+        on the dynamically-registered receiver above: an explicit intent to
+        the manifest-declared receiver keeps them working after the process
+        dies — the receiver relays to a live service, or cold-starts one on
+        the saved queue (see start_action).
+        """
+        intent = Intent(action)
+        # setClassName(String pkg, String cls): the (Context, String) overload
+        # mis-resolves under pyjnius (same pitfall as ComponentName above).
+        intent.setClassName(self._service.getPackageName(),
+                            _PKG + ".WidgetActionReceiver")
         return PendingIntent.getBroadcast(self._service, request_code, intent,
                                           _PI_FLAGS)
 
@@ -499,9 +517,12 @@ class AudioService:
                 content = self._content_pi()
                 if content is not None:
                     rv.setOnClickPendingIntent(id_root, content)
-            rv.setOnClickPendingIntent(id_play, self._action_pi(ACTION_TOGGLE, 11))
-            rv.setOnClickPendingIntent(id_next, self._action_pi(ACTION_NEXT, 12))
-            rv.setOnClickPendingIntent(id_prev, self._action_pi(ACTION_PREV, 13))
+            rv.setOnClickPendingIntent(
+                id_play, self._widget_action_pi(ACTION_TOGGLE, 11))
+            rv.setOnClickPendingIntent(
+                id_next, self._widget_action_pi(ACTION_NEXT, 12))
+            rv.setOnClickPendingIntent(
+                id_prev, self._widget_action_pi(ACTION_PREV, 13))
         except Exception:
             traceback.print_exc()
         try:   # push to all widget instances
@@ -944,6 +965,73 @@ class AudioService:
                 self._was_playing = False
                 self._advance_ended()
 
+    # -- cold start (widget button while no app process is alive) -------------
+    def _restore_saved_session(self) -> float:
+        """
+        Load the queue and track the UI last persisted, without playing.
+
+        The queue items come from the shared queue file the UI rewrites on
+        every sync; the saved track/index/position and the play mode/shuffle
+        seed come from the app_state rows of the internal state DB (written
+        by the UI on pause/exit). Read-only: nothing starts playing here.
+
+        Returns:
+            The saved playback position in seconds (0.0 when no saved track
+            survived) for the caller to seek to once the track is started.
+        """
+        items = ipc.read_queue_items(self._storage_dir)
+        if not items:
+            return 0.0
+        saved = ipc.read_resume_state(
+            os.path.join(self._storage_dir, ipc.STATE_DB_NAME))
+        self._items = items
+        self._mode = saved["mode"]
+        if saved["seed"]:
+            self._seed = saved["seed"]
+        self._index = ipc.resolve_resume_index(
+            items, saved["path"], saved["index"])
+        return saved["position"] if self._index >= 0 else 0.0
+
+    def start_action(self, raw: str) -> None:
+        """
+        Perform the transport action a cold service start was launched with.
+
+        A widget button pressed while no app process is alive reaches the
+        static WidgetActionReceiver, which starts this service with the
+        action string as the p4a service argument. Restore the persisted
+        session first, then act on it: TOGGLE resumes the saved track at its
+        saved position (or the mode's start track when none was saved);
+        NEXT/PREV move from the saved index per the saved play mode.
+
+        Args:
+            raw: The broadcast action (e.g. 'org.musiren.mp3archive.TOGGLE').
+        """
+        action = (raw or "").rsplit(".", 1)[-1].strip().upper()
+        if action not in ("TOGGLE", "NEXT", "PREV"):
+            return
+        with self._lock:
+            position = 0.0
+            if not self._items:
+                position = self._restore_saved_session()
+            if not self._items:
+                return   # never synced/saved: nothing to act on, stay idle
+            if action == "NEXT":
+                self.play_next()
+            elif action == "PREV":
+                self.play_prev()
+            elif self._player is not None:
+                self.toggle()
+            else:
+                index = self._index
+                if not 0 <= index < len(self._items):
+                    index = start_index(len(self._items), self._mode,
+                                        self._seed)
+                self._play_index(index)
+                if position > 0:
+                    self.seek(position)
+                else:
+                    self.push_state()
+
     # -- command dispatch ----------------------------------------------------
     def handle_command(self, *values) -> None:
         """OSC handler: decode one JSON command and dispatch it."""
@@ -988,6 +1076,14 @@ def main() -> None:
     except Exception:
         # A bind failure (e.g. port in use) must not crash the process: the
         # service has already entered the foreground, so keep it alive.
+        traceback.print_exc()
+    # A cold start from a widget button carries the action as the p4a service
+    # argument (the UI starts the service with an empty argument).
+    try:
+        argument = os.environ.get("PYTHON_SERVICE_ARGUMENT", "") or ""
+        if argument:
+            service.start_action(argument)
+    except Exception:
         traceback.print_exc()
     while True:
         time.sleep(0.5)

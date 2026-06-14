@@ -243,5 +243,99 @@ class TestState(unittest.TestCase):
         self.assertEqual(st["length"], 0.0)
 
 
+class TestResumeState(unittest.TestCase):
+    """Verify the cold-start session readers used by the playback service."""
+
+    @staticmethod
+    def _state_db(tmp, **state):
+        """Create a state DB in *tmp* carrying the given app_state rows."""
+        import sqlite3
+        path = os.path.join(tmp, ipc.STATE_DB_NAME)
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY,"
+            " value TEXT)")
+        for key, value in state.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)",
+                (key, str(value)))
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_reads_saved_session(self):
+        """Saved track/index/position/mode/seed come back typed correctly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._state_db(
+                tmp, now_path="/m/a.mp3", now_index=3, now_pos="83.4",
+                play_mode="shuffle", shuffle_seed=777)
+            state = ipc.read_resume_state(path)
+            self.assertEqual(state, {"path": "/m/a.mp3", "index": 3,
+                                     "position": 83.4, "mode": "shuffle",
+                                     "seed": 777})
+
+    def test_missing_db_returns_defaults(self):
+        """A non-existent DB file yields the idle defaults."""
+        state = ipc.read_resume_state("/nonexistent/dir/state.db")
+        self.assertEqual(state, {"path": "", "index": -1, "position": 0.0,
+                                 "mode": "sequential", "seed": 0})
+
+    def test_missing_keys_and_junk_values_normalised(self):
+        """Unsaved keys and junk values fall back to safe defaults."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._state_db(tmp, now_index="junk", now_pos="-5",
+                                  play_mode="bogus")
+            state = ipc.read_resume_state(path)
+            self.assertEqual(state, {"path": "", "index": -1, "position": 0.0,
+                                     "mode": "sequential", "seed": 0})
+
+    def test_db_without_state_table_returns_defaults(self):
+        """A DB missing the app_state table (e.g. a foreign .db) is harmless."""
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "other.db")
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE t (x)")   # non-empty, but no app_state
+            conn.commit()
+            conn.close()
+            state = ipc.read_resume_state(path)
+            self.assertEqual(state["index"], -1)
+            self.assertEqual(state["mode"], "sequential")
+
+    def test_read_only_open_never_creates_the_db(self):
+        """Reading resume state must not create a DB file as a side effect."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, ipc.STATE_DB_NAME)
+            ipc.read_resume_state(path)
+            self.assertFalse(os.path.exists(path))
+
+
+class TestResolveResumeIndex(unittest.TestCase):
+    """Verify the saved queue index is validated against the restored items."""
+
+    _ITEMS = [{"path": f"/m/{i}.mp3", "title": "", "subtitle": ""}
+              for i in range(4)]
+
+    def test_trusts_index_matching_path(self):
+        """The saved index wins while it still points at the saved path."""
+        self.assertEqual(
+            ipc.resolve_resume_index(self._ITEMS, "/m/2.mp3", 2), 2)
+
+    def test_locates_path_when_index_drifted(self):
+        """A drifted index falls back to locating the saved path."""
+        self.assertEqual(
+            ipc.resolve_resume_index(self._ITEMS, "/m/3.mp3", 1), 3)
+
+    def test_missing_path_returns_minus_one(self):
+        """A track no longer in the queue yields -1 (start fresh)."""
+        self.assertEqual(
+            ipc.resolve_resume_index(self._ITEMS, "/gone.mp3", 0), -1)
+
+    def test_empty_inputs_return_minus_one(self):
+        """An empty queue or an unsaved path yields -1."""
+        self.assertEqual(ipc.resolve_resume_index([], "/m/0.mp3", 0), -1)
+        self.assertEqual(ipc.resolve_resume_index(self._ITEMS, "", 0), -1)
+
+
 if __name__ == "__main__":
     unittest.main()

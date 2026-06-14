@@ -109,7 +109,9 @@ from ui_util import latest_news_version, resolve_theme_style, sort_files
 
 # Library DB file name, used both for the internal default DB (in app
 # storage) and for the per-directory DB written into each scanned folder.
-LIBRARY_DB_NAME = "mp3_archive.db"
+# The internal one doubles as the state DB the playback service reads its
+# resume state from, so the name is shared through service_ipc.
+LIBRARY_DB_NAME = ipc.STATE_DB_NAME
 
 
 class Snackbar:
