@@ -5,11 +5,18 @@ Unreleased
 ===========================================================================
 
 The scanned library now survives restarts as a per-folder DB file, the
-scan picker can load a saved DB directly, and 재생목록 rows gained the
-tag detail view.
+scan picker can load a saved DB directly, 재생목록 rows gained the tag
+detail view, and the home-screen widget's transport buttons now work
+even after the app process is gone.
 
 New features (Android)
 ----------------------
+- The home-screen widget's 이전/재생·일시정지/다음 buttons now work with
+  the app fully closed. They route through a manifest-declared receiver
+  that relays to the live service, or — when the process is gone —
+  cold-starts the playback service as a foreground service and restores
+  the saved 재생목록/track/position/mode before acting, so pressing play
+  resumes the last session instead of doing nothing.
 - Scanning a folder now writes its library DB to
   <folder>/mp3_archive.db, kept beside the music, and the app reopens
   that DB automatically on the next launch — the list is restored
