@@ -1,8 +1,11 @@
 mp3-archive NEWS
 
 ===========================================================================
-Unreleased
+v20260616 (2026-06-16)
 ===========================================================================
+
+The home-screen widget's play button now starts the 재생목록 even when
+the app window is closed but the playback service is still running.
 
 Bug fixes (Android)
 -------------------
