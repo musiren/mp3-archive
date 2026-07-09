@@ -488,6 +488,18 @@ class TestRecycleList(unittest.TestCase):
         self.assertTrue(hasattr(CandidateRow, "cand_title"))
         self.assertTrue(hasattr(CandidateRow, "selected"))
 
+    def test_long_touch_duration_shortened(self):
+        """Verifies every long-pressable row uses the 0.3 s long-touch threshold."""
+        from main_window_android import (
+            _LONG_TOUCH_SECONDS, Mp3RowDetails, Mp3RowList, Mp3TreeRow,
+            Mp3Tile, QueueRow)
+        self.assertEqual(_LONG_TOUCH_SECONDS, 0.3)
+        # Read the class-level Property default (no instance: instantiating a
+        # KivyMD widget needs a running MDApp).
+        for cls in (Mp3RowDetails, Mp3RowList, Mp3TreeRow, Mp3Tile, QueueRow):
+            self.assertEqual(cls.duration_long_touch.defaultvalue, 0.3,
+                             cls.__name__)
+
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestSnackbarShim(unittest.TestCase):

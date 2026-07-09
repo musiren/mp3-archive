@@ -1,6 +1,29 @@
 mp3-archive NEWS
 
 ===========================================================================
+Unreleased
+===========================================================================
+
+Bluetooth and headset media buttons now control playback even after a
+reboot, resuming the saved 재생목록.
+
+New features (Android)
+----------------------
+- Hardware media buttons (Bluetooth AVRCP and wired headset) now start
+  playback when the app process is gone — e.g. pressing play on the
+  earphones after a phone reboot. A manifest-declared media-button
+  receiver, wired to the MediaSession, cold-starts the playback service
+  and restores the saved 재생목록/track/position/mode before acting, the
+  same way the home-screen widget buttons already do. While the app is
+  running, buttons keep going straight to the live session as before.
+
+Changed behaviour (Android)
+---------------------------
+- The list/tile/queue row long-press (재생목록에 추가 등) now triggers at
+  0.3 s instead of 0.4 s, so the per-track actions menu opens more
+  promptly.
+
+===========================================================================
 v20260616 (2026-06-16)
 ===========================================================================
 

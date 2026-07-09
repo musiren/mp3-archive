@@ -34,6 +34,18 @@ RECEIVERS = [
     ("WidgetActionReceiver", """
         <receiver android:name="%s.WidgetActionReceiver" android:exported="false" />
 """ % PACKAGE),
+    # Media-button receiver: the framework delivers hardware media buttons to
+    # it via the session's setMediaButtonReceiver PendingIntent (an explicit
+    # component target, so exported="false" is fine). The MEDIA_BUTTON filter
+    # lets it be the app's registered media-button target when no session is
+    # active — e.g. a Bluetooth play press after a reboot.
+    ("MediaButtonReceiver", """
+        <receiver android:name="%s.MediaButtonReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+""" % PACKAGE),
 ]
 
 
