@@ -17,6 +17,12 @@ New features (Android)
   same way the home-screen widget buttons already do. While the app is
   running, buttons keep going straight to the live session as before.
 
+Changed behaviour (Android)
+---------------------------
+- The list/tile/queue row long-press (재생목록에 추가 등) now triggers at
+  0.3 s instead of 0.4 s, so the per-track actions menu opens more
+  promptly.
+
 ===========================================================================
 v20260616 (2026-06-16)
 ===========================================================================
