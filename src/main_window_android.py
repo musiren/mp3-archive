@@ -757,6 +757,12 @@ MDBoxLayout:
 # List item widget
 # ---------------------------------------------------------------------------
 
+# Long-press threshold for the list/tile/queue rows (seconds). Shorter than
+# KivyMD's 0.4 s default so the per-track actions menu (재생목록에 추가 등)
+# feels quicker to open.
+_LONG_TOUCH_SECONDS = 0.3
+
+
 def _open_actions_for(row) -> None:
     """
     Open the per-track actions menu for a long-pressed row.
@@ -800,6 +806,7 @@ class Mp3RowDetails(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBeh
     path     = StringProperty("")
     selected = BooleanProperty(False)
     art_source = StringProperty("")   # album-art image path, "" when none
+    duration_long_touch = NumericProperty(_LONG_TOUCH_SECONDS)
     index    = None
 
     def refresh_view_attrs(self, rv, index, data):
@@ -823,6 +830,7 @@ class Mp3RowList(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
     title    = StringProperty("")
     path     = StringProperty("")
     selected = BooleanProperty(False)
+    duration_long_touch = NumericProperty(_LONG_TOUCH_SECONDS)
     index    = None
 
     def refresh_view_attrs(self, rv, index, data):
@@ -842,6 +850,7 @@ class Mp3TreeRow(RecycleDataViewBehavior, OneLineAvatarIconListItem, TouchBehavi
     path     = StringProperty("")
     key      = StringProperty("")
     selected = BooleanProperty(False)
+    duration_long_touch = NumericProperty(_LONG_TOUCH_SECONDS)
     index    = None
 
     def refresh_view_attrs(self, rv, index, data):
@@ -865,6 +874,7 @@ class Mp3Tile(RecycleDataViewBehavior, ButtonBehavior, TouchBehavior, MDBoxLayou
     title      = StringProperty("")
     path       = StringProperty("")
     art_source = StringProperty("")
+    duration_long_touch = NumericProperty(_LONG_TOUCH_SECONDS)
     index      = None
 
     def refresh_view_attrs(self, rv, index, data):
@@ -945,6 +955,7 @@ class QueueRow(RecycleDataViewBehavior, TwoLineAvatarIconListItem, TouchBehavior
     q_title  = StringProperty("")
     q_sub    = StringProperty("")
     playing  = BooleanProperty(False)
+    duration_long_touch = NumericProperty(_LONG_TOUCH_SECONDS)
     index    = None
 
     def refresh_view_attrs(self, rv, index, data):
