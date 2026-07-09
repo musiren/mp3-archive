@@ -4,11 +4,14 @@ name: Build
 #
 # - On push to main: only the Android APK is built (keeps the on-device
 #   verify routine fast and avoids spinning up a Windows runner on every push).
+# - On push of a version tag (v*): the Android APK is built and attached to a
+#   GitHub Release for that tag, so each release carries a downloadable APK.
 # - On a manual run (Actions > Build > Run workflow): pick which platform to
 #   build via the "platform" input — android, windows, or both.
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       platform:
@@ -19,9 +22,14 @@ on:
 
 jobs:
   android:
-    # Push always builds Android; a manual run builds it when asked.
+    # Push (to main or a tag) always builds Android; a manual run builds it
+    # when asked.
     if: ${{ github.event_name == 'push' || github.event.inputs.platform == 'android' || github.event.inputs.platform == 'both' }}
     runs-on: ubuntu-22.04
+    # Needed for the tag-triggered "Publish APK to the release" step to create
+    # the GitHub Release and upload the APK asset.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +115,20 @@ jobs:
           name: mp3-archive-debug
           path: bin/*.apk
           if-no-files-found: error
+
+      # On a version-tag push only: create (or update) the tag's GitHub
+      # Release and attach the built APK, so the release page carries a
+      # downloadable build. No-op for branch pushes and manual runs.
+      - name: Publish APK to the release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: >-
+            Android debug APK for ${{ github.ref_name }}.
+            See NEWS for the changes in this release.
+          files: bin/*.apk
+          fail_on_unmatched_files: true
 
   windows:
     # Windows is manual-only: a push never starts a Windows runner.
