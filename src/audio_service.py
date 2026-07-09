@@ -192,6 +192,21 @@ class AudioService:
                 self._session.setCallback(Callback(self._service), handler)
             except Exception:
                 traceback.print_exc()
+            # Point the framework at our manifest MediaButtonReceiver for
+            # hardware media buttons (Bluetooth AVRCP / headset). Routed here
+            # whenever the session is not active — including after the process
+            # dies — so a play press cold-starts playback on the saved queue
+            # instead of being dropped. Best-effort: a failure just means
+            # media buttons only work while the session is live.
+            try:
+                mb_intent = Intent("android.intent.action.MEDIA_BUTTON")
+                mb_intent.setClassName(self._service.getPackageName(),
+                                       _PKG + ".MediaButtonReceiver")
+                self._session.setMediaButtonReceiver(
+                    PendingIntent.getBroadcast(self._service, 0, mb_intent,
+                                               _PI_FLAGS))
+            except Exception:
+                traceback.print_exc()
             self._session.setActive(True)
         except Exception:
             traceback.print_exc()
