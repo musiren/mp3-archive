@@ -585,6 +585,33 @@ class AudioService:
         self._play_path(item.get("path", ""), item.get("title", ""),
                         item.get("subtitle", ""))
 
+    def _start_queue(self, position: float = 0.0) -> None:
+        """
+        Start playing the queue from the saved index, else the mode's start.
+
+        Used by the play button (widget, notification, cold start) when no
+        track is loaded: resume the saved track when one survived, otherwise
+        begin at the play mode's start track (the seeded order's first slot
+        for shuffle, else the first track). Mirrors the UI's play button
+        (Mp3ArchiveApp.toggle_play_pause), so pressing play while idle starts
+        the 재생목록 instead of doing nothing.
+
+        Args:
+            position: Seconds to seek to after starting (a restored session's
+                saved spot); 0 starts the track from its beginning.
+        """
+        if not self._items:
+            self.push_state()
+            return
+        index = self._index
+        if not 0 <= index < len(self._items):
+            index = start_index(len(self._items), self._mode, self._seed)
+        self._play_index(index)
+        if position > 0:
+            self.seek(position)
+        else:
+            self.push_state()
+
     # -- commands ------------------------------------------------------------
     def sync(self, items: list, index: int, mode: str, seed: int = 0,
              position: float = 0.0) -> None:
@@ -640,10 +667,22 @@ class AudioService:
             self.push_state()
 
     def toggle(self) -> None:
-        """Pause if playing, resume if paused."""
+        """
+        Pause if playing, resume if paused, or start the queue when idle.
+
+        With no track loaded, the play button must not sit idle. This happens
+        when the app activity was closed but this foreground service is still
+        alive (so the widget button reaches the live service as a toggle
+        rather than cold-starting it), or after playback was stopped: start
+        the 재생목록 like the UI's play button. Restore the saved session
+        first if the queue was never synced into this process.
+        """
         player = self._player
         if player is None:
-            self.push_state()
+            position = 0.0
+            if not self._items:
+                position = self._restore_saved_session()
+            self._start_queue(position)
             return
         try:
             if player.isPlaying():
@@ -1022,15 +1061,7 @@ class AudioService:
             elif self._player is not None:
                 self.toggle()
             else:
-                index = self._index
-                if not 0 <= index < len(self._items):
-                    index = start_index(len(self._items), self._mode,
-                                        self._seed)
-                self._play_index(index)
-                if position > 0:
-                    self.seek(position)
-                else:
-                    self.push_state()
+                self._start_queue(position)
 
     # -- command dispatch ----------------------------------------------------
     def handle_command(self, *values) -> None:

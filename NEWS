@@ -1,6 +1,21 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260616 (2026-06-16)
+===========================================================================
+
+The home-screen widget's play button now starts the 재생목록 even when
+the app window is closed but the playback service is still running.
+
+Bug fixes (Android)
+-------------------
+- A widget (or notification) play button pressed while the app window
+  is closed but the playback service is still alive no longer sits idle
+  when nothing is loaded. It now starts the 재생목록 — resuming the
+  saved track, or beginning at the play mode's start track — just like
+  the app's play button and the widget cold-start path already did.
+
+===========================================================================
 v20260614 (2026-06-14)
 ===========================================================================
 
