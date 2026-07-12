@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AppWidgetProviderInfo: app/service drives updates (updatePeriodMillis=0). -->
+<!-- AppWidgetProviderInfo: app/service drives updates (updatePeriodMillis=0).
+     widgetCategory includes keyguard so lock-screen widget hosts (Android
+     4.2-4.4 keyguard, Android 16+ lock-screen widgets / glanceable hub) can
+     offer this widget; hosts without lock-screen widgets ignore the flag. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="180dp"
     android:minHeight="110dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_player"
+    android:initialKeyguardLayout="@layout/widget_player"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen|keyguard" />
