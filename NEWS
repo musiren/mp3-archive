@@ -1,6 +1,23 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260712 (2026-07-12)
+===========================================================================
+
+The player widget can now be placed on the lock screen, on Android
+versions whose widget host supports lock-screen widgets.
+
+New features (Android)
+----------------------
+- The player widget now declares the keyguard widget category (with a
+  keyguard initial layout), so lock-screen widget hosts — Android 16+
+  lock-screen widgets and the classic Android 4.2-4.4 keyguard — offer
+  it for placement on the lock screen. Devices without lock-screen
+  widget support ignore the extra category, and home-screen behaviour
+  is unchanged; there the lock screen keeps showing the MediaSession
+  now-playing card as before.
+
+===========================================================================
 v20260709 (2026-07-09)
 ===========================================================================
 
