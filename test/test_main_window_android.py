@@ -531,25 +531,28 @@ class TestSessionPersistence(unittest.TestCase):
         from playlist import PlayQueue
         stub = types.SimpleNamespace(
             _state=mgr, _manager=mgr, _db_path="",
-            _play_mode="shuffle", _shuffle_seed=777,
+            _shuffle_on=True, _repeat_mode="sequential", _shuffle_seed=777,
             _theme_choice="dark", _view_mode="table", _show_art=False,
             _queue_source=None, _queue=PlayQueue(), _playing_path="",
             _resume_index=-1, _resume_pos=0.0, _svc_pos=0.0,
             _sound=None, _elapsed=0.0, _paused_pos=0.0,
         )
+        for key, value in overrides.items():
+            setattr(stub, key, value)
+        stub._effective_mode = "shuffle" if stub._shuffle_on else stub._repeat_mode
         stub._svc_active = lambda: False
         stub._current_position = (
             lambda: Mp3ArchiveApp._current_position(stub))
         stub._save_app_state = (
             lambda: Mp3ArchiveApp._save_app_state(stub))
-        for key, value in overrides.items():
-            setattr(stub, key, value)
         return stub
 
     def test_save_persists_prefs(self):
-        """Verifies mode/seed/theme/view/art preferences reach the DB."""
+        """Verifies shuffle/repeat/seed/theme/view/art preferences reach the DB."""
         mgr = self._memory_manager()
         self._stub_app(mgr)._save_app_state()
+        self.assertEqual(mgr.get_state("shuffle_on"), "1")
+        self.assertEqual(mgr.get_state("repeat_mode"), "sequential")
         self.assertEqual(mgr.get_state("play_mode"), "shuffle")
         self.assertEqual(mgr.get_state("shuffle_seed"), "777")
         self.assertEqual(mgr.get_state("theme"), "dark")
