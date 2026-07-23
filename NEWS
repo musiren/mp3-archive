@@ -1,6 +1,28 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20260723 (2026-07-23)
+===========================================================================
+
+Shuffle is now an independent toggle; the repeat mode cycles separately.
+
+Changed behaviour (Android)
+---------------------------
+- The single mode button that cycled through sequential / repeat-one /
+  repeat-all / shuffle has been replaced by two controls in the
+  transport bar:
+  - Shuffle toggle (left): turns random playback on or off.  Activating
+    it generates a fresh seed so the order is immediately re-randomised;
+    the active state is shown in the primary theme colour.  Deactivating
+    it resumes from the current track in the configured repeat-mode
+    order.
+  - Repeat button (right): cycles through 전체한번만 (sequential) →
+    한곡반복 (repeat-one) → 전체반복 (repeat-all).  The shuffle state is
+    independent and remembered across repeat-mode changes.
+- The stop button has been removed from the transport row; the bar now
+  shows five icons: shuffle | previous | play/pause | next | repeat.
+
+===========================================================================
 v20260712 (2026-07-12)
 ===========================================================================
 
