@@ -1302,8 +1302,8 @@ class Mp3ArchiveApp(MDApp):
         try:
             m = self._state
             m.set_state("shuffle_on", "1" if self._shuffle_on else "0")
-        m.set_state("repeat_mode", self._repeat_mode)
-        m.set_state("play_mode", self._effective_mode)
+            m.set_state("repeat_mode", self._repeat_mode)
+            m.set_state("play_mode", self._effective_mode)
             m.set_state("library_db",
                         "" if self._manager is self._state else self._db_path)
             m.set_state("shuffle_seed", self._shuffle_seed)
