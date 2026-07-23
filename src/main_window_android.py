@@ -85,7 +85,6 @@ from playlist import (
     PlayQueue,
     advance,
     new_shuffle_seed,
-    next_play_mode,
     parse_playlist,
     retreat,
     serialize_playlist,
@@ -632,7 +631,11 @@ MDBoxLayout:
                     height: dp(52)
                     spacing: dp(8)
 
-                    Widget:
+                    MDIconButton:
+                        id: shuffle_button
+                        icon: "shuffle"
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.toggle_shuffle()
 
                     MDIconButton:
                         icon: "skip-previous"
@@ -646,20 +649,15 @@ MDBoxLayout:
                         on_release: app.toggle_play_pause()
 
                     MDIconButton:
-                        icon: "stop"
-                        pos_hint: {"center_y": 0.5}
-                        on_release: app.stop_playback()
-
-                    MDIconButton:
                         icon: "skip-next"
                         pos_hint: {"center_y": 0.5}
                         on_release: app.play_next()
 
                     MDIconButton:
-                        id: mode_button
+                        id: repeat_button
                         icon: "playlist-play"
                         pos_hint: {"center_y": 0.5}
-                        on_release: app.cycle_play_mode()
+                        on_release: app.cycle_repeat_mode()
 
                     Widget:
 
@@ -1040,8 +1038,20 @@ class Mp3ArchiveApp(MDApp):
         self._suppress_next_play = False  # skip play_row right after a long-press
         self._suppress_next_queue_play = False  # skip queue play after long-press
         self._queue = PlayQueue()      # the play queue (재생목록)
-        self._play_mode = self._restore_pref("play_mode", "sequential",
-                                             PLAY_MODES)
+        _REPEAT_MODES = ["sequential", "repeat_one", "repeat_all"]
+        _old_mode = self._restore_pref("play_mode", "sequential", PLAY_MODES)
+        self._repeat_mode = self._restore_pref(
+            "repeat_mode",
+            _old_mode if _old_mode in _REPEAT_MODES else "sequential",
+            _REPEAT_MODES)
+        try:
+            _raw = self._state.get_state("shuffle_on", "")
+        except Exception:
+            _raw = ""
+        if _raw == "":
+            self._shuffle_on = (_old_mode == "shuffle")
+        else:
+            self._shuffle_on = (_raw == "1")
         self._shuffle_seed = self._restore_seed()  # deterministic shuffle order
         self._queue_source = None      # .list file the queue mirrors, or None
         self._resume_index = -1        # queue index to resume after a restart
@@ -1291,7 +1301,9 @@ class Mp3ArchiveApp(MDApp):
         """
         try:
             m = self._state
-            m.set_state("play_mode", self._play_mode)
+            m.set_state("shuffle_on", "1" if self._shuffle_on else "0")
+        m.set_state("repeat_mode", self._repeat_mode)
+        m.set_state("play_mode", self._effective_mode)
             m.set_state("library_db",
                         "" if self._manager is self._state else self._db_path)
             m.set_state("shuffle_seed", self._shuffle_seed)
@@ -1334,8 +1346,8 @@ class Mp3ArchiveApp(MDApp):
         pressing play resumes it from there (see toggle_play_pause).
         """
         # Reflect the restored prefs on their toolbar/transport widgets.
-        self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
-            self._play_mode, "playlist-play")
+        self._update_shuffle_button()
+        self._update_repeat_button()
         self.root.ids.art_toggle.icon = (
             "image" if self._show_art else "image-off")
 
@@ -2537,7 +2549,7 @@ class Mp3ArchiveApp(MDApp):
         """Play the previous track in the queue per the current play mode."""
         index, self._shuffle_seed = retreat(
             self._queue.current_index, len(self._queue),
-            self._play_mode, self._shuffle_seed)
+            self._effective_mode, self._shuffle_seed)
         if index is not None:
             self._play_queue_index(index)
 
@@ -2545,36 +2557,76 @@ class Mp3ArchiveApp(MDApp):
         """Play the next track in the queue per the current play mode."""
         index, self._shuffle_seed = advance(
             self._queue.current_index, len(self._queue),
-            self._play_mode, self._shuffle_seed, ended=False)
+            self._effective_mode, self._shuffle_seed, ended=False)
         if index is not None:
             self._play_queue_index(index)
 
-    # Per-mode transport-button icon and Korean label.
-    _PLAY_MODE_ICONS = {
+    # Per-repeat-mode button icon and label.
+    _REPEAT_MODES = ["sequential", "repeat_one", "repeat_all"]
+    _REPEAT_ICONS = {
         "sequential": "playlist-play",
         "repeat_one": "repeat-once",
         "repeat_all": "repeat",
-        "shuffle":    "shuffle",
     }
-    _PLAY_MODE_LABELS = {
-        "sequential": "순차 재생",
+    _REPEAT_LABELS = {
+        "sequential": "전체 한번만",
         "repeat_one": "한 곡 반복",
         "repeat_all": "전체 반복",
-        "shuffle":    "셔플",
     }
 
-    def cycle_play_mode(self) -> None:
-        """Advance to the next play mode and update the button icon + label."""
-        self._play_mode = next_play_mode(self._play_mode)
-        if self._play_mode == "shuffle":
-            # Re-entering shuffle starts a fresh order: new seed, and any
-            # tracks played before the mode change no longer count.
+    @property
+    def _effective_mode(self) -> str:
+        """Return the play mode sent to the service: shuffle overrides repeat."""
+        return "shuffle" if self._shuffle_on else self._repeat_mode
+
+    def toggle_shuffle(self) -> None:
+        """
+        Toggle shuffle on/off and notify the service.
+
+        Turning shuffle on generates a new seed so the order is freshly
+        randomised.  Turning shuffle off resumes from the current track in
+        the regular repeat-mode order (service re-derives position by path).
+        """
+        self._shuffle_on = not self._shuffle_on
+        if self._shuffle_on:
             self._shuffle_seed = new_shuffle_seed()
-        self.root.ids.mode_button.icon = self._PLAY_MODE_ICONS.get(
-            self._play_mode, "playlist-play"
-        )
-        self._sync_queue()   # tell the service the new mode for auto-advance
-        Snackbar(text=self._PLAY_MODE_LABELS.get(self._play_mode, "")).open()
+        self._update_shuffle_button()
+        self._sync_queue()
+        label = "셔플 켜짐" if self._shuffle_on else "셔플 꺼짐"
+        Snackbar(text=label).open()
+
+    def cycle_repeat_mode(self) -> None:
+        """Advance the repeat mode: 전체한번만 → 한곡반복 → 전체반복 → ..."""
+        modes = self._REPEAT_MODES
+        idx = modes.index(self._repeat_mode) if self._repeat_mode in modes else 0
+        self._repeat_mode = modes[(idx + 1) % len(modes)]
+        self._update_repeat_button()
+        self._sync_queue()
+        Snackbar(text=self._REPEAT_LABELS.get(self._repeat_mode, "")).open()
+
+    def _update_shuffle_button(self) -> None:
+        """
+        Colour the shuffle button to show whether shuffle is active.
+
+        Active: primary theme colour.  Inactive: secondary (dimmed) colour.
+        """
+        try:
+            btn = self.root.ids.shuffle_button
+            if self._shuffle_on:
+                btn.theme_icon_color = "Custom"
+                btn.icon_color = self.theme_cls.primary_color
+            else:
+                btn.theme_icon_color = "Secondary"
+        except Exception:
+            pass
+
+    def _update_repeat_button(self) -> None:
+        """Set the repeat button's icon to reflect the current repeat mode."""
+        try:
+            self.root.ids.repeat_button.icon = self._REPEAT_ICONS.get(
+                self._repeat_mode, "playlist-play")
+        except Exception:
+            pass
 
     def _row_info_for_path(self, path: str) -> dict | None:
         """Build a queue item dict for a path, preferring the current list data."""
@@ -2892,7 +2944,7 @@ class Mp3ArchiveApp(MDApp):
             traceback.print_exc()
             return
         self._player_svc.send(ipc.OP_SYNC, index=play_index,
-                              mode=self._play_mode, seed=self._shuffle_seed,
+                              mode=self._effective_mode, seed=self._shuffle_seed,
                               position=position)
 
     def _set_now_playing_ui(self, path: str, title: str, subtitle: str) -> None:
@@ -2964,7 +3016,7 @@ class Mp3ArchiveApp(MDApp):
         whole cycle plays without repeats); every other mode starts at the
         first track in the queue.
         """
-        return start_index(len(self._queue), self._play_mode,
+        return start_index(len(self._queue), self._effective_mode,
                            self._shuffle_seed)
 
     def toggle_play_pause(self) -> None:
@@ -3119,7 +3171,7 @@ class Mp3ArchiveApp(MDApp):
         self._unschedule_pos()
         index, self._shuffle_seed = advance(
             self._queue.current_index, len(self._queue),
-            self._play_mode, self._shuffle_seed, ended=True)
+            self._effective_mode, self._shuffle_seed, ended=True)
         if index is not None and not self._queue.is_empty:
             self._play_queue_index(index)
         else:
