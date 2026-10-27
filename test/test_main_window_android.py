@@ -979,6 +979,92 @@ class TestResumeAfterRestart(unittest.TestCase):
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestQueueHydration(unittest.TestCase):
+    """Tests for the lazy 재생목록 restore (placeholders + hydration)."""
+
+    def test_placeholder_items_use_the_filename_only(self):
+        """Verifies rows are built from the path alone, in queue order."""
+        from main_window_android import Mp3ArchiveApp
+        items = Mp3ArchiveApp._placeholder_items(
+            ["/m/dir/01 첫곡.mp3", "/m/dir/02.mp3"])
+        self.assertEqual([i["path"] for i in items],
+                         ["/m/dir/01 첫곡.mp3", "/m/dir/02.mp3"])
+        self.assertEqual(items[0], {"path": "/m/dir/01 첫곡.mp3",
+                                    "filename": "01 첫곡.mp3",
+                                    "artist": "-", "title": "01 첫곡"})
+
+    @staticmethod
+    def _stub_app(queue, rows):
+        """Build a stand-in whose DB returns *rows* for a bulk lookup."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace(
+            _queue=queue,
+            _manager=types.SimpleNamespace(
+                get_many_by_path=lambda paths: {
+                    p: rows[p] for p in paths if p in rows}),
+        )
+        stub._hydrate_items = (
+            lambda start, count:
+            Mp3ArchiveApp._hydrate_items(stub, start, count))
+        return stub
+
+    def test_hydrate_items_fills_tags_in_place(self):
+        """Verifies a chunk's placeholder rows gain their real artist/title."""
+        from playlist import PlayQueue
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp3")
+            open(path, "wb").close()
+            queue = PlayQueue()
+            queue.add({"path": path, "filename": "a.mp3",
+                       "artist": "-", "title": "a"})
+            stub = self._stub_app(
+                queue, {path: {"artist": "가수", "title": "노래"}})
+            self.assertEqual(stub._hydrate_items(0, 10), [])
+            self.assertEqual(queue.items[0]["artist"], "가수")
+            self.assertEqual(queue.items[0]["title"], "노래")
+
+    def test_hydrate_items_keeps_placeholder_when_db_has_no_row(self):
+        """Verifies a track absent from the library keeps its filename row."""
+        from playlist import PlayQueue
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp3")
+            open(path, "wb").close()
+            queue = PlayQueue()
+            queue.add({"path": path, "filename": "a.mp3",
+                       "artist": "-", "title": "a"})
+            stub = self._stub_app(queue, {})
+            self.assertEqual(stub._hydrate_items(0, 10), [])
+            self.assertEqual(queue.items[0]["title"], "a")
+
+    def test_hydrate_items_reports_missing_files(self):
+        """Verifies vanished files come back as queue indices to remove."""
+        from playlist import PlayQueue
+        with tempfile.TemporaryDirectory() as tmp:
+            alive = os.path.join(tmp, "a.mp3")
+            open(alive, "wb").close()
+            queue = PlayQueue()
+            queue.add_many([
+                {"path": alive, "filename": "a.mp3",
+                 "artist": "-", "title": "a"},
+                {"path": os.path.join(tmp, "gone.mp3"),
+                 "filename": "gone.mp3", "artist": "-", "title": "gone"},
+            ])
+            stub = self._stub_app(queue, {})
+            self.assertEqual(stub._hydrate_items(0, 10), [1])
+
+    def test_hydrate_items_only_touches_its_own_chunk(self):
+        """Verifies the chunk window is respected, with absolute indices."""
+        from playlist import PlayQueue
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = PlayQueue()
+            for name in ("a.mp3", "b.mp3", "c.mp3"):
+                queue.add({"path": os.path.join(tmp, name),
+                           "filename": name, "artist": "-", "title": name})
+            stub = self._stub_app(queue, {})
+            self.assertEqual(stub._hydrate_items(1, 1), [1])
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
 class TestQueueTagDetail(unittest.TestCase):
     """Tests for the 재생목록 long-press 자세히 (tag detail) action."""
 

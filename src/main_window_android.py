@@ -1393,9 +1393,11 @@ class Mp3ArchiveApp(MDApp):
 
         Runs once from on_start (the widgets exist by then). The queue comes
         from its source ``.list`` file when one was recorded (so edits to the
-        file are honoured), else from the rows saved in the DB; missing files
-        are skipped. The last track is shown paused at its saved position —
-        pressing play resumes it from there (see toggle_play_pause).
+        file are honoured), else from the rows saved in the DB. The rows are
+        painted straight away from their filenames and upgraded in the
+        background by _hydrate_queue, which is also what drops files that
+        have since vanished. The last track is shown paused at its saved
+        position — pressing play resumes it from there (toggle_play_pause).
         """
         # Reflect the restored prefs on their toolbar/transport widgets.
         self._update_shuffle_button()
@@ -1421,23 +1423,18 @@ class Mp3ArchiveApp(MDApp):
                 paths = self._state.load_queue()
             except Exception:
                 paths = []
-        paths = [p for p in paths if os.path.isfile(p)]
         if not paths:
             return
-        for p in paths:
-            info = self._manager.get_by_path(p) or {}
-            stem = os.path.splitext(os.path.basename(p))[0]
-            self._queue.add({
-                "path": p,
-                "filename": os.path.basename(p),
-                "artist": info.get("artist") or "-",
-                "title": info.get("title") or stem,
-            })
+        self._queue.add_many(self._placeholder_items(paths))
         self._queue_source = source if used_source else None
 
         self._restore_now_playing()
         self._refresh_queue()
         self._sync_queue()   # hand the restored queue/mode/seed to the service
+        # Tags and the existence check come later, a chunk per frame: doing a
+        # DB lookup and a stat per track here is what made launching with a
+        # few hundred queued songs slow.
+        Clock.schedule_once(lambda _dt: self._hydrate_queue(0), 0)
 
     def _restore_now_playing(self) -> None:
         """
@@ -1479,6 +1476,108 @@ class Mp3ArchiveApp(MDApp):
         self.root.ids.pos_label.text = self._format_time(pos)
         self.root.ids.dur_label.text = self._format_time(length)
         self.root.ids.play_button.icon = "play"
+
+    # Queue items hydrated per frame (tags + existence check). Small enough
+    # that a chunk fits comfortably in one frame on a mid-range phone.
+    _HYDRATE_CHUNK = 150
+
+    @staticmethod
+    def _placeholder_items(paths: list) -> list:
+        """
+        Build queue items for *paths* from their filenames alone.
+
+        Costs nothing but string work, so the restored 재생목록 can be shown
+        on the first frame; _hydrate_queue fills in the real tags right after.
+
+        Args:
+            paths: Audio file paths in queue order.
+
+        Returns:
+            A list of {path,filename,artist,title} dicts, one per path.
+        """
+        items = []
+        for path in paths:
+            name = os.path.basename(path)
+            items.append({"path": path, "filename": name, "artist": "-",
+                          "title": os.path.splitext(name)[0]})
+        return items
+
+    def _hydrate_items(self, start: int, count: int) -> list:
+        """
+        Fill in the tags for one chunk of queue items and report missing files.
+
+        The chunk's tags come from a single bulk query rather than a lookup
+        per track; the items are updated in place.
+
+        Args:
+            start: Index of the first queue item in the chunk.
+            count: How many items to process.
+
+        Returns:
+            Ascending queue indices whose file no longer exists.
+        """
+        items = self._queue.items[start:start + count]
+        rows = self._manager.get_many_by_path(
+            [item.get("path", "") for item in items])
+        missing = []
+        for offset, item in enumerate(items):
+            path = item.get("path", "")
+            if not os.path.isfile(path):
+                missing.append(start + offset)
+                continue
+            info = rows.get(path)
+            if not info:
+                continue
+            item["artist"] = info.get("artist") or "-"
+            item["title"] = (info.get("title")
+                             or os.path.splitext(item["filename"])[0])
+        return missing
+
+    def _hydrate_queue(self, start: int, missing: list = None) -> None:
+        """
+        Hydrate the restored queue chunk by chunk, one Kivy frame per chunk.
+
+        Keeps the launch responsive with a large 재생목록: the queue is
+        already on screen and playable, and each frame upgrades another chunk
+        from filename-only rows to real tags. Vanished files are collected and
+        removed once, at the end, so indices stay stable while the pass runs;
+        the finished queue is then re-synced to the service.
+
+        Args:
+            start:   Index of the chunk to process on this frame.
+            missing: Indices of vanished files found so far (internal).
+        """
+        if self.root is None:
+            return
+        missing = [] if missing is None else missing
+        missing.extend(self._hydrate_items(start, self._HYDRATE_CHUNK))
+        nxt = start + self._HYDRATE_CHUNK
+        if nxt < len(self._queue):
+            self._refresh_queue()   # show the tags filled in on this frame
+            Clock.schedule_once(
+                lambda _dt: self._hydrate_queue(nxt, missing), 0)
+            return
+        if missing:
+            # Drop vanished files without touching the play order, the shuffle
+            # seed or the .list source — so no _queue_changed() here. The
+            # removals shift indices, so the resume target is re-found by path.
+            resume_path = ""
+            if 0 <= self._resume_index < len(self._queue):
+                resume_path = self._queue.items[self._resume_index].get(
+                    "path", "")
+            for index in reversed(missing):
+                self._queue.remove(index)
+            if resume_path:
+                self._resume_index = next(
+                    (i for i, item in enumerate(self._queue.items)
+                     if item.get("path") == resume_path), -1)
+                if self._resume_index < 0:
+                    self._resume_pos = 0.0
+        self._refresh_queue()
+        # Hand the hydrated queue over: the service labels the notification
+        # and the lock screen from its own copy, which until now held the
+        # placeholder rows (and any removals above).
+        self._sync_queue()
 
     def _queue_changed(self) -> None:
         """

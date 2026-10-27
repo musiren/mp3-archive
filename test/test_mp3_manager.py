@@ -456,6 +456,54 @@ class TestGetByPath(unittest.TestCase):
         mgr.close()
 
 
+class TestGetManyByPath(unittest.TestCase):
+    """Tests for the bulk path lookup the queue restore hydrates with."""
+
+    def test_returns_rows_keyed_by_path(self):
+        """Verify every known path maps to its own full record."""
+        mgr = make_manager()
+        for name in ("a.mp3", "b.mp3"):
+            _save_to_db(mgr._conn, sample_info(f"/music/{name}"))
+        rows = mgr.get_many_by_path(["/music/a.mp3", "/music/b.mp3"])
+        self.assertEqual(set(rows), {"/music/a.mp3", "/music/b.mp3"})
+        self.assertEqual(rows["/music/a.mp3"]["title"], "Test Song")
+        self.assertEqual(rows["/music/b.mp3"]["artist"], "Test Artist")
+        mgr.close()
+
+    def test_omits_unknown_paths(self):
+        """Verify paths absent from the DB are simply left out of the result."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/a.mp3"))
+        rows = mgr.get_many_by_path(["/music/a.mp3", "/music/gone.mp3"])
+        self.assertEqual(list(rows), ["/music/a.mp3"])
+        mgr.close()
+
+    def test_empty_and_blank_input(self):
+        """Verify an empty list (or blank paths) yields an empty dict."""
+        mgr = make_manager()
+        self.assertEqual(mgr.get_many_by_path([]), {})
+        self.assertEqual(mgr.get_many_by_path(["", None]), {})
+        mgr.close()
+
+    def test_chunks_beyond_the_sqlite_variable_limit(self):
+        """Verify more paths than SQLite allows per query still all resolve."""
+        mgr = make_manager()
+        paths = [f"/music/{i}.mp3" for i in range(1000)]
+        for path in paths:
+            _save_to_db(mgr._conn, sample_info(path))
+        rows = mgr.get_many_by_path(paths)
+        self.assertEqual(len(rows), 1000)
+        mgr.close()
+
+    def test_duplicate_paths_queried_once(self):
+        """Verify a duplicated path (allowed in a queue) resolves normally."""
+        mgr = make_manager()
+        _save_to_db(mgr._conn, sample_info("/music/a.mp3"))
+        rows = mgr.get_many_by_path(["/music/a.mp3", "/music/a.mp3"])
+        self.assertEqual(list(rows), ["/music/a.mp3"])
+        mgr.close()
+
+
 class TestAppState(unittest.TestCase):
     """Tests for the app_state key/value persistence (set_state/get_state)."""
 
