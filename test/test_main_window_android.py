@@ -7,6 +7,7 @@ Full widget-level tests require a Kivy-capable environment (device or CI).
 
 import os
 import sys
+import tempfile
 import types
 import unittest
 
@@ -545,6 +546,11 @@ class TestSessionPersistence(unittest.TestCase):
             lambda: Mp3ArchiveApp._current_position(stub))
         stub._save_app_state = (
             lambda: Mp3ArchiveApp._save_app_state(stub))
+        stub._save_cursor = (
+            lambda path, index, position=0.0:
+            Mp3ArchiveApp._save_cursor(stub, path, index, position))
+        stub._retain_cursor = (
+            lambda: Mp3ArchiveApp._retain_cursor(stub))
         return stub
 
     def test_save_persists_prefs(self):
@@ -642,6 +648,71 @@ class TestSessionPersistence(unittest.TestCase):
         self.assertNotEqual(stub._shuffle_seed, 777)
         self.assertGreater(stub._shuffle_seed, 0)
         self.assertIsNone(stub._queue_source)
+
+    def test_save_falls_back_to_the_queue_pointer(self):
+        """Verifies a queue played to its end still saves its last track."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr)        # nothing loaded, no pending resume
+        stub._queue.add_many([{"path": "/m/a.mp3"}, {"path": "/m/b.mp3"}])
+        stub._queue.set_current(1)
+        stub._save_app_state()
+        self.assertEqual(mgr.get_state("now_path"), "/m/b.mp3")
+        self.assertEqual(mgr.get_state("now_index"), "1")
+        mgr.close()
+
+    def test_save_never_wipes_a_stored_cursor(self):
+        """Verifies an empty player leaves the saved spot in the DB alone."""
+        mgr = self._memory_manager()
+        mgr.set_state("now_path", "/m/b.mp3")
+        mgr.set_state("now_index", 3)
+        mgr.set_state("now_pos", "12.0")
+        self._stub_app(mgr)._save_app_state()   # empty queue, nothing loaded
+        self.assertEqual(mgr.get_state("now_path"), "/m/b.mp3")
+        self.assertEqual(mgr.get_state("now_index"), "3")
+        self.assertEqual(mgr.get_state("now_pos"), "12.0")
+        mgr.close()
+
+    def test_save_cursor_writes_the_spot_immediately(self):
+        """Verifies the cursor reaches the DB without waiting for pause/exit."""
+        mgr = self._memory_manager()
+        self._stub_app(mgr)._save_cursor("/m/c.mp3", 2, 7.26)
+        self.assertEqual(mgr.get_state("now_path"), "/m/c.mp3")
+        self.assertEqual(mgr.get_state("now_index"), "2")
+        self.assertEqual(mgr.get_state("now_pos"), "7.3")
+        mgr.close()
+
+    def test_save_cursor_ignores_empty_path_and_negative_position(self):
+        """Verifies an idle push cannot clear the cursor, and 0 bounds it."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr)
+        stub._save_cursor("/m/c.mp3", 2, 7.0)
+        stub._save_cursor("", -1, 0.0)
+        self.assertEqual(mgr.get_state("now_path"), "/m/c.mp3")
+        stub._save_cursor("/m/c.mp3", 2, -5.0)
+        self.assertEqual(mgr.get_state("now_pos"), "0.0")
+        mgr.close()
+
+    def test_retain_cursor_keeps_the_last_track_as_resume_target(self):
+        """Verifies stopping keeps the played track instead of losing it."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr)
+        stub._queue.add_many([{"path": "/m/a.mp3"}, {"path": "/m/b.mp3"}])
+        stub._queue.set_current(1)
+        stub._retain_cursor()
+        self.assertEqual(stub._resume_index, 1)
+        self.assertEqual(stub._resume_pos, 0.0)
+        self.assertEqual(mgr.get_state("now_path"), "/m/b.mp3")
+        self.assertEqual(mgr.get_state("now_pos"), "0.0")
+        mgr.close()
+
+    def test_retain_cursor_no_op_on_an_empty_queue(self):
+        """Verifies a cleared queue leaves no bogus resume target behind."""
+        mgr = self._memory_manager()
+        stub = self._stub_app(mgr)
+        stub._retain_cursor()
+        self.assertEqual(stub._resume_index, -1)
+        self.assertIsNone(mgr.get_state("now_path"))
+        mgr.close()
 
     def test_save_records_external_library_db(self):
         """Verifies the active external library DB path is saved for relaunch."""
@@ -815,6 +886,96 @@ class TestLibraryDb(unittest.TestCase):
             ("db", "/internal/state.db"),
             ("scan", "/readonly", True),
         ])
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestResumeAfterRestart(unittest.TestCase):
+    """End-to-end check of the cursor the next launch resumes from."""
+
+    @staticmethod
+    def _widgets():
+        """Return a stand-in for root.ids covering the now-playing widgets."""
+        names = ("now_playing", "now_playing_sub", "position_bar", "pos_label",
+                 "dur_label", "play_button")
+        ids = types.SimpleNamespace(
+            **{n: types.SimpleNamespace(text="", value=0, icon="")
+               for n in names})
+        return types.SimpleNamespace(ids=ids)
+
+    def _restored_app(self, mgr, paths):
+        """Build a stand-in whose queue holds *paths*, ready to restore."""
+        from main_window_android import Mp3ArchiveApp
+        from playlist import PlayQueue
+        stub = types.SimpleNamespace(
+            _state=mgr, _manager=mgr, _queue=PlayQueue(),
+            _resume_index=-1, _resume_pos=0.0, root=self._widgets())
+        stub._queue.add_many(
+            [{"path": path, "filename": os.path.basename(path),
+              "artist": "-", "title": os.path.basename(path)}
+             for path in paths])
+        stub._show_now_art = lambda path: None
+        stub._format_time = lambda seconds: str(int(seconds))
+        stub._restore_now_playing = (
+            lambda: Mp3ArchiveApp._restore_now_playing(stub))
+        return stub
+
+    def test_resumes_the_track_the_service_last_played(self):
+        """The cursor the service wrote while the UI was gone is resumed."""
+        import service_ipc as ipc
+        from main_window_android import Mp3ArchiveApp
+        paths = [f"/m/{i}.mp3" for i in range(3)]
+        with tempfile.TemporaryDirectory() as tmp:
+            from mp3_manager import Mp3Manager
+            db = os.path.join(tmp, ipc.STATE_DB_NAME)
+            mgr = Mp3Manager(db)
+            mgr.save_queue(paths)
+            # The UI was backgrounded on track 0; the service then advanced to
+            # the last track and stopped at the end of the queue, writing the
+            # cursor each time (no UI process involved).
+            Mp3ArchiveApp._save_cursor(
+                types.SimpleNamespace(_state=mgr), paths[0], 0, 12.0)
+            for index in (1, 2):
+                ipc.write_resume_state(db, paths[index], index, 0.0)
+            mgr.close()
+
+            # Relaunch (a reboot killed both processes).
+            mgr = Mp3Manager(db)
+            self.assertEqual(mgr.load_queue(), paths)
+            stub = self._restored_app(mgr, mgr.load_queue())
+            stub._restore_now_playing()
+            self.assertEqual(stub._resume_index, 2)      # not the first track
+            self.assertEqual(stub._resume_pos, 0.0)
+            self.assertEqual(stub._queue.current_index, 2)
+            mgr.close()
+
+    def test_resumes_mid_track_at_the_saved_position(self):
+        """A track that was paused part-way resumes from that position."""
+        import service_ipc as ipc
+        with tempfile.TemporaryDirectory() as tmp:
+            from mp3_manager import Mp3Manager
+            db = os.path.join(tmp, ipc.STATE_DB_NAME)
+            mgr = Mp3Manager(db)
+            paths = ["/m/a.mp3", "/m/b.mp3"]
+            ipc.write_resume_state(db, paths[1], 1, 83.4)
+            stub = self._restored_app(mgr, paths)
+            stub._restore_now_playing()
+            self.assertEqual(stub._resume_index, 1)
+            self.assertEqual(stub._resume_pos, 83.4)
+            mgr.close()
+
+    def test_cursor_path_wins_over_a_drifted_index(self):
+        """A saved index pointing elsewhere is corrected by the saved path."""
+        import service_ipc as ipc
+        with tempfile.TemporaryDirectory() as tmp:
+            from mp3_manager import Mp3Manager
+            db = os.path.join(tmp, ipc.STATE_DB_NAME)
+            mgr = Mp3Manager(db)
+            paths = ["/m/a.mp3", "/m/b.mp3", "/m/c.mp3"]
+            ipc.write_resume_state(db, "/m/c.mp3", 0, 0.0)   # .list file edited
+            stub = self._restored_app(mgr, paths)
+            stub._restore_now_playing()
+            self.assertEqual(stub._resume_index, 2)
+            mgr.close()
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")

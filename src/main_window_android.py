@@ -1056,6 +1056,7 @@ class Mp3ArchiveApp(MDApp):
         self._queue_source = None      # .list file the queue mirrors, or None
         self._resume_index = -1        # queue index to resume after a restart
         self._resume_pos = 0.0         # saved position (s) for that track
+        self._cursor_tick = 0          # throttles cursor position saves
         self._svc_pos = 0.0            # last position reported by the service
         self._playing_path = ""        # path of the track currently loaded
         self._lower_view = "queue"     # 재생 tab lower area: "queue" or "lyrics"
@@ -1289,6 +1290,49 @@ class Mp3ArchiveApp(MDApp):
             return self._elapsed or self._paused_pos
         return self._paused_pos
 
+    def _save_cursor(self, path: str, index: int,
+                     position: float = 0.0) -> None:
+        """
+        Persist the playlist cursor (the track being played) immediately.
+
+        _save_app_state only runs on pause/exit, which is too late to record
+        how far the 재생목록 got: the process can be killed outright (or the
+        phone rebooted) and playback keeps moving on in the service meanwhile.
+        Writing the cursor as the track changes is what lets the next launch
+        resume the last played track instead of the first one.
+
+        Args:
+            path:     The track path to record (empty is ignored, so a
+                      transient idle state never wipes a good cursor).
+            index:    Its queue index.
+            position: Playback position in seconds.
+        """
+        if not path:
+            return
+        try:
+            self._state.set_state("now_path", path)
+            self._state.set_state("now_index", index)
+            self._state.set_state("now_pos", f"{max(0.0, position):.1f}")
+        except Exception:
+            import traceback
+            traceback.print_exc()   # the cursor is best-effort, never fatal
+
+    def _retain_cursor(self) -> None:
+        """
+        Keep the last played track as the resume target when playback stops.
+
+        An explicit stop and the end of the queue both unload the track, and
+        dropping the cursor there is what sent the next launch back to the
+        first track. The queue pointer still marks the spot, so make it the
+        pending resume target (from the track's start) and persist it.
+        """
+        item = self._queue.current_item()
+        if item is None:
+            return
+        self._resume_index = self._queue.current_index
+        self._resume_pos = 0.0
+        self._save_cursor(item.get("path", ""), self._resume_index, 0.0)
+
     def _save_app_state(self) -> None:
         """
         Persist the session to the DB so the next launch can restore it.
@@ -1327,10 +1371,18 @@ class Mp3ArchiveApp(MDApp):
                 path = self._queue.items[self._resume_index].get("path", "")
                 index, pos = self._resume_index, self._resume_pos
             else:
-                path, index, pos = "", -1, 0.0
-            m.set_state("now_path", path)
-            m.set_state("now_index", index)
-            m.set_state("now_pos", f"{pos:.1f}")
+                # Nothing loaded and no pending resume (e.g. the queue played
+                # to its end): the queue pointer still marks how far the
+                # 재생목록 got, so keep that as the cursor.
+                item = self._queue.current_item()
+                path = item.get("path", "") if item else ""
+                index, pos = self._queue.current_index, 0.0
+            if path:
+                m.set_state("now_path", path)
+                m.set_state("now_index", index)
+                m.set_state("now_pos", f"{pos:.1f}")
+            # With nothing to point at, the stored cursor is left alone: an
+            # empty one would discard the spot the next launch resumes from.
         except Exception:
             import traceback
             traceback.print_exc()   # saving state must never crash shutdown
@@ -2472,6 +2524,7 @@ class Mp3ArchiveApp(MDApp):
         item = self._queue.current_item()
         if not item:
             return
+        self._save_cursor(item["path"], index, position)
         subtitle = f"{item['artist']} — {item['title']}"
         if self._svc_active():
             # Drive playback through the service: set the UI optimistically and
@@ -3041,6 +3094,10 @@ class Mp3ArchiveApp(MDApp):
                 # its saved position (cleared by _play_queue_index).
                 self._play_queue_index(self._resume_index,
                                        position=self._resume_pos)
+            elif 0 <= self._queue.current_index < len(self._queue):
+                # Played before and stopped: continue from the same track
+                # rather than jumping back to the top of the 재생목록.
+                self._play_queue_index(self._queue.current_index)
             else:
                 self._play_queue_index(self._start_index())
             return
@@ -3093,6 +3150,7 @@ class Mp3ArchiveApp(MDApp):
         self._svc_length = 0.0
         self._paused_pos = 0.0
         self._playing_path = ""
+        self._retain_cursor()   # a stop must not lose the 재생목록 spot
         self.root.ids.play_button.icon = "play"
         self.root.ids.position_bar.value = 0
         self.root.ids.pos_label.text = self._format_time(0)
@@ -3221,6 +3279,9 @@ class Mp3ArchiveApp(MDApp):
         # Follow the service's current track for the now-playing display.
         if path and path != self._playing_path:
             self._playing_path = path
+            # The service auto-advanced: record the new spot now, since the UI
+            # process may be killed before it ever saves its session again.
+            self._save_cursor(path, self._queue.current_index, 0.0)
             self.root.ids.now_playing.text = state.get("title", "")
             self.root.ids.now_playing_sub.text = state.get("subtitle", "")
             self._show_now_art(path)
@@ -3228,8 +3289,10 @@ class Mp3ArchiveApp(MDApp):
                 self._refresh_lyrics()
             self._refresh_queue()
         elif not path and self._playing_path:
-            # The service went idle (stopped / queue cleared / sequence end).
+            # The service went idle (stopped / queue cleared / sequence end):
+            # keep the last played track as the resume target.
             self._playing_path = ""
+            self._retain_cursor()
             self.root.ids.now_playing.text = "재생 중인 곡이 없습니다"
             self.root.ids.now_playing_sub.text = ""
             self._show_now_art("")
@@ -3306,6 +3369,13 @@ class Mp3ArchiveApp(MDApp):
             self.root.ids.position_bar.value = (pos / length * 100) if length else 0
         self.root.ids.pos_label.text = self._format_time(pos)
         self.root.ids.dur_label.text = self._format_time(length)
+        # Persist the position every ~10 s (polls are 0.5 s) so a kill keeps
+        # the spot, not just the track (the service does this for its own
+        # playback; this poll only runs in the SoundLoader fallback).
+        self._cursor_tick = (self._cursor_tick + 1) % 20
+        if self._cursor_tick == 0:
+            self._save_cursor(self._playing_path,
+                              self._queue.current_index, pos)
 
     def _on_seek_active(self, slider, active: bool) -> None:
         """Seek when the user releases the seek bar (active goes False)."""

@@ -310,6 +310,63 @@ class TestResumeState(unittest.TestCase):
             self.assertFalse(os.path.exists(path))
 
 
+class TestWriteResumeState(unittest.TestCase):
+    """Verify the cursor writer the playback service saves progress with."""
+
+    def test_round_trips_through_the_reader(self):
+        """A written cursor reads back as the saved track/index/position/seed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = TestResumeState._state_db(tmp, play_mode="repeat_all")
+            self.assertTrue(
+                ipc.write_resume_state(path, "/m/b.mp3", 4, 12.34, seed=99))
+            state = ipc.read_resume_state(path)
+            self.assertEqual(state, {"path": "/m/b.mp3", "index": 4,
+                                     "position": 12.3, "mode": "repeat_all",
+                                     "seed": 99})
+
+    def test_zero_seed_keeps_the_stored_seed(self):
+        """Omitting the seed leaves the shuffle order the UI saved alone."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = TestResumeState._state_db(tmp, shuffle_seed=777)
+            ipc.write_resume_state(path, "/m/b.mp3", 1, 0.0)
+            self.assertEqual(ipc.read_resume_state(path)["seed"], 777)
+
+    def test_overwrites_a_previous_cursor(self):
+        """Each write replaces the cursor rather than accumulating rows."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = TestResumeState._state_db(
+                tmp, now_path="/m/a.mp3", now_index=0, now_pos="5.0")
+            ipc.write_resume_state(path, "/m/c.mp3", 2, 0.0)
+            state = ipc.read_resume_state(path)
+            self.assertEqual((state["path"], state["index"], state["position"]),
+                             ("/m/c.mp3", 2, 0.0))
+
+    def test_negative_position_clamped(self):
+        """A negative position is stored as 0 rather than read back as junk."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = TestResumeState._state_db(tmp)
+            ipc.write_resume_state(path, "/m/a.mp3", 0, -9.0)
+            self.assertEqual(ipc.read_resume_state(path)["position"], 0.0)
+
+    def test_missing_db_is_not_created(self):
+        """With no state DB yet the write reports failure and creates nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, ipc.STATE_DB_NAME)
+            self.assertFalse(ipc.write_resume_state(path, "/m/a.mp3", 0, 1.0))
+            self.assertFalse(os.path.exists(path))
+
+    def test_db_without_state_table_fails_quietly(self):
+        """A DB with no app_state table yields False, not an exception."""
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "other.db")
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE t (x)")
+            conn.commit()
+            conn.close()
+            self.assertFalse(ipc.write_resume_state(path, "/m/a.mp3", 0, 1.0))
+
+
 class TestResolveResumeIndex(unittest.TestCase):
     """Verify the saved queue index is validated against the restored items."""
 
