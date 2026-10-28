@@ -229,6 +229,46 @@ class Mp3Manager:
         row = cursor.fetchone()
         return dict(zip(columns, row)) if row else None
 
+    # SQLite's default bound-variable limit is 999, so IN (...) lookups are
+    # issued in chunks well below it.
+    _IN_CHUNK = 400
+
+    def get_many_by_path(self, paths: list) -> dict:
+        """
+        Return the DB records for several file paths in one pass.
+
+        Looking a restored 재생목록 up one path at a time costs a query per
+        track, which is what made launching with a few hundred queued songs
+        slow; this issues one ``IN (...)`` query per chunk instead.
+
+        Args:
+            paths: Absolute paths of the audio files to look up.
+
+        Returns:
+            A dict mapping path -> row dictionary (same keys as get_by_path),
+            holding only the paths that exist in the database.
+        """
+        found = {}
+        unique = list(dict.fromkeys(p for p in paths if p))
+        for start in range(0, len(unique), self._IN_CHUNK):
+            chunk = unique[start:start + self._IN_CHUNK]
+            placeholders = ", ".join("?" for _ in chunk)
+            cursor = self._conn.execute(
+                f"""
+                SELECT id, path, filename, title, artist, album, genre, year,
+                       comment, duration, filesize, file_created_at,
+                       file_modified_at
+                FROM audio_files
+                WHERE path IN ({placeholders})
+                """,
+                chunk,
+            )
+            columns = [col[0] for col in cursor.description]
+            for row in cursor.fetchall():
+                record = dict(zip(columns, row))
+                found[record["path"]] = record
+        return found
+
     def update_file_tags(
         self,
         path: str,

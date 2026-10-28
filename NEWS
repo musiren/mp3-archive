@@ -1,6 +1,41 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20261028 (2026-10-28)
+===========================================================================
+
+Playback now resumes where the 재생목록 left off, and a large playlist no
+longer slows the launch down.
+
+Fixed (Android)
+---------------
+- Playback resumed at the FIRST track of the 재생목록 after the app (or
+  the phone) had been restarted, instead of at the track that was played
+  last.  Two causes, both of which a nightly reboot hit:
+  - The saved position was only written when the app was paused or
+    exited, while the playback service kept auto-advancing in the
+    background with no way to record it.  The service now persists the
+    cursor itself -- on every track start, every ~10s while playing, and
+    before it stops -- so progress survives even when the UI process is
+    killed outright.
+  - Reaching the end of the queue cleared the cursor altogether, so the
+    next launch had nothing to resume from.  The last played track is
+    now kept as the resume target when playback stops, and a stored
+    cursor is never overwritten with an empty one.
+- The play order itself is unaffected: the queue and the shuffle seed
+  were already saved, so a restored session continues inside the same
+  shuffle order rather than re-randomising it.
+
+Changed behaviour (Android)
+---------------------------
+- Launching with a few hundred queued songs was slow because the queue
+  was rebuilt track by track (a file check plus a database lookup each)
+  before the first frame.  The 재생목록 is now shown immediately from
+  the saved paths and filled in with tags in the background, a chunk per
+  frame, using one bulk query per chunk.  Files that have since vanished
+  are dropped at the end of that pass instead of at launch.
+
+===========================================================================
 v20260723 (2026-07-23)
 ===========================================================================
 

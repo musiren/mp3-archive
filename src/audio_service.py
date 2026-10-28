@@ -147,7 +147,11 @@ class AudioService:
         self._index = -1              # current index into _items
         self._mode = PLAY_MODES[0]
         self._seed = 0                # shuffle seed shared with the UI (0=unset)
+        self._state_db = os.path.join(self._storage_dir, ipc.STATE_DB_NAME)
         self._path = ""               # currently-loaded track path
+        self._cursor_path = ""        # last played track (kept across a stop)
+        self._cursor_index = -1       # its queue index (the resume cursor)
+        self._cursor_tick = 0         # throttle counter for cursor position saves
         self._title = ""
         self._subtitle = ""
         self._volume = 1.0
@@ -599,6 +603,7 @@ class AudioService:
         item = self._items[index]
         self._play_path(item.get("path", ""), item.get("title", ""),
                         item.get("subtitle", ""))
+        self._save_cursor(0.0)   # a new track: the saved position restarts
 
     def _start_queue(self, position: float = 0.0) -> None:
         """
@@ -619,6 +624,10 @@ class AudioService:
             self.push_state()
             return
         index = self._index
+        if not 0 <= index < len(self._items):
+            # A stop cleared _index; resume where the 재생목록 left off.
+            index = ipc.resolve_resume_index(
+                self._items, self._cursor_path, self._cursor_index)
         if not 0 <= index < len(self._items):
             index = start_index(len(self._items), self._mode, self._seed)
         self._play_index(index)
@@ -761,7 +770,16 @@ class AudioService:
             self.push_state()
 
     def stop(self) -> None:
-        """Stop playback and clear the current track (the queue is kept)."""
+        """
+        Stop playback and clear the current track (the queue is kept).
+
+        The resume cursor is kept and persisted first: reaching the end of the
+        queue must not lose where the 재생목록 got to, or the next launch
+        would start over at the first track. A queue that is itself gone (a
+        sync with no items) has no cursor worth saving.
+        """
+        if self._items:
+            self._save_cursor(0.0)
         self._abandon_focus()
         self._release()
         self._path = self._title = self._subtitle = ""
@@ -1010,6 +1028,11 @@ class AudioService:
             if playing:
                 self._was_playing = True
                 self.push_state()
+                # Persist the position every ~10s (ticks are ~0.5s), so a
+                # process kill or a reboot keeps the spot, not just the track.
+                self._cursor_tick = (self._cursor_tick + 1) % 20
+                if self._cursor_tick == 0:
+                    self._save_cursor()
                 # Keep the home widget current (and populate it if it was just
                 # added mid-playback) without repainting on every 0.5s tick.
                 self._widget_tick = (self._widget_tick + 1) % 4
@@ -1018,6 +1041,34 @@ class AudioService:
             elif self._was_playing and not self._paused:
                 self._was_playing = False
                 self._advance_ended()
+
+    # -- resume cursor (how far the 재생목록 has been played) -----------------
+    def _save_cursor(self, position: float = None) -> None:
+        """
+        Persist the playlist cursor (last played track) to the state DB.
+
+        The UI only saves its session on pause/exit, but this process keeps
+        auto-advancing while the UI is backgrounded or killed, so the cursor
+        would otherwise freeze at whatever was playing when the app left the
+        foreground — and a nightly reboot would send the next launch back to
+        the first track. Writing it here as it moves keeps "where we got to"
+        correct no matter how the processes die.
+
+        Args:
+            position: Position in seconds to record; None reads the player's
+                current position (0.0 when nothing is loaded).
+        """
+        if self._path:
+            self._cursor_path, self._cursor_index = self._path, self._index
+        if not self._cursor_path:
+            return
+        if position is None:
+            position = self._position_length()[0]
+        try:
+            ipc.write_resume_state(self._state_db, self._cursor_path,
+                                   self._cursor_index, position, self._seed)
+        except Exception:
+            traceback.print_exc()   # the cursor is best-effort, never fatal
 
     # -- cold start (widget button while no app process is alive) -------------
     def _restore_saved_session(self) -> float:
@@ -1044,6 +1095,8 @@ class AudioService:
             self._seed = saved["seed"]
         self._index = ipc.resolve_resume_index(
             items, saved["path"], saved["index"])
+        self._cursor_path = saved["path"]
+        self._cursor_index = self._index
         return saved["position"] if self._index >= 0 else 0.0
 
     def start_action(self, raw: str) -> None:

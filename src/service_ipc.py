@@ -204,6 +204,57 @@ def read_resume_state(db_path: str) -> dict:
     return state
 
 
+
+def write_resume_state(db_path: str, path: str, index: int,
+                       position: float = 0.0, seed: int = 0) -> bool:
+    """
+    Write the playback cursor back into the UI's state database.
+
+    The counterpart of :func:`read_resume_state`, used by the service process:
+    it owns auto-advance, so while the UI is backgrounded or killed it is the
+    only process that knows which track is playing. Persisting the cursor as
+    it moves is what lets the next launch resume the track that was actually
+    played last instead of restarting the 재생목록 from its first track.
+
+    Only the cursor rows are touched (``now_path``/``now_index``/``now_pos``,
+    plus ``shuffle_seed`` when *seed* is non-zero); the table must already
+    exist, so a service running before the UI ever created the DB writes
+    nothing rather than creating or migrating a database behind the UI's back.
+
+    Args:
+        db_path:  Path of the internal state DB (``<files dir>/mp3_archive.db``).
+        path:     The track path to record ("" clears the cursor).
+        index:    Its queue index (-1 when unknown).
+        position: Playback position in seconds (negative values clamp to 0).
+        seed:     Shuffle seed to record as well; 0 leaves the stored seed.
+
+    Returns:
+        True when the rows were committed, False when the DB is missing,
+        locked, or has no app_state table (never raises).
+    """
+    if not os.path.isfile(db_path):
+        return False
+    rows = [("now_path", str(path or "")),
+            ("now_index", str(_as_int(index, -1))),
+            ("now_pos", f"{_non_negative(position):.1f}")]
+    if seed:
+        rows.append(("shuffle_seed", str(_as_int(seed, 0))))
+    try:
+        # A short timeout rides out the UI process holding a write lock; the
+        # next cursor write would correct a dropped one anyway.
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)",
+                rows)
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return True
+
+
 def resolve_resume_index(items: list, path: str, index: int) -> int:
     """
     Validate a saved queue position against the restored queue items.
