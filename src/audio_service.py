@@ -35,6 +35,7 @@ from jnius import autoclass, cast, java_method, PythonJavaClass
 from oscpy.client import OSCClient
 from oscpy.server import OSCThreadServer
 
+import output_watch
 import service_ipc as ipc
 from audio_meta import get_album, get_album_art
 from playlist import PLAY_MODES, advance, retreat, start_index
@@ -160,7 +161,7 @@ class AudioService:
         self._ducked = False          # True while ducked for transient focus
         self._was_playing = False     # True since play() until end/stop
         self._noisy_paused = False    # paused by an output disconnect (BT/headset)
-        self._bt_present = False      # last-seen Bluetooth audio-output presence
+        self._out_watch = output_watch.OutputWatch()   # BT output loss/return
         # Serialises state mutations across the OSC, tick, focus and broadcast
         # threads. Reentrant: a focus request may synchronously re-enter.
         self._lock = threading.RLock()
@@ -255,9 +256,9 @@ class AudioService:
         if self._is_playing():
             self._noisy_paused = True
             self.pause()
-        # The output just went away, so seed the presence tracker as absent;
-        # the reconnect is then a clean absent->present edge.
-        self._bt_present = False
+        # The output just went away: tell the poll, so it neither pauses a
+        # second time nor misses the reconnect (a clean absent->present edge).
+        self._out_watch.lost()
 
     def _action_pi(self, action: str, request_code: int):
         """Build a broadcast PendingIntent carrying *action* back to us."""
@@ -594,6 +595,9 @@ class AudioService:
             # Load failed: go idle so the UI doesn't show a stuck now-playing.
             self._path = self._title = self._subtitle = ""
             self._was_playing = False
+            # ...and repaint the session, notification and widget too, or they
+            # keep the previous track's title and pause glyph while idle.
+            self._refresh_controls()
 
     def _play_index(self, index: int) -> None:
         """Make queue item *index* current and start playing it."""
@@ -980,17 +984,26 @@ class AudioService:
         return False
 
     def _check_bt_reconnect(self) -> None:
-        """Resume playback when a Bluetooth audio device reconnects.
+        """Pause when the Bluetooth output is lost, resume when it returns.
 
-        Only resumes when the pause was caused by a disconnect mid-playback
-        (see _on_becoming_noisy); a manual pause or stop clears that flag so
-        reconnecting does not start music the user deliberately stopped.
+        Polled from tick (~2x/sec). The AUDIO_BECOMING_NOISY broadcast is the
+        primary pause cue, but whether the system sends it for every kind of
+        loss (out of range, link timeout, the peer powering off) varies by
+        device, so a Bluetooth output that was present and has gone away
+        while playing pauses here too (see output_watch.OutputWatch).
+
+        Resumes only when the pause was caused by such a loss; a manual pause
+        or stop clears that flag so reconnecting does not start music the
+        user deliberately stopped.
         """
-        present = self._bt_audio_present()
-        if present and not self._bt_present and self._noisy_paused:
+        action = self._out_watch.update(
+            self._bt_audio_present(), self._is_playing(), self._noisy_paused)
+        if action == output_watch.PAUSE:
+            self._noisy_paused = True
+            self.pause()
+        elif action == output_watch.RESUME:
             self._noisy_paused = False
             self.resume()
-        self._bt_present = present
 
     def push_state(self) -> None:
         """Send a state snapshot to the UI's OSC server."""
