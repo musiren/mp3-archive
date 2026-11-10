@@ -1,6 +1,41 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20261110 (2026-11-10)
+===========================================================================
+
+Playback also pauses when a Bluetooth connection drops without the system
+saying so, and the widget no longer shows a stale play/pause button after
+a track fails to load.
+
+Changed behaviour (Android)
+---------------------------
+- Pausing on a Bluetooth disconnect depended on one signal: the system's
+  "audio becoming noisy" broadcast.  Whether Android sends it for every
+  kind of loss (out of range, link timeout, the peer powering off)
+  varies by device and Bluetooth stack, and a missed broadcast left
+  music playing out of the phone speaker.  The playback service now
+  also checks the audio output devices every half second: a Bluetooth
+  output that was present and has been missing for two checks in a row
+  while playing pauses playback.  Requiring two checks keeps a
+  momentary route glitch from interrupting the music.  The existing
+  behaviour is unchanged: playback resumes automatically when the
+  output returns after such a pause, and never after a pause you made
+  yourself.
+- Known limit: the check sees that a Bluetooth device is connected, not
+  that sound is routed to it, so if you send sound to the phone speaker
+  while a headset stays connected and the headset then drops, playback
+  pauses too.
+
+Fixed (Android)
+---------------
+- When a track failed to load (for example a queued file that has since
+  been deleted), the home-screen widget and the notification kept the
+  previous track's title and the pause button although nothing was
+  playing, and tapping it restarted the playlist instead of pausing.
+  They now go back to the idle state.
+
+===========================================================================
 v20261028 (2026-10-28)
 ===========================================================================
 
