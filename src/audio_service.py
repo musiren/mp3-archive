@@ -594,6 +594,9 @@ class AudioService:
             # Load failed: go idle so the UI doesn't show a stuck now-playing.
             self._path = self._title = self._subtitle = ""
             self._was_playing = False
+            # ...and repaint the session, notification and widget too, or they
+            # keep the previous track's title and pause glyph while idle.
+            self._refresh_controls()
 
     def _play_index(self, index: int) -> None:
         """Make queue item *index* current and start playing it."""
