@@ -148,6 +148,7 @@ def make_service():
     service._noisy_paused = service._ducked = False
     service._was_playing = False
     service._volume = 1.0
+    service._out_watch = svc.output_watch.OutputWatch()
     service._widget_art_path = service._widget_art_bmp = None
     service._focus_listener, service._focus_request = None, None
     # Android-only helpers irrelevant to the decisions under test.
@@ -206,10 +207,97 @@ class TestWidgetGlyph(unittest.TestCase):
         service._play_path("/m/a.mp3", "A", "x")
         PAINTED.clear()
         FakePlayer.fail_prepare = True
-        service._play_path("/m/gone.mp3", "G", "x")
+        with mock.patch.object(svc.traceback, "print_exc"):   # expected noise
+            service._play_path("/m/gone.mp3", "G", "x")
         self.assertTrue(PAINTED, "the widget was not repainted after a failed load")
         self.assertEqual(PAINTED[-1], ("PLAY", ""))
         self.assertEqual(service._path, "")
+
+
+class TestBluetoothLoss(unittest.TestCase):
+    """Losing / regaining the Bluetooth output pauses / resumes playback."""
+
+    def setUp(self):
+        """Start a playing service with a Bluetooth output connected."""
+        PAINTED.clear()
+        FakePlayer.fail_prepare = False
+        self.bt = {"present": True}
+        self.service = make_service()
+        self.service._bt_audio_present = lambda: self.bt["present"]
+        self.service._play_path("/m/a.mp3", "A", "x")
+        self.poll()          # the connected output is seen while playing
+
+    def poll(self, times=1):
+        """Run the service's periodic Bluetooth check *times* times."""
+        for _ in range(times):
+            self.service._check_bt_reconnect()
+
+    def lose(self):
+        """Drop the Bluetooth output and poll long enough to act on it."""
+        self.bt["present"] = False
+        self.poll(times=svc.output_watch.OutputWatch.ABSENT_POLLS)
+
+    def test_poll_pauses_when_the_broadcast_never_comes(self):
+        """The output vanishing mid-playback pauses without any broadcast."""
+        self.lose()
+        self.assertFalse(self.service._is_playing())
+        self.assertTrue(self.service._paused)
+        self.assertTrue(self.service._noisy_paused)
+        self.assertEqual(PAINTED[-1][0], "PLAY")
+
+    def test_reconnect_resumes_a_poll_driven_pause(self):
+        """The output returning resumes a pause the poll caused."""
+        self.lose()
+        self.assertFalse(self.service._is_playing())   # it really paused first
+        self.bt["present"] = True
+        self.poll()
+        self.assertTrue(self.service._is_playing())
+        self.assertFalse(self.service._noisy_paused)
+        self.assertEqual(PAINTED[-1][0], "PAUSE")
+
+    def test_single_poll_glitch_keeps_playing(self):
+        """One poll without the output does not interrupt playback."""
+        self.bt["present"] = False
+        self.poll()
+        self.bt["present"] = True
+        self.poll()
+        self.assertTrue(self.service._is_playing())
+
+    def test_broadcast_pauses_once_and_the_poll_stays_quiet(self):
+        """After the broadcast pause the poll does not pause again."""
+        self.service._on_becoming_noisy()
+        self.assertFalse(self.service._is_playing())
+        with mock.patch.object(self.service, "pause") as pause:
+            self.bt["present"] = False
+            self.poll(times=5)
+        pause.assert_not_called()
+
+    def test_reconnect_resumes_a_broadcast_pause(self):
+        """The existing path still works: broadcast pause, then auto-resume."""
+        self.service._on_becoming_noisy()
+        self.bt["present"] = False
+        self.poll(times=3)
+        self.bt["present"] = True
+        self.poll()
+        self.assertTrue(self.service._is_playing())
+
+    def test_manual_pause_is_not_resumed_by_a_reconnect(self):
+        """Reconnecting never revives playback the user paused."""
+        self.service.toggle()                  # the user pauses
+        self.assertFalse(self.service._is_playing())
+        self.lose()
+        self.bt["present"] = True
+        self.poll()
+        self.assertFalse(self.service._is_playing())
+
+    def test_no_bluetooth_output_never_pauses(self):
+        """Playing on the speaker (no Bluetooth device ever seen) is left alone."""
+        service = make_service()
+        service._bt_audio_present = lambda: False
+        service._play_path("/m/a.mp3", "A", "x")
+        for _ in range(10):
+            service._check_bt_reconnect()
+        self.assertTrue(service._is_playing())
 
 
 if __name__ == "__main__":
