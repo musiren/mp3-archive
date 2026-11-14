@@ -11,19 +11,22 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from ui_util import (  # noqa: E402
+    file_date_key,
     latest_news_version,
     resolve_theme_style,
     sort_files,
 )
 
 
-def _f(filename="x.mp3", artist=None, title=None, modified=None):
+def _f(filename="x.mp3", artist=None, title=None, modified=None,
+       created=None):
     """Build a minimal file-info dict for the sort tests."""
     return {
         "filename": filename,
         "artist": artist,
         "title": title,
         "file_modified_at": modified,
+        "file_created_at": created,
     }
 
 
@@ -86,6 +89,56 @@ class TestSortFiles(unittest.TestCase):
         out = sort_files(files, "date")
         self.assertEqual([f["filename"] for f in out], ["dated.mp3", "none.mp3"])
 
+    def test_date_sort_falls_back_to_created_for_epoch_modified(self):
+        """Verify songs whose modified time is the epoch placeholder still sort.
+
+        A transfer that leaves mtime at 1970 made every such song compare equal,
+        so they stayed in name order below the songs with a real mtime.
+        """
+        files = [
+            _f("a_old.mp3", modified="1970-01-01 09:00:00",
+               created="2025-01-01 10:00:00"),
+            _f("b_new.mp3", modified="1970-01-01 09:00:00",
+               created="2026-03-01 10:00:00"),
+            _f("c_mid.mp3", modified="1970-01-01 09:00:00",
+               created="2025-09-01 10:00:00"),
+        ]
+        out = sort_files(files, "date")
+        self.assertEqual([f["filename"] for f in out],
+                         ["b_new.mp3", "c_mid.mp3", "a_old.mp3"])
+
+    def test_date_sort_falls_back_to_created_for_empty_modified(self):
+        """Verify songs with no modified time but a created time are ordered."""
+        files = [
+            _f("a.mp3", modified=None, created="2025-01-01 10:00:00"),
+            _f("b.mp3", modified="", created="2026-01-01 10:00:00"),
+        ]
+        out = sort_files(files, "date")
+        self.assertEqual([f["filename"] for f in out], ["b.mp3", "a.mp3"])
+
+    def test_date_sort_received_after_yesterdays_copy_goes_first(self):
+        """Verify yesterday's songs lead and the older ones follow by date."""
+        files = [
+            _f("old1.mp3", modified="1970-01-01 09:00:00",
+               created="2025-02-01 10:00:00"),
+            _f("yesterday.mp3", modified="2026-11-12 18:00:00",
+               created="2026-11-12 18:00:00"),
+            _f("old2.mp3", modified="1970-01-01 09:00:00",
+               created="2025-08-01 10:00:00"),
+        ]
+        out = sort_files(files, "date")
+        self.assertEqual([f["filename"] for f in out],
+                         ["yesterday.mp3", "old2.mp3", "old1.mp3"])
+
+    def test_date_sort_keeps_order_of_truly_equal_dates(self):
+        """Verify songs with identical dates stay in their given order."""
+        files = [_f("a.mp3", modified="2025-01-01 00:00:00",
+                    created="2025-01-01 00:00:00"),
+                 _f("b.mp3", modified="2025-01-01 00:00:00",
+                    created="2025-01-01 00:00:00")]
+        out = sort_files(files, "date")
+        self.assertEqual([f["filename"] for f in out], ["a.mp3", "b.mp3"])
+
     def test_unknown_mode_keeps_order(self):
         """Verify an unrecognised mode returns the list in its original order."""
         files = [_f("b.mp3"), _f("a.mp3")]
@@ -141,6 +194,38 @@ class TestLatestNewsVersion(unittest.TestCase):
     def test_no_version_header_returns_empty(self):
         """Verify text without a vNNNNNN header returns an empty string."""
         self.assertEqual(latest_news_version("just some notes\nno version here"), "")
+
+
+
+class TestFileDateKey(unittest.TestCase):
+    """Tests for the timestamp the 날짜 sort (and the tree's folders) use."""
+
+    def test_later_of_modified_and_created(self):
+        """Verify the later of the two valid timestamps is the key."""
+        row = _f(modified="2024-05-01 00:00:00", created="2026-01-01 00:00:00")
+        self.assertEqual(file_date_key(row), "2026-01-01 00:00:00")
+        row = _f(modified="2026-02-01 00:00:00", created="2025-01-01 00:00:00")
+        self.assertEqual(file_date_key(row), "2026-02-01 00:00:00")
+
+    def test_epoch_placeholder_is_ignored(self):
+        """Verify a pre-1990 value (the epoch) never wins over a real one."""
+        row = _f(modified="1970-01-01 09:00:00", created="2025-06-01 00:00:00")
+        self.assertEqual(file_date_key(row), "2025-06-01 00:00:00")
+
+    def test_only_placeholders_or_nothing_is_empty(self):
+        """Verify a file with no usable timestamp has the empty (last) key."""
+        self.assertEqual(file_date_key(_f()), "")
+        self.assertEqual(file_date_key(_f(modified="", created="")), "")
+        self.assertEqual(file_date_key(
+            _f(modified="1970-01-01 09:00:00", created="1970-01-01 09:00:00")), "")
+
+    def test_missing_keys_and_junk_types(self):
+        """Verify absent keys and non-string values are tolerated."""
+        self.assertEqual(file_date_key({}), "")
+        self.assertEqual(file_date_key({"file_modified_at": 12345}), "")
+        self.assertEqual(
+            file_date_key({"file_created_at": "2025-01-01 00:00:00"}),
+            "2025-01-01 00:00:00")
 
 
 if __name__ == "__main__":

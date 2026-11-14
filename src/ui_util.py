@@ -28,6 +28,40 @@ def _text_sort_key(value: str | None) -> tuple:
     return (0, text.casefold())
 
 
+# Timestamps before this are placeholders, not real dates: a transfer that
+# cannot set a modification time leaves it at the epoch, which renders as
+# 1970-01-01 (09:00 in KST). Compared as text, like the stored timestamps.
+_MIN_VALID_DATE = "1990-01-01 00:00:00"
+
+
+def file_date_key(f: dict) -> str:
+    """
+    Return the timestamp the 날짜 sort orders a file by.
+
+    Ordering by the modified time alone left a song with a missing or
+    placeholder (epoch) modified time, or the same modified time as its
+    neighbours after a bulk copy, tied with all of them, and the stable sort
+    then kept those songs in name order. The key is instead the later of the
+    modified and created timestamps, ignoring placeholders. On Android the
+    created time is the inode change time, which a copy or download sets to
+    when the file arrived and a transfer cannot preserve, so the sort follows
+    when a song landed on the phone (or was last changed) even when the
+    source's older modified time survived the copy.
+
+    Args:
+        f: A file-info dict with optional ``file_modified_at`` and
+           ``file_created_at`` ISO-8601 strings ("YYYY-MM-DD HH:MM:SS").
+
+    Returns:
+        The later usable timestamp, or "" when the file has none (such files
+        sort last in the newest-first order).
+    """
+    stamps = [value for value in (f.get("file_modified_at"),
+                                  f.get("file_created_at"))
+              if isinstance(value, str) and value >= _MIN_VALID_DATE]
+    return max(stamps) if stamps else ""
+
+
 def sort_files(files: list, mode: str) -> list:
     """
     Return a new list of file-info dicts sorted by the given mode.
@@ -35,7 +69,7 @@ def sort_files(files: list, mode: str) -> list:
     Args:
         files: Row dicts as returned by Mp3Manager.list_files()/search().
         mode:  One of "name" (filename), "artist" (then title), "title", or
-               "date" (file_modified_at, newest first). Any other value
+               "date" (file_date_key, newest first). Any other value
                leaves the order unchanged.
 
     Returns:
@@ -53,9 +87,9 @@ def sort_files(files: list, mode: str) -> list:
         return sorted(items, key=lambda f: _text_sort_key(f.get("title")))
     if mode == "date":
         # ISO-8601 strings sort chronologically; reverse = newest first, which
-        # also drops undated ("") entries to the end.
-        return sorted(items, key=lambda f: (f.get("file_modified_at") or ""),
-                      reverse=True)
+        # also drops undated ("") entries to the end. The sort is stable, so
+        # songs with identical dates keep the order they came in.
+        return sorted(items, key=file_date_key, reverse=True)
     return items
 
 

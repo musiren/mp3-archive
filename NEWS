@@ -1,6 +1,46 @@
 mp3-archive NEWS
 
 ===========================================================================
+v20261114 (2026-11-14)
+===========================================================================
+
+Sorting by date now orders every song, the table view follows the sort
+menu, and the chosen sort survives a restart.
+
+Fixed (Android)
+---------------
+- Sorting by date only ordered part of the list: the songs received the
+  day before came first and every other song stayed in name order.  The
+  date sort looked at the file's modified time alone, so a song with no
+  stored date, with the 1970-01-01 placeholder a file transfer can leave
+  as its modified time, or with the same modified time as its neighbours
+  after a bulk copy was tied with all of them and kept its name order.
+  The sort now uses the later of the modified and created times, ignoring
+  placeholder values.  On Android the created time is when the file
+  arrived on the phone, so the list follows the order songs were
+  received even when the original modified time survived the copy.
+- Songs scanned before the date columns existed had no dates stored at
+  all.  While the date sort is active their dates are now read from the
+  files once per library, in one pass that is capped so a very large
+  library cannot stall the screen.
+- In the table view the sort menu did nothing: only the column header you
+  had tapped was applied.  The menu's choice now applies there too, and
+  tapping a header still takes precedence until you pick from the menu
+  again.
+- The chosen sort went back to artist every time the app was reopened, so
+  the phone's nightly reboot undid it.  It is now saved when chosen and
+  restored at launch.
+- The tree view ordered folders by one date and the files inside them by
+  another, so it looked half sorted.  Both now use the same date.
+
+Changed behaviour (Android)
+---------------------------
+- "Date" now means when a song arrived on the phone (or was last
+  changed), not strictly its modified time.  A file copied with its
+  original, older modified time therefore moves up to the day it was
+  copied.
+
+===========================================================================
 v20261110 (2026-11-10)
 ===========================================================================
 
