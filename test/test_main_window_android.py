@@ -10,6 +10,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -534,6 +535,7 @@ class TestSessionPersistence(unittest.TestCase):
             _state=mgr, _manager=mgr, _db_path="",
             _shuffle_on=True, _repeat_mode="sequential", _shuffle_seed=777,
             _theme_choice="dark", _view_mode="table", _show_art=False,
+            _sort_mode="date",
             _queue_source=None, _queue=PlayQueue(), _playing_path="",
             _resume_index=-1, _resume_pos=0.0, _svc_pos=0.0,
             _sound=None, _elapsed=0.0, _paused_pos=0.0,
@@ -564,6 +566,30 @@ class TestSessionPersistence(unittest.TestCase):
         self.assertEqual(mgr.get_state("theme"), "dark")
         self.assertEqual(mgr.get_state("view_mode"), "table")
         self.assertEqual(mgr.get_state("show_art"), "0")
+        mgr.close()
+
+    def test_save_persists_sort_mode(self):
+        """Verifies the chosen list sort order reaches the DB on pause/exit."""
+        mgr = self._memory_manager()
+        self._stub_app(mgr)._save_app_state()
+        self.assertEqual(mgr.get_state("sort_mode"), "date")
+        mgr.close()
+
+    def test_sort_mode_restores_and_rejects_junk(self):
+        """Verifies a saved sort mode is restored, and an invalid one ignored."""
+        from main_window_android import Mp3ArchiveApp
+        mgr = self._memory_manager()
+        stub = types.SimpleNamespace(_state=mgr)
+        modes = Mp3ArchiveApp._SORT_MODES
+        self.assertEqual(modes, ("name", "artist", "title", "date"))
+        mgr.set_state("sort_mode", "date")
+        self.assertEqual(
+            Mp3ArchiveApp._restore_pref(stub, "sort_mode", "artist", modes),
+            "date")
+        mgr.set_state("sort_mode", "bogus")
+        self.assertEqual(
+            Mp3ArchiveApp._restore_pref(stub, "sort_mode", "artist", modes),
+            "artist")
         mgr.close()
 
     def test_save_stores_queue_rows_without_source(self):
@@ -976,6 +1002,121 @@ class TestResumeAfterRestart(unittest.TestCase):
             stub._restore_now_playing()
             self.assertEqual(stub._resume_index, 2)
             mgr.close()
+
+
+@unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")
+class TestSortMenu(unittest.TestCase):
+    """Tests for the list sort choice: the table view, persistence, dates."""
+
+    @staticmethod
+    def _rows():
+        """Return raw DB rows whose date order differs from their name order."""
+        return [
+            {"filename": "a.mp3", "file_modified_at": "1970-01-01 09:00:00",
+             "file_created_at": "2025-01-01 10:00:00"},
+            {"filename": "b.mp3", "file_modified_at": "2026-11-12 18:00:00",
+             "file_created_at": "2026-11-12 18:00:00"},
+            {"filename": "c.mp3", "file_modified_at": "1970-01-01 09:00:00",
+             "file_created_at": "2025-08-01 10:00:00"},
+        ]
+
+    def _stub(self, **overrides):
+        """Build a minimal app stand-in for the sort helpers."""
+        from main_window_android import Mp3ArchiveApp
+        stub = types.SimpleNamespace(
+            _sort_mode="artist", _table_sort_key=None,
+            _table_sort_reverse=False, _sort_menu=None,
+            _state=types.SimpleNamespace(set_state=lambda k, v: None),
+            _refresh_list=lambda: None, _manager=object(),
+            _dates_filled_for=None)
+        for key, value in overrides.items():
+            setattr(stub, key, value)
+        stub._ordered_table_files = (
+            lambda files: Mp3ArchiveApp._ordered_table_files(stub, files))
+        stub._ensure_dates_filled = (
+            lambda: Mp3ArchiveApp._ensure_dates_filled(stub))
+        return stub
+
+    def test_table_follows_the_menu_sort_when_no_column_is_tapped(self):
+        """Verifies the 표 view applies the menu's 날짜 sort by default."""
+        stub = self._stub(_sort_mode="date")
+        out = stub._ordered_table_files(self._rows())
+        self.assertEqual([f["filename"] for f in out],
+                         ["b.mp3", "c.mp3", "a.mp3"])
+
+    def test_table_tapped_column_wins_over_the_menu_sort(self):
+        """Verifies a tapped header column still decides the table order."""
+        stub = self._stub(_sort_mode="date", _table_sort_key="filename")
+        out = stub._ordered_table_files(self._rows())
+        self.assertEqual([f["filename"] for f in out],
+                         ["a.mp3", "b.mp3", "c.mp3"])
+
+    def test_set_sort_mode_persists_and_clears_the_tapped_column(self):
+        """Verifies choosing a sort saves it, resets the header sort, redraws."""
+        from main_window_android import Mp3ArchiveApp
+        saved, refreshed = {}, []
+        stub = self._stub(
+            _table_sort_key="file_modified_at",
+            _state=types.SimpleNamespace(
+                set_state=lambda k, v: saved.__setitem__(k, v)),
+            _refresh_list=lambda: refreshed.append(True))
+        Mp3ArchiveApp._set_sort_mode(stub, "date")
+        self.assertEqual(stub._sort_mode, "date")
+        self.assertIsNone(stub._table_sort_key)
+        self.assertEqual(saved, {"sort_mode": "date"})
+        self.assertEqual(refreshed, [True])
+
+    def test_set_sort_mode_survives_a_failing_state_write(self):
+        """Verifies a DB error while saving never blocks the sort itself."""
+        from main_window_android import Mp3ArchiveApp
+
+        def boom(key, value):
+            """Simulate the state DB refusing the write."""
+            raise RuntimeError("db locked")
+
+        refreshed = []
+        stub = self._stub(_state=types.SimpleNamespace(set_state=boom),
+                          _refresh_list=lambda: refreshed.append(True))
+        with unittest.mock.patch("traceback.print_exc"):   # expected noise
+            Mp3ArchiveApp._set_sort_mode(stub, "title")
+        self.assertEqual(stub._sort_mode, "title")
+        self.assertEqual(refreshed, [True])
+
+    def test_ensure_dates_filled_runs_once_per_library_for_date_only(self):
+        """Verifies dates are filled for the 날짜 sort, once per library DB."""
+        calls = []
+        manager = types.SimpleNamespace(
+            fill_missing_dates=lambda: calls.append(True) or 0)
+        stub = self._stub(_sort_mode="date", _manager=manager)
+        stub._ensure_dates_filled()
+        stub._ensure_dates_filled()
+        self.assertEqual(len(calls), 1)
+        # A different library is a new pass.
+        stub._manager = types.SimpleNamespace(
+            fill_missing_dates=lambda: calls.append(True) or 0)
+        stub._ensure_dates_filled()
+        self.assertEqual(len(calls), 2)
+
+    def test_ensure_dates_filled_ignores_other_sorts(self):
+        """Verifies no disk scan happens unless the 날짜 sort is active."""
+        calls = []
+        manager = types.SimpleNamespace(
+            fill_missing_dates=lambda: calls.append(True) or 0)
+        stub = self._stub(_sort_mode="artist", _manager=manager)
+        stub._ensure_dates_filled()
+        self.assertEqual(calls, [])
+
+    def test_ensure_dates_filled_survives_a_failing_fill(self):
+        """Verifies a failing fill is swallowed so the list still renders."""
+        def boom():
+            """Simulate the database failing mid-fill."""
+            raise RuntimeError("disk")
+
+        stub = self._stub(_sort_mode="date",
+                          _manager=types.SimpleNamespace(fill_missing_dates=boom))
+        with unittest.mock.patch("traceback.print_exc"):   # expected noise
+            stub._ensure_dates_filled()      # must not raise
+        self.assertIs(stub._dates_filled_for, stub._manager)
 
 
 @unittest.skipUnless(_KIVY_OK, "kivy not installed — android UI tests skipped")

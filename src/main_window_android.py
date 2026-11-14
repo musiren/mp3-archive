@@ -103,7 +103,8 @@ import service_ipc as ipc
 from service_bridge import ServiceBridge
 import table_util
 from tree_util import TreeIndex, files_under_folder, refresh_selection_flags
-from ui_util import latest_news_version, resolve_theme_style, sort_files
+from ui_util import (file_date_key, latest_news_version, resolve_theme_style,
+                     sort_files)
 
 
 # Library DB file name, used both for the internal default DB (in app
@@ -1090,7 +1091,9 @@ class Mp3ArchiveApp(MDApp):
             "view_mode", "details",
             ("details", "list", "tree", "tiles", "table"))
         self._view_menu = None
-        self._sort_mode = "artist"     # list sort order (see ui_util.sort_files)
+        self._sort_mode = self._restore_pref(
+            "sort_mode", "artist", self._SORT_MODES)   # see ui_util.sort_files
+        self._dates_filled_for = None  # library whose missing dates were filled
         self._sort_menu = None
         self._more_menu = None         # the ⋮ overflow menu
         # Colour theme: "system" / "light" / "dark".
@@ -1238,6 +1241,9 @@ class Mp3ArchiveApp(MDApp):
     # Session persistence (saved on pause/exit, restored on launch)
     # ------------------------------------------------------------------
 
+    # The list sort orders the ⋮ menu offers (also what a saved mode may be).
+    _SORT_MODES = ("name", "artist", "title", "date")
+
     def _restore_pref(self, key: str, default: str, allowed) -> str:
         """
         Load one saved preference, falling back to *default* when invalid.
@@ -1353,6 +1359,7 @@ class Mp3ArchiveApp(MDApp):
             m.set_state("shuffle_seed", self._shuffle_seed)
             m.set_state("theme", self._theme_choice)
             m.set_state("view_mode", self._view_mode)
+            m.set_state("sort_mode", self._sort_mode)
             m.set_state("show_art", "1" if self._show_art else "0")
             m.set_state("queue_source", self._queue_source or "")
             if self._queue_source:
@@ -1940,6 +1947,25 @@ class Mp3ArchiveApp(MDApp):
     # List management
     # ------------------------------------------------------------------
 
+    def _ensure_dates_filled(self) -> None:
+        """
+        Fill in timestamps the library never stored, once per library.
+
+        The 날짜 sort cannot place a song that has no stored date, so those
+        songs stayed in name order below the dated ones. Reading their dates
+        from disk is only worth doing when that sort is active, and only once
+        per library DB per session (the pass is capped, so a very large
+        library fills over a few refreshes without stalling the UI).
+        """
+        if self._sort_mode != "date" or self._dates_filled_for is self._manager:
+            return
+        self._dates_filled_for = self._manager
+        try:
+            self._manager.fill_missing_dates()
+        except Exception:
+            import traceback
+            traceback.print_exc()   # a failed fill must never block the list
+
     def _refresh_list(self) -> None:
         """
         Repopulate the MP3 list, honouring the current search keyword.
@@ -1952,6 +1978,7 @@ class Mp3ArchiveApp(MDApp):
         if self.root is None:
             return  # KV may fire on_text before build() returns and sets root
 
+        self._ensure_dates_filled()
         if self._search_keyword:
             files = self._manager.search(
                 self._search_keyword, filename_only=not self._search_tags
@@ -1978,8 +2005,9 @@ class Mp3ArchiveApp(MDApp):
                 "title": f["title"] or "-",
                 "path": f["path"],
                 "selected": f["path"] in self._selected,
-                # Folder ordering in the 트리 view's "date" sort.
-                "created": f.get("file_created_at") or "",
+                # Folder ordering in the 트리 view's "date" sort: the same key
+                # the files are sorted by, so folders and files agree.
+                "created": file_date_key(f),
             }
             for f in files
         ]
@@ -2201,6 +2229,14 @@ class Mp3ArchiveApp(MDApp):
         if self._sort_menu is not None:
             self._sort_menu.dismiss()
         self._sort_mode = mode
+        self._table_sort_key = None   # the menu's choice overrides a tapped column
+        try:
+            # Saved now, not only on pause/exit: the process can be killed (or
+            # the phone rebooted) without either ever running.
+            self._state.set_state("sort_mode", mode)
+        except Exception:
+            import traceback
+            traceback.print_exc()
         self._refresh_list()
 
     def open_theme_menu(self) -> None:
@@ -2338,6 +2374,26 @@ class Mp3ArchiveApp(MDApp):
     # 표 (table) view
     # ------------------------------------------------------------------
 
+    def _ordered_table_files(self, files: list) -> list:
+        """
+        Order the 표 view's rows: the tapped column, else the menu's sort.
+
+        The table used to apply only the column the user last tapped, so the
+        ⋮ menu's 정렬 choice was silently ignored there (and the rows stayed
+        in database order).
+
+        Args:
+            files: The raw DB rows to show.
+
+        Returns:
+            The rows in display order.
+        """
+        if self._table_sort_key:
+            return table_util.sort_files_by(
+                files, self._table_sort_key, self._table_sort_reverse
+            )
+        return sort_files(files, self._sort_mode)
+
     def _build_table(self, files: list) -> None:
         """
         Render the 표 view: size the columns, build the header, set the rows.
@@ -2346,10 +2402,7 @@ class Mp3ArchiveApp(MDApp):
             files: The raw DB rows to show (every column reads from these).
         """
         cols = self._table_columns
-        if self._table_sort_key:
-            files = table_util.sort_files_by(
-                files, self._table_sort_key, self._table_sort_reverse
-            )
+        files = self._ordered_table_files(files)
         total = dp(sum(table_util.column_width(k) for k in cols))
         self.root.ids.table_body.width = total
         self.root.ids.table_header.width = total

@@ -504,6 +504,92 @@ class TestGetManyByPath(unittest.TestCase):
         mgr.close()
 
 
+class TestFillMissingDates(unittest.TestCase):
+    """Tests for filling in timestamps the database never stored."""
+
+    @staticmethod
+    def _row(mgr, path, created, modified):
+        """Insert a row whose date columns are exactly the given values."""
+        info = sample_info(path)
+        info["file_created_at"] = created
+        info["file_modified_at"] = modified
+        _save_to_db(mgr._conn, info)
+
+    @staticmethod
+    def _dates(mgr, path):
+        """Return (file_created_at, file_modified_at) stored for *path*."""
+        return mgr._conn.execute(
+            "SELECT file_created_at, file_modified_at FROM audio_files "
+            "WHERE path = ?", (path,)).fetchone()
+
+    def test_fills_missing_dates_from_the_file(self):
+        """Verify NULL and empty dates are read from the file on disk."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmp:
+            a = os.path.join(tmp, "a.mp3")
+            b = os.path.join(tmp, "b.mp3")
+            for path in (a, b):
+                open(path, "wb").close()
+            os.utime(a, (1_700_000_000, 1_700_000_000))
+            self._row(mgr, a, None, None)
+            self._row(mgr, b, "", "")
+            self.assertEqual(mgr.fill_missing_dates(), 2)
+            created, modified = self._dates(mgr, a)
+            self.assertTrue(created and modified)
+            self.assertEqual(modified[:4], "2023")   # the mtime set above
+            self.assertTrue(all(self._dates(mgr, b)))
+        mgr.close()
+
+    def test_keeps_dates_that_already_exist(self):
+        """Verify a row with both dates is left untouched."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp3")
+            open(path, "wb").close()
+            self._row(mgr, path, "2020-01-01 00:00:00", "2021-01-01 00:00:00")
+            self.assertEqual(mgr.fill_missing_dates(), 0)
+            self.assertEqual(self._dates(mgr, path),
+                             ("2020-01-01 00:00:00", "2021-01-01 00:00:00"))
+        mgr.close()
+
+    def test_fills_only_the_missing_column(self):
+        """Verify a stored date survives while its missing partner is filled."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp3")
+            open(path, "wb").close()
+            self._row(mgr, path, None, "2021-01-01 00:00:00")
+            self.assertEqual(mgr.fill_missing_dates(), 1)
+            created, modified = self._dates(mgr, path)
+            self.assertTrue(created)
+            self.assertEqual(modified, "2021-01-01 00:00:00")
+        mgr.close()
+
+    def test_skips_files_that_no_longer_exist(self):
+        """Verify a vanished file is not counted and keeps its empty dates."""
+        mgr = make_manager()
+        self._row(mgr, "/definitely/not/here.mp3", None, None)
+        self.assertEqual(mgr.fill_missing_dates(), 0)
+        self.assertEqual(self._dates(mgr, "/definitely/not/here.mp3"),
+                         (None, None))
+        mgr.close()
+
+    def test_honours_the_per_call_limit(self):
+        """Verify no more than *limit* rows are processed in one call."""
+        mgr = make_manager()
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for i in range(5):
+                path = os.path.join(tmp, f"{i}.mp3")
+                open(path, "wb").close()
+                paths.append(path)
+                self._row(mgr, path, None, None)
+            self.assertEqual(mgr.fill_missing_dates(limit=2), 2)
+            self.assertEqual(mgr.fill_missing_dates(limit=10), 3)
+            self.assertEqual(mgr.fill_missing_dates(), 0)
+        mgr.close()
+
+
 class TestAppState(unittest.TestCase):
     """Tests for the app_state key/value persistence (set_state/get_state)."""
 

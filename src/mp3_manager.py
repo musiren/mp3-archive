@@ -229,6 +229,54 @@ class Mp3Manager:
         row = cursor.fetchone()
         return dict(zip(columns, row)) if row else None
 
+    def fill_missing_dates(self, limit: int = 5000) -> int:
+        """
+        Fill in created/modified timestamps the database never stored.
+
+        Rows written before the date columns existed, and never rescanned, have
+        no timestamps; the 날짜 sort then cannot place them and leaves them in
+        name order. Their dates are read from the files on disk in a single
+        transaction. A value that is already stored is kept; only the missing
+        one is filled. A file that has vanished is skipped.
+
+        Args:
+            limit: The most rows to process in one call, so a very large
+                   library cannot stall the UI thread; the remainder is
+                   picked up by the next call.
+
+        Returns:
+            How many rows were updated.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT path FROM audio_files
+            WHERE file_modified_at IS NULL OR file_modified_at = ''
+               OR file_created_at IS NULL OR file_created_at = ''
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        updated = 0
+        for (path,) in rows:
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            self._conn.execute(
+                """
+                UPDATE audio_files
+                SET file_created_at  = COALESCE(NULLIF(file_created_at, ''), ?),
+                    file_modified_at = COALESCE(NULLIF(file_modified_at, ''), ?)
+                WHERE path = ?
+                """,
+                (_format_timestamp(stat.st_ctime),
+                 _format_timestamp(stat.st_mtime), path),
+            )
+            updated += 1
+        if updated:
+            self._conn.commit()
+        return updated
+
     # SQLite's default bound-variable limit is 999, so IN (...) lookups are
     # issued in chunks well below it.
     _IN_CHUNK = 400
@@ -510,6 +558,19 @@ def _migrate_add_column(conn: sqlite3.Connection, column: str, col_type: str) ->
     existing = {row[1] for row in conn.execute("PRAGMA table_info(audio_files)")}
     if column not in existing:
         conn.execute(f"ALTER TABLE audio_files ADD COLUMN {column} {col_type}")
+
+
+def _format_timestamp(epoch: float) -> str:
+    """
+    Format a POSIX timestamp the way the date columns store it.
+
+    Args:
+        epoch: Seconds since the epoch (e.g. ``st_mtime``).
+
+    Returns:
+        A local-time ``YYYY-MM-DD HH:MM:SS`` string.
+    """
+    return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _get_audio_info(file_path: str) -> dict:
